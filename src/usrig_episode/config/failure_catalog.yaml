@@ -1,0 +1,36 @@
+# Failure modes that may be staged (section 2.3). Each mode is staged two ways.
+# Staging method names and disturbance magnitudes below are PROPOSED placeholders: confirm them
+# (ultrasound-robotics-lab protocol) before generating a plan. Magnitudes are null until set;
+# plan_generator refuses while a method it needs has a null magnitude.
+# FM-03 is never staged beyond the force band; FM-04, 08, 09, 10, 11 are never staged.
+
+FM-01:   # coupling loss
+  name: coupling loss
+  methods:
+    lift_perturbation: {kind: lift, delta: [null, 0, 0], duration_s: null}
+    gel_removed: {kind: none}
+FM-02:   # lift-off
+  name: lift-off
+  methods:
+    lift_perturbation: {kind: lift, delta: [null, 0, 0], duration_s: null}
+    translate_up: {kind: translate, delta: [0, 0, null], duration_s: null}
+FM-05:   # out of plane
+  name: out of plane
+  methods:
+    tilt_perturbation: {kind: rotate, delta: [null, 0, 0], duration_s: null}
+    translate_across: {kind: translate, delta: [0, null, 0], duration_s: null}
+FM-06:   # wrong view
+  name: wrong view
+  methods:
+    translate_along: {kind: translate, delta: [null, 0, 0], duration_s: null}
+    rotate_about_beam: {kind: rotate, delta: [0, 0, null], duration_s: null}
+FM-07:   # shadowing (needs dense inserts in the phantom: open decision 5)
+  name: shadowing
+  methods:
+    rock_toward_insert: {kind: rotate, delta: [0, null, 0], duration_s: null}
+    start_over_insert: {kind: none}
+FM-12:   # wrong instruction
+  name: wrong instruction
+  methods:
+    mismatched_instruction: {kind: none}
+    ambiguous_instruction: {kind: none}

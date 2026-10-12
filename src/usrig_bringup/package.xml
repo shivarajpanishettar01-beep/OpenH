@@ -1,0 +1,20 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>usrig_bringup</name>
+  <version>0.1.0</version>
+  <description>Configuration and launch files for the robotic-ultrasound data-collection rig.</description>
+  <maintainer email="shivarajpanishettar01@gmail.com">Shivaraj Panishettar</maintainer>
+  <license>Proprietary</license>
+  <exec_depend>launch</exec_depend>
+  <exec_depend>launch_ros</exec_depend>
+  <exec_depend>usrig_robot</exec_depend>
+  <exec_depend>usrig_teleop</exec_depend>
+  <exec_depend>usrig_episode</exec_depend>
+  <exec_depend>usrig_qc</exec_depend>
+  <exec_depend>usrig_dashboard</exec_depend>
+  <!-- realsense2_camera is optional at build time; wrist_camera.launch.py checks for it. -->
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

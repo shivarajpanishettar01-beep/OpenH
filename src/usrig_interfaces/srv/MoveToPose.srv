@@ -1,0 +1,6 @@
+# Linear Cartesian move of the TCP inside the safety envelope (no MoveIt).
+geometry_msgs/PoseStamped target   # frame_id: "base" or "phantom"
+float64 speed_mm_s                 # 0 = rig.yaml transit speed
+---
+bool success
+string message

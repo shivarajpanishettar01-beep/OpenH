@@ -1,0 +1,43 @@
+# Keyboard teleop. Tuning values only: speeds must stay inside rig.yaml limits
+# (keyboard_teleop refuses to start otherwise). Probe frame: x along the array,
+# y across it, z along the beam into tissue.
+
+device: null            # /dev/input/by-id/...-event-kbd; null = first keyboard found
+publish_rate_hz: 100
+ramp_s: 0.25
+fine_scale: 0.25
+fine_keys: [LEFTSHIFT, RIGHTSHIFT]
+
+speeds:
+  slide_along_mm_s: null
+  slide_across_mm_s: null
+  rock_deg_s: null      # in-plane rotation (about probe y)
+  tilt_deg_s: null      # out-of-plane rotation (about probe x)
+  rotate_deg_s: null    # about the beam axis (probe z)
+force_step_n: null
+
+# key: "axis:sign" (axis in vx vy vz wx wy wz)
+motion:
+  W: "vx:+1"            # slide along the array
+  S: "vx:-1"
+  A: "vy:+1"            # slide across the array
+  D: "vy:-1"
+  Q: "wy:+1"            # rock
+  E: "wy:-1"
+  R: "wx:+1"            # tilt
+  F: "wx:-1"
+  Z: "wz:+1"            # rotate
+  C: "wz:-1"
+
+commands:
+  T: force_up
+  G: force_down
+  SPACE: view_reached
+  "1": outcome_success
+  "2": outcome_recovered
+  "3": outcome_fail
+  ESC: discard
+  N: next
+  P: hold
+  K: ack_fault
+  B: start_stop         # Stage 0: start / stop an episode

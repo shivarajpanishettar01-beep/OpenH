@@ -1,0 +1,27 @@
+# Rig environment: ROS 2 Humble nodes, tools and bag_to_lerobot (Python 3.10 = Humble's Python).
+#   conda env create -f environment.yml      (or: scripts/setup_env.sh)
+name: openh
+channels: [conda-forge]
+dependencies:
+  - python=3.10
+  - pip
+  - pip:
+      - numpy<2              # rclpy / cv_bridge in Humble are built against numpy 1.x
+      - scipy
+      - pyyaml
+      - empy==3.3.4          # rosidl generators (colcon build of usrig_interfaces)
+      - lark
+      - catkin_pkg
+      - setuptools==58.2.0   # ament_python without the develop-mode deprecation breakage
+      - colcon-common-extensions
+      - ur_rtde              # RTDE receive (robot_state) and control (path B)
+      - evdev                # keyboard_teleop
+      - PySide6
+      - pyqtgraph
+      - opencv-python-headless  # aruco (hand-eye), NCC; headless avoids Qt plugin clashes with PySide6
+      - rosbags              # QC and export read MCAP bags without ROS
+      - pyarrow
+      - av
+      - pandas
+      - psutil
+      - pytest

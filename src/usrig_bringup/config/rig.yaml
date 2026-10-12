@@ -1,0 +1,70 @@
+# Rig hardware, calibration and SAFETY LIMITS.
+# Every limit stays null until it is filled from measurements on the rig.
+# robot_control refuses to start while any of them is null and names each one.
+
+robot:
+  ip: null                          # [ROBOT_IP] UR7e controller
+  ursim_ip: 127.0.0.1               # URSim (sim:=true); adjust to the URSim container address
+  control_backend: null             # 'rtde' (path B) or 'urscript' (path A): decided at the P3 STOP
+  control_rate_hz: 125.0
+  state_rate_hz: 500.0
+  max_state_age_s: 0.02             # robot_control faults if the newest RTDE sample is older
+  tcp_setting: null                 # controller TCP as reported by RTDE (P0); record, don't change
+
+probe:
+  type: null                        # e.g. MPRO-L40S
+  tcp_already_includes_probe: null  # true if the controller TCP is the probe tip (offset never applied twice)
+  tip_offset_flange_m: null         # [x, y, z, rx, ry, rz], only used if the TCP is the flange
+
+limits:
+  max_contact_force_n: null         # hard ceiling on |F|: FAULT above
+  force_band_n: null                # [low, high] allowed force setpoint along the probe axis
+  force_setpoint_default_n: null
+  tilt_cone_deg: null               # max angle between probe axis and tilt_reference_axis_base
+  tilt_reference_axis_base: null    # e.g. [0, 0, -1] (straight down) or the phantom normal
+  workspace_box_base_m:
+    min: null                       # [x, y, z] in the robot base frame
+    max: null
+  max_linear_speed_mm_s: null
+  max_angular_speed_deg_s: null
+  max_linear_accel_mm_s2: null
+  max_angular_accel_deg_s2: null
+  deadman_timeout_s: null
+  contact_detect_threshold_n: null
+  measured_speed_margin: 1.2        # FAULT if measured speed > limit x margin
+  envelope_lookahead_s: 0.1
+
+motion:
+  transit_speed_mm_s: null
+  descent_speed_mm_s: null
+  descent_max_travel_mm: null
+  retract_distance_mm: null
+  approach_offset_mm: 50            # approach pose: 5 cm back along the probe axis
+  path_accel_mm_s2: null            # Stage 1 start/end ramps (null = max_linear_accel)
+  path_rotation_radius_mm: 50       # rotation counts as motion of a point this far from the tip (fans)
+  position_gain_per_s: 2.0
+  rotation_gain_per_s: 2.0
+
+rtde:                               # path B only
+  force_mode_limits: null           # [6] forceMode limits (type 2): speeds on compliant axes, deviations on others
+  force_mode_damping: null
+
+urscript:                           # path A only
+  port: 51680
+  orientation_format: null          # 'rotvec' or 'rpy': what the lab URScript expects (P0)
+  lookahead_s: 0.05
+
+qc:
+  coupling_floor: null              # mean B-mode intensity below this = coupling lost
+  min_valid_depth_frac: null        # set after P1b
+  camera_stamp_offset_bound_ms: null  # set from the P1b measurement
+  ultrasound_robot_max_gap_ms: 10
+
+registration_max_residual_mm: null
+waypoint_verify_min_ncc: null
+
+calibration:
+  wrist_cam_cali_mtx: null          # 4x4 camera-to-flange from eye-in-hand calibration (P1b)
+  ultrasound_time_offset_s: -0.020  # PLACEHOLDER until temporal calibration (P9c)
+  camera_time_offset_s: 0.0         # PLACEHOLDER until temporal calibration (P9c)
+  prob_cali_mtx: null               # ultrasound image to probe/TCP calibration

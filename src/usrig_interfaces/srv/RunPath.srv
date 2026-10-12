@@ -1,0 +1,8 @@
+# Stage 1 constant-speed path through waypoints in the phantom frame.
+geometry_msgs/Pose[] waypoints
+float64 speed_mm_s
+---
+bool success
+string message
+float64 speed_error_mean_pct
+float64 speed_error_max_pct

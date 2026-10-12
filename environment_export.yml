@@ -1,0 +1,13 @@
+# Open-H export environment: LeRobot 0.6.0 needs Python 3.12 (separate from the rig env).
+#   conda env create -f environment_export.yml
+name: openh-export
+channels: [conda-forge]
+dependencies:
+  - python=3.12
+  - pip
+  - pip:
+      - lerobot==0.6.0
+      - rosbags
+      - pyarrow
+      - pyyaml
+      - numpy

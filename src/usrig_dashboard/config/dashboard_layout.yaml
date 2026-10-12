@@ -1,0 +1,11 @@
+# Collect-view layout: grid positions [row, col, rowspan, colspan]; remove a panel to hide it.
+collect:
+  bmode:     [0, 0, 2, 1]
+  wrist:     [0, 1, 1, 1]
+  episode:   [1, 1, 1, 1]
+  force:     [2, 0, 1, 1]
+  teleop:    [2, 1, 1, 1]
+  health:    [3, 0, 1, 1]
+  progress:  [3, 1, 1, 1]
+refresh_hz: 30
+force_window_s: 10

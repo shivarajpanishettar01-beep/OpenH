@@ -1,0 +1,8 @@
+# Move along the probe axis (+z, into tissue) until the contact threshold in rig.yaml is reached,
+# then hold force_setpoint_n with force regulation along the probe axis.
+float64 force_setpoint_n           # 0 = rig.yaml default
+float64 max_travel_mm              # 0 = rig.yaml descent.max_travel_mm
+---
+bool success
+string message
+float64 contact_stamp_s

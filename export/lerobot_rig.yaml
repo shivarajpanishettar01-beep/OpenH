@@ -1,0 +1,94 @@
+# bag_to_lerobot config for this rig (called "rig.yaml" in the converter's README; named
+# lerobot_rig.yaml here so it is not confused with the safety rig.yaml in usrig_bringup).
+# Built from the topics defined in section 3. Joint names: robot_state publishes the UR names
+# below. Re-check with:  python bag_to_lerobot.py --list-topics <bag>   (NOT VERIFIED on real bags)
+
+dataset:
+  fps: 25                       # ~27 fps ultrasound gives a new frame at every step
+  robot_type: ur7e_telemed_probe
+  task: "Scan the phantom"      # default; <bag>/task.txt (the episode instruction) overrides it
+  video:
+    codec: h264
+    crf: 23
+    gop: 2
+
+images:
+  observation.images.ultrasound:
+    topic: /micrus/bmode
+    time_offset_s: -0.020       # PLACEHOLDER until the P9c temporal calibration measures it
+  observation.images.wrist_rgb:
+    topic: /wrist/d415/color/image_raw
+    time_offset_s: 0.0          # PLACEHOLDER until the P9c camera temporal calibration
+  # Wrist depth is NOT exported through the converter: it reduces 16UC1 to 8 bits (>> 8) and
+  # encodes lossy video, which destroys millimetre depth. Use export/depth_export.py instead.
+
+micrus_frame_info:
+  topic: /micrus/frame_info
+  key: observation.ultrasound.settings
+  time_offset_s: -0.020         # PLACEHOLDER (same as the ultrasound image)
+
+state:
+  - topic: /joint_states
+    type: joint_state
+    field: position
+    joints: [shoulder_pan_joint, shoulder_lift_joint, elbow_joint,
+             wrist_1_joint, wrist_2_joint, wrist_3_joint]
+  - topic: /robot/tcp_pose
+    type: fields
+    fields: [pose.position.x, pose.position.y, pose.position.z,
+             pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
+    names: [tcp_x, tcp_y, tcp_z, tcp_qx, tcp_qy, tcp_qz, tcp_qw]
+    interp: hold                # quaternions must not be linearly interpolated
+
+# Action: the executed probe-frame TCP motion (after the safety filter) + the force setpoint.
+# Raw key presses are never the action. Absolute vs relative TCP for Open-H: open decision 3.
+action:
+  - topic: /robot/cmd_executed
+    type: fields
+    fields: [twist.linear.x, twist.linear.y, twist.linear.z,
+             twist.angular.x, twist.angular.y, twist.angular.z]
+    names: [vx_probe, vy_probe, vz_probe, wx_probe, wy_probe, wz_probe]
+    interp: hold
+  - topic: /robot/state
+    type: fields
+    fields: [force_setpoint_n]
+    names: [force_setpoint_n]
+    interp: hold
+
+extra:
+  observation.force_torque:
+    - topic: /robot/wrench
+      type: fields
+      fields: [wrench.force.x, wrench.force.y, wrench.force.z,
+               wrench.torque.x, wrench.torque.y, wrench.torque.z]
+      names: [fx, fy, fz, tx, ty, tz]
+  observation.meta.action_source:      # 0 teleop 1 scripted_task 2 transit 3 perturbation 4 none
+    - topic: /robot/state
+      type: fields
+      fields: [action_source]
+      names: [action_source]
+      interp: hold
+  observation.meta.action_is_expert:
+    - topic: /robot/state
+      type: fields
+      fields: [action_is_expert]
+      names: [action_is_expert]
+      interp: hold
+  observation.meta.robot_mode:
+    - topic: /robot/state
+      type: fields
+      fields: [mode]
+      names: [mode]
+      interp: hold
+
+custom_msgs:
+  usrig_interfaces/msg/RobotState: ../src/usrig_interfaces/msg/RobotState.msg
+  usrig_interfaces/msg/EpisodeEvent: ../src/usrig_interfaces/msg/EpisodeEvent.msg
+
+groot:
+  state_groups:
+    joints: [0, 6]
+    tcp_pose: [6, 13]
+  action_groups:
+    probe_twist: [0, 6]
+    force_setpoint: [6, 7]

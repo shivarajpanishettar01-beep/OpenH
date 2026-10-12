@@ -1,0 +1,134 @@
+# Session configuration. Nothing here is hard-coded in launch files or nodes.
+# Values marked "NOT VERIFIED" were not checked on the rig yet.
+
+session:
+  root: ~/data                                  # [SESSION_ROOT]
+  id_pattern: "{date}_{phantom_id}_{operator_id}_s{n:02d}"
+  operators: [op1, op2]                         # [OPERATORS]
+  phantom_id: null
+  phantom_placement: null
+  stage: 0                                      # 0 shakedown, 1 constant speed, 2 planned
+  min_free_disk_gb: 50
+  waypoint_dir: ~/data/waypoints              # waypoints/<phantom_id>.yaml
+  path_dir: ~/data/paths                      # paths/<phantom_id>.yaml
+  phantom_dir: ~/data/phantoms                # phantoms/<phantom_id>.yaml (fiducials)
+
+micrus:
+  command: micrus                               # [MICRUS_CMD]: `micrus` (SDK conda install) or AppImage path
+  mode: serve                                   # serve (headless) | view
+  out_root: ~/MicrUs                            # --out = <out_root>/<session_id>
+  ros2_name: micrus
+  ros2_frame: micrus_probe
+  # Scan settings: fixed for a whole dataset (image size and frame rate depend on them).
+  lines: 128
+  depth_mm: 40
+  pixel_mm: 0.1
+  gain: null                                    # null = micrus default (not passed)
+  power_db: null
+  freq_mhz: null
+  focus_mm: null
+  dr: null
+  tgc: null                                     # [a, b, c, d, e]
+  view_area: null
+  extra_args: []
+  simulate_args: [--simulate, --sim-probe, "49", --sim-pid, "0x3447"]   # MPRO-L40S on MicrUs Pro rev.B
+  expected_fps: [26.0, 29.0]                    # QC band; ~27.4 fps measured in simulation only
+  shutdown_timeout_s: 15                        # SIGINT -> wait this long before SIGTERM
+  licence_file: null                            # path of the installed .lic (per machine: micrus machine-id)
+  usb_vendor_id: null                           # MicrUs USB vendor id from lsusb, e.g. "xxxx"
+
+wrist_camera:
+  enabled: true
+  serial: null                                  # [D415_SERIAL] from rs-enumerate-devices
+  camera_namespace: wrist
+  camera_name: d415
+  color_width: 640
+  color_height: 480
+  depth_width: 640
+  depth_height: 480
+  fps: 30
+  exposure_us: null                             # manual exposure (locked); set in Stage 0
+  white_balance_k: null                         # manual white balance (locked); set in Stage 0
+  # Arguments passed to realsense2_camera rs_launch.py. Parameter names changed between
+  # wrapper versions: check with `ros2 launch realsense2_camera rs_launch.py --show-args`
+  # and `ros2 param list` on this machine. NOT VERIFIED (realsense-ros not installed yet).
+  rs_launch_args:
+    serial_no: "'{serial}'"
+    camera_namespace: "{camera_namespace}"
+    camera_name: "{camera_name}"
+    rgb_camera.color_profile: "{color_width},{color_height},{fps}"
+    depth_module.depth_profile: "{depth_width},{depth_height},{fps}"
+    align_depth.enable: "true"
+    enable_sync: "true"
+    enable_infra1: "false"
+    enable_infra2: "false"
+    pointcloud.enable: "false"
+    global_time_enabled: "true"
+    rgb_camera.enable_auto_exposure: "false"
+    rgb_camera.exposure: "{exposure_us}"
+    rgb_camera.enable_auto_white_balance: "false"
+    rgb_camera.white_balance: "{white_balance_k}"
+  # Topic names expected with namespace/name above; confirm with `ros2 topic list` (P1b).
+  topics:
+    color: /wrist/d415/color/image_raw
+    color_info: /wrist/d415/color/camera_info
+    depth: /wrist/d415/aligned_depth_to_color/image_raw
+    depth_info: /wrist/d415/aligned_depth_to_color/camera_info
+    metadata: null                              # e.g. /wrist/d415/color/metadata, if published
+  charuco:                                      # eye-in-hand calibration board (null until set)
+    squares_x: null
+    squares_y: null
+    square_mm: null
+    marker_mm: null
+    dictionary: null                            # e.g. DICT_5X5_100
+
+recording:
+  storage: mcap
+  # rosbag2_storage_mcap writer options (zstd chunk compression, lossless). NOT VERIFIED on Humble.
+  mcap_storage_config:
+    compression: Zstd
+    compressionLevel: Fast
+    chunkSize: 4194304
+  record_beamformed: null                       # open decision 4: include /micrus/beamformed?
+  topics:
+    - /micrus/bmode
+    - /micrus/frame_info
+    - /robot/state
+    - /joint_states
+    - /robot/tcp_pose
+    - /robot/wrench
+    - /robot/cmd_executed
+    - /teleop/twist
+    - /operator/command
+    - /episode/events
+    - /qc/status
+    - /tf_static
+  include_wrist_camera: true
+  # The readiness gate waits until the bag has subscribed and these have produced a message.
+  ready_topics: [/micrus/bmode, /robot/state, wrist.color, wrist.depth]
+  ready_timeout_s: 20.0
+  free_air_hold_s: 1.5                          # recorded before zero_ft / contact
+
+stage0:
+  max_duration_s: 300
+  approach_waypoint: null                       # optional waypoint name for automatic approach
+
+stage1:
+  speed_mm_s: null
+  path_file: null                               # paths/<phantom_id>.yaml
+  paths: []                                     # path names to run, in order
+
+stage2:
+  plan_file: null                               # plan_v1.csv
+  scan_s: [20, 30]
+  cap_s: 30
+  success_hold_s: 2.0
+
+gate01:
+  min_consecutive_qc_pass: null
+  key_speeds_chosen: null                       # set true when the operator has chosen them
+  force_band_chosen: null
+
+gate12:
+  max_speed_error_pct: null
+  min_paths: null

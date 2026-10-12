@@ -1,0 +1,10 @@
+# kind: translate | rotate | lift
+# delta: [x, y, z] in metres (translate), [rx, ry, rz] in radians (rotate) in the probe frame,
+#        or [dF, 0, 0] newtons (lift: force setpoint change).
+string kind
+float64[3] delta
+float64 duration_s
+---
+bool success
+string message
+int64 onset_ns
