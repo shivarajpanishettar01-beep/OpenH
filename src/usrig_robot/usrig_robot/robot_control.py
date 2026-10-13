@@ -85,7 +85,7 @@ class Teleop(Motion):
         if tw is None or (now_ns() - t_ns) * 1e-9 > self.ctl.lim.deadman_s:
             ctx['flags'] |= safety.FLAG_DEADMAN
             return np.zeros(3), np.zeros(3)
-        if self.ctl.hold:
+        if self.ctl.held():
             return np.zeros(3), np.zeros(3)
         v_p, w_p = np.array(tw[:3]), np.array(tw[3:])
         if self.force_on:
@@ -152,7 +152,7 @@ class PathFollow(Motion):
         self.errors = []
 
     def step(self, ctx):
-        if not self.ctl.hold:
+        if not self.ctl.held():
             self.t += ctx['dt']
         T_des, sd, done = self.path.sample(self.t)
         T = ctx['T']
@@ -161,7 +161,7 @@ class PathFollow(Motion):
             return np.zeros(3), np.zeros(3)
         s, _ = self.path.s_of_t(self.t)
         t_lin, t_ang = self.path.tangent_at_s(s)
-        sd = 0.0 if self.ctl.hold else sd
+        sd = 0.0 if self.ctl.held() else sd
         dp, dr = geometry.pose_error(T, T_des)
         v = t_lin * sd + self.ctl.kp * dp
         w = t_ang * sd + self.ctl.kr * dr
@@ -169,7 +169,7 @@ class PathFollow(Motion):
         v = v - z * (v @ z)            # probe axis is force-regulated
         # speed tracking over the constant-speed part: measured motion projected on the path
         # tangent, in the same combined metric as the path length.
-        if self.path.t_acc <= self.t <= self.path.t_acc + self.path.t_cruise and not self.ctl.hold:
+        if self.path.t_acc <= self.t <= self.path.t_acc + self.path.t_cruise and not self.ctl.held():
             sp = np.asarray(ctx['tcp_speed'], float)
             r = self.path.r
             v_meas = float(sp[:3] @ t_lin + (r * sp[3:6]) @ (r * t_ang))
@@ -202,7 +202,9 @@ class Perturbation(Motion):
         if self.kind == 'rotate':
             return geometry.twist_probe_to_base(ctx['T'], np.zeros(3), rate)
         if self.kind == 'lift':
-            self.ctl.force_setpoint = self.base_fsp + float(self.delta[0])
+            # bounded: never above the band, never negative (a negative force pulls the probe away)
+            self.ctl.force_setpoint = float(np.clip(self.base_fsp + float(self.delta[0]), 0.0,
+                                                    self.ctl.lim.force_band_n[1]))
         return np.zeros(3), np.zeros(3)
 
 
@@ -239,7 +241,8 @@ class RobotControlNode(Node):
         self.motion = Idle()
         self.motion_lock = threading.Lock()
         self.in_contact = False
-        self.hold = False
+        self.hold = False             # set by services (episode flow)
+        self.operator_pause = False   # toggled by the operator (P); independent of self.hold
         self.fault_flags = 0
         self.recovering_flags = 0
         self.episode_id = ''
@@ -298,9 +301,14 @@ class RobotControlNode(Node):
             self.force_setpoint = float(np.clip(self.force_setpoint + float(c.get('delta', 0.0)), lo, hi))
             self._event('note', {'force_setpoint_n': self.force_setpoint})
         elif cmd == 'hold':
-            self.hold = bool(c.get('value', not self.hold))
+            self.operator_pause = bool(c.get('value', not self.operator_pause))
+            self._event('note', {'operator_pause': self.operator_pause})
 
     # ---------------------------------------------------------------- helpers
+    def held(self):
+        """Motion paused by the episode flow (hold) or by the operator (P)."""
+        return self.hold or self.operator_pause
+
     def _event(self, kind, value, stamp_ns=None):
         e = EpisodeEvent()
         e.header.stamp = stamp_from_ns(stamp_ns or now_ns())

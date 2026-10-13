@@ -295,7 +295,6 @@ def test_descend_then_path_then_cancel(sim):
 # ---- Known gaps from the 13 Oct control review (docs/control_review.md). strict xfail: when a gap is
 # fixed these start passing, the suite fails, and the marker must be removed.
 
-@pytest.mark.xfail(strict=True, reason='R3: lift perturbation sets the force setpoint without clamping to the band')
 def test_lift_perturbation_stays_in_force_band(sim):
     from usrig_interfaces.srv import DescendToContact, InjectPerturbation
     node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
@@ -307,7 +306,8 @@ def test_lift_perturbation_stays_in_force_band(sim):
         seen.append(node.force_setpoint)
         time.sleep(0.02)
     lo, hi = RIG['limits']['force_band_n']
-    assert min(seen) >= 0.0, f'force setpoint went to {min(seen)} N'
+    assert min(seen) >= 0.0 and max(seen) <= hi, f'force setpoint range {min(seen)}..{max(seen)} N'
+    assert min(seen) == 0.0                      # the lift reached zero force (lift-off staged)
     node.destroy_node()
 
 
@@ -325,4 +325,22 @@ def test_contact_loss_is_detected(sim):
         time.sleep(0.01)
     events = [k for k, v in node.events if k == 'phase' and v.get('phase') in ('contact_lost', 'fault')]
     assert events and z0 - robot.T[2, 3] < 0.005, f'moved {1000 * (z0 - robot.T[2, 3]):.1f} mm down, events {events}'
+    node.destroy_node()
+
+
+def test_operator_pause_independent_of_service_hold(sim):
+    node, robot = sim()
+    node._set_motion(rc.Teleop(node, False))
+    node.hold = False
+    cmd(node, {'cmd': 'hold'})                       # operator presses P
+    p0 = robot.T[:3, 3].copy()
+    drive(node, 0.4, v=(0.02, 0, 0))
+    assert np.linalg.norm(robot.T[:3, 3] - p0) < 1e-4
+    from std_srvs.srv import SetBool
+    node._srv_teleop(SetBool.Request(data=True), SetBool.Response())   # service releases its hold only
+    drive(node, 0.4, v=(0.02, 0, 0))
+    assert np.linalg.norm(robot.T[:3, 3] - p0) < 1e-4    # still paused by the operator
+    cmd(node, {'cmd': 'hold'})                       # operator resumes
+    drive(node, 0.4, v=(0.02, 0, 0))
+    assert robot.T[0, 3] - p0[0] > 0.003
     node.destroy_node()
