@@ -1,32 +1,40 @@
 #!/usr/bin/env python3
-"""Open-H v2 export: LeRobot v2.1 (from bag_to_lerobot) -> Open-H fields -> LeRobot v3.0.
+"""Open-H V2 export: LeRobot v2.1 (from bag_to_lerobot) -> Open-H fields -> LeRobot v3.0.
 
-Run in the separate Python 3.12 env with LeRobot 0.6.0 (conda env `openh-export`):
+Follows the submitted proposal (IIT Mandi, "A Robotic Ultrasound Contribution to Open-H
+Embodiment V2"). GR00T-H is out of scope here. Run in the Python 3.12 env with LeRobot 0.6.0
+(conda env `openh-export`):
 
   python openh_export.py --v21 ~/datasets/us_v21 --order ~/datasets/staging_order.json \
-      --out ~/datasets/us_openh_v30 [--rig-config ../src/usrig_bringup/config/rig.yaml]
+      --out ~/datasets/iitmandi_us [--action-frame base|tool] [--depth png|none]
 
-Steps
-  1. copy the v2.1 dataset (the original stays untouched for GR00T)
-  2. add per-frame Open-H fields to every episode parquet and to meta/info.json:
-       observation.meta.force_torque         float32[6]   (from observation.force_torque)
-       observation.meta.probe_type           string
-       observation.meta.probe_acquisition_param float32[N] (= observation.ultrasound.settings)
-       observation.meta.prob_cali_mtx        float32[16]
-       observation.meta.host_stamp_ns        int64        real header stamp of the ultrasound
-                                                          frame used at each step (from the bag)
-       observation.meta.action_is_expert     bool
-       observation.meta.stage                int64
-       observation.meta.failure_mode         string
-       observation.meta.wrist_cam_cali_mtx   float32[16]
-       instruction.text                      string
-  3. write the train / recovery / failure / test episode ranges into info.json["splits"]
-     (episodes were ordered by stage_bags.py so the ranges are contiguous)
-  4. convert with LeRobot's own v2.1 -> v3.0 converter, if this LeRobot version ships it
-     (checked at run time, never assumed)
-  5. copy the Open-H README template into meta/
-Then run Open-H's validate_formatting.py on --out (not shipped here: NOT VERIFIED).
-Field names follow the master prompt; check them against the Open-H guide before release.
+Per step (added to every episode parquet and to meta/info.json):
+  action                                 float32[6]  [dx, dy, dz, drx, dry, drz]: TCP pose delta to the
+                                                     next step, rotation vector (proposal eq. 2)
+  observation.meta.commanded_twist       float32[6]  executed probe-frame twist (the rig's raw action)
+  observation.meta.force_setpoint_n      float32[1]
+  observation.images.wrist_depth         image       16-bit PNG, millimetres, aligned to colour (lossless)
+  observation.meta.force_torque          float32[6]
+  observation.meta.probe_type            string
+  observation.meta.probe_acquisition_param float32[N] (= observation.ultrasound.settings)
+  observation.meta.prob_cali_mtx         float32[16]
+  observation.meta.wrist_cali_mtx        float32[16] wrist camera w.r.t. the end-effector (hand-eye)
+  observation.meta.host_stamp_ns         int64       real header stamp of the ultrasound frame used
+  observation.meta.status                string      g_t: nominal | failure | recovery
+  observation.meta.phase                 string      proposal phases (automated or annotated)
+  observation.meta.gesture               string      active gestures, '+'-joined
+  observation.meta.action_is_expert      bool
+  observation.meta.stage                 int64
+  observation.meta.failure_mode          string      plan failure-mode id
+  observation.meta.failure_class         string      one of the four proposal failure classes
+  instruction.text                       string
+Meta:
+  meta/calibration/camera_intrinsics.json, wrist_cali_mtx.json, prob_cali_mtx.json
+  meta/annotations.jsonl                 full annotation.json per episode (provenance + QA status)
+  info.json splits: train / recovery / failure / test (contiguous, from stage_bags.py)
+  meta/README.md from openh_README_template.md
+Then LeRobot's own v2.1 -> v3.0 converter, if this LeRobot version ships it (checked, not assumed),
+and Open-H's validate_formatting.py (not in this repo: NOT VERIFIED).
 """
 import argparse
 import importlib.util
@@ -39,6 +47,8 @@ from pathlib import Path
 import numpy as np
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE))
+import openh_fields as F  # noqa: E402
 
 
 def read_jsonl(p):
@@ -49,24 +59,44 @@ def write_jsonl(p, rows):
     Path(p).write_text(''.join(json.dumps(r) + '\n' for r in rows))
 
 
-def frame_stamps(bag, topic, offset_s, t_steps_ns):
-    from rosbags.highlevel import AnyReader
-    from rosbags.typesys import Stores, get_typestore
-    st = []
-    with AnyReader([Path(bag)], default_typestore=get_typestore(Stores.ROS2_HUMBLE)) as r:
-        conns = [c for c in r.connections if c.topic == topic]
-        for c, _, raw in r.messages(connections=conns):
-            m = r.deserialize(raw, c.msgtype)
-            st.append(m.header.stamp.sec * 1_000_000_000 + m.header.stamp.nanosec)
-    st = np.sort(np.asarray(st, np.int64))
-    idx = np.searchsorted(st + int(offset_s * 1e9), t_steps_ns, side='right') - 1
-    return np.where(idx >= 0, st[np.clip(idx, 0, None)], -1)
-
-
 def stats_of(arr):
     a = np.asarray(arr, np.float64).reshape(len(arr), -1)
     return {'min': a.min(0).tolist(), 'max': a.max(0).tolist(), 'mean': a.mean(0).tolist(),
             'std': a.std(0).tolist(), 'count': [len(a)]}
+
+
+def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic, want_depth):
+    from rosbags.highlevel import AnyReader
+    from rosbags.typesys import Stores, get_typestore
+    out = {'us': [], 'depth_st': [], 'depth': [], 'color_info': None, 'depth_info': None}
+    topics = {us_topic, color_info_topic, depth_info_topic} | ({depth_topic} if want_depth else set())
+    with AnyReader([Path(bag)], default_typestore=get_typestore(Stores.ROS2_HUMBLE)) as r:
+        for c, _, raw in r.messages(connections=[c for c in r.connections if c.topic in topics]):
+            if c.topic in (color_info_topic, depth_info_topic):
+                key = 'color_info' if c.topic == color_info_topic else 'depth_info'
+                if out[key] is None:
+                    out[key] = F.camera_info_dict(r.deserialize(raw, c.msgtype))
+                continue
+            m = r.deserialize(raw, c.msgtype)
+            st = m.header.stamp.sec * 1_000_000_000 + m.header.stamp.nanosec
+            if c.topic == us_topic:
+                out['us'].append(st)
+            else:
+                out['depth_st'].append(st)
+                out['depth'].append(np.frombuffer(bytes(m.data), np.uint16)
+                                    .reshape(m.height, m.step // 2)[:, :m.width].copy())
+    return out
+
+
+def feature_of(col, pa):
+    typ = col.type
+    if pa.types.is_string(typ):
+        return {'dtype': 'string', 'shape': [1], 'names': None}
+    if pa.types.is_boolean(typ):
+        return {'dtype': 'bool', 'shape': [1], 'names': None}
+    if pa.types.is_int64(typ):
+        return {'dtype': 'int64', 'shape': [1], 'names': None}
+    return {'dtype': 'float32', 'shape': [len(col[0].as_py())], 'names': None}
 
 
 def main():
@@ -75,8 +105,14 @@ def main():
     ap.add_argument('--order', required=True, help='<staging>_order.json from stage_bags.py')
     ap.add_argument('--out', required=True)
     ap.add_argument('--rig-config', default=str(HERE.parent / 'src/usrig_bringup/config/rig.yaml'))
+    ap.add_argument('--session-config', default=str(HERE.parent / 'src/usrig_bringup/config/session.yaml'))
     ap.add_argument('--us-topic', default='/micrus/bmode')
-    ap.add_argument('--us-time-offset-s', type=float, default=-0.020, help='PLACEHOLDER until P9c')
+    ap.add_argument('--us-time-offset-s', type=float, default=None,
+                    help='default: rig.yaml calibration.ultrasound_time_offset_s (PLACEHOLDER until P9c)')
+    ap.add_argument('--depth-time-offset-s', type=float, default=None,
+                    help='default: rig.yaml calibration.camera_time_offset_s (PLACEHOLDER until P9c)')
+    ap.add_argument('--action-frame', choices=['base', 'tool'], default='base')
+    ap.add_argument('--depth', choices=['png', 'none'], default='png')
     ap.add_argument('--skip-convert', action='store_true')
     a = ap.parse_args()
 
@@ -85,11 +121,16 @@ def main():
     import yaml
 
     rig = yaml.safe_load(Path(a.rig_config).read_text())
+    scfg = yaml.safe_load(Path(a.session_config).read_text())
+    cal = rig.get('calibration') or {}
     probe_type = (rig.get('probe') or {}).get('type')
-    prob_cali = (rig.get('calibration') or {}).get('prob_cali_mtx')
+    prob_cali = cal.get('prob_cali_mtx')
     missing = [k for k, v in (('probe.type', probe_type), ('calibration.prob_cali_mtx', prob_cali)) if v is None]
     if missing:
         sys.exit(f'null in rig.yaml: {missing} (Open-H needs them)')
+    us_off = a.us_time_offset_s if a.us_time_offset_s is not None else float(cal.get('ultrasound_time_offset_s', 0))
+    d_off = a.depth_time_offset_s if a.depth_time_offset_s is not None else float(cal.get('camera_time_offset_s', 0))
+    ct = scfg['wrist_camera']['topics']
 
     src = Path(a.v21).expanduser()
     out = Path(a.out).expanduser()
@@ -103,8 +144,11 @@ def main():
     order = json.loads(Path(a.order).read_text())
     by_bag = {str(Path(e['bag']).resolve()): e for e in order['episodes']}
     ep_stats = {e['episode_index']: e for e in read_jsonl(meta / 'episodes_stats.jsonl')}
+    state_names = (info['features'].get('observation.state') or {}).get('names') or []
+    tcp_idx = ([state_names.index(n) for n in ('tcp_x', 'tcp_y', 'tcp_z', 'tcp_qx', 'tcp_qy', 'tcp_qz', 'tcp_qw')]
+               if 'tcp_x' in state_names else list(range(6, 13)))
 
-    new_features = {}
+    new_features, annotations, intrinsics, wrist_cali = {}, [], None, None
     for pf in sorted(work.glob('data/chunk-*/episode_*.parquet')):
         t = pq.read_table(pf)
         ep_index = int(t.column('episode_index')[0].as_py())
@@ -117,57 +161,102 @@ def main():
         if epj.get('sim'):
             sys.exit(f'{bag}: simulated episode (sim: true): never exported')
         sess = json.loads((Path(bag).parent / 'session.json').read_text())
+        ann_path = Path(bag) / 'annotation.json'
+        ann = json.loads(ann_path.read_text()) if ann_path.exists() else {}
         n = t.num_rows
-        t_steps = (float(s['start_unix']) + np.arange(n) / float(s['fps'])) * 1e9
-        host = frame_stamps(bag, a.us_topic, a.us_time_offset_s, t_steps.astype(np.int64))
-        cam = sess.get('wrist_cam_cali_mtx') or (rig.get('calibration') or {}).get('wrist_cam_cali_mtx')
+        t_steps = ((float(s['start_unix']) + np.arange(n) / float(s['fps'])) * 1e9).astype(np.int64)
+        st = read_streams(bag, a.us_topic, ct['depth'], ct['color_info'], ct['depth_info'], a.depth == 'png')
+        intrinsics = intrinsics or {'wrist_camera': st['color_info'], 'wrist_depth': st['depth_info'],
+                                    'depth_units': 'mm', 'depth_aligned_to': 'wrist_camera'}
+
+        us = np.sort(np.asarray(st['us'], np.int64))
+        hi = F.sample_hold(us + int(us_off * 1e9), t_steps)
+        host = np.where(hi >= 0, us[np.clip(hi, 0, None)], -1)
+        status, phase, gesture = F.step_labels(ann, t_steps)
+        cam = sess.get('wrist_cam_cali_mtx') or cal.get('wrist_cam_cali_mtx')
+        wrist_cali = wrist_cali or cam
+        state = np.asarray(t.column('observation.state').to_pylist(), float)
+        old_action = np.asarray(t.column('action').to_pylist(), float)
+        act = F.delta_actions(state[:, tcp_idx], a.action_frame)
+        fc = (ann.get('failure_class') or {}).get('value') or ''
         cols = {
+            'action': pa.array(act.astype(np.float32).tolist(), pa.list_(pa.float32(), 6)),
+            'observation.meta.commanded_twist': pa.array(old_action[:, :6].astype(np.float32).tolist(),
+                                                         pa.list_(pa.float32(), 6)),
+            'observation.meta.force_setpoint_n': pa.array(old_action[:, 6:7].astype(np.float32).tolist(),
+                                                          pa.list_(pa.float32(), 1)),
             'observation.meta.force_torque': t.column('observation.force_torque')
             if 'observation.force_torque' in t.column_names else pa.array([[np.nan] * 6] * n),
             'observation.meta.probe_type': pa.array([probe_type] * n),
             'observation.meta.probe_acquisition_param': t.column('observation.ultrasound.settings'),
             'observation.meta.prob_cali_mtx': pa.array([list(np.ravel(prob_cali).astype(float))] * n,
                                                        pa.list_(pa.float32(), 16)),
+            'observation.meta.wrist_cali_mtx': pa.array(
+                [list(np.ravel(cam).astype(float)) if cam is not None else [np.nan] * 16] * n,
+                pa.list_(pa.float32(), 16)),
             'observation.meta.host_stamp_ns': pa.array(host, pa.int64()),
+            'observation.meta.status': pa.array(status),
+            'observation.meta.phase': pa.array(phase),
+            'observation.meta.gesture': pa.array(gesture),
             'observation.meta.action_is_expert': pa.array(
                 np.asarray(t.column('observation.meta.action_is_expert').to_pylist()).ravel() > 0.5),
             'observation.meta.stage': pa.array([int(epj.get('stage', -1))] * n, pa.int64()),
             'observation.meta.failure_mode': pa.array([epj.get('failure_mode') or ''] * n),
-            'observation.meta.wrist_cam_cali_mtx': pa.array(
-                [list(np.ravel(cam).astype(float)) if cam is not None else [np.nan] * 16] * n,
-                pa.list_(pa.float32(), 16)),
+            'observation.meta.failure_class': pa.array([fc] * n),
             'instruction.text': pa.array([epj.get('instruction') or s.get('task') or ''] * n),
         }
+        if a.depth == 'png':
+            if not st['depth']:
+                sys.exit(f'{bag}: no depth frames on {ct["depth"]}')
+            di = F.sample_hold(np.asarray(st['depth_st'], np.int64) + int(d_off * 1e9), t_steps)
+            if np.any(di < 0):
+                sys.exit(f'{bag}: depth starts after the first step')
+            cols['observation.images.wrist_depth'] = pa.array(
+                [{'bytes': F.png16(st['depth'][i]), 'path': None} for i in di],
+                pa.struct([('bytes', pa.binary()), ('path', pa.string())]))
         for k, v in cols.items():
             if k in t.column_names:
                 t = t.drop([k])
             t = t.append_column(k, v)
         pq.write_table(t, pf)
-        st = ep_stats[ep_index]['stats']
-        for k in ('observation.meta.host_stamp_ns', 'observation.meta.stage', 'observation.meta.prob_cali_mtx',
-                  'observation.meta.wrist_cam_cali_mtx', 'observation.meta.force_torque',
-                  'observation.meta.probe_acquisition_param'):
-            st[k] = stats_of(np.asarray(t.column(k).to_pylist(), np.float64))
-        st['observation.meta.action_is_expert'] = stats_of(
-            np.asarray(t.column('observation.meta.action_is_expert').to_pylist(), np.float64))
+
+        es = ep_stats[ep_index]['stats']
+        for k in ('action', 'observation.meta.commanded_twist', 'observation.meta.force_setpoint_n',
+                  'observation.meta.host_stamp_ns', 'observation.meta.stage', 'observation.meta.prob_cali_mtx',
+                  'observation.meta.wrist_cali_mtx', 'observation.meta.force_torque',
+                  'observation.meta.probe_acquisition_param', 'observation.meta.action_is_expert'):
+            es[k] = stats_of(np.asarray(t.column(k).to_pylist(), np.float64))
+        if a.depth == 'png':
+            d = np.stack([st['depth'][i] for i in di]).astype(np.float64)
+            es['observation.images.wrist_depth'] = {k: [[[float(v)]]] for k, v in
+                                                    (('min', d.min()), ('max', d.max()), ('mean', d.mean()),
+                                                     ('std', d.std()))} | {'count': [n]}
         if not new_features:
             for k in cols:
-                col = t.column(k)
-                typ = col.type
-                if pa.types.is_string(typ):
-                    new_features[k] = {'dtype': 'string', 'shape': [1], 'names': None}
-                elif pa.types.is_boolean(typ):
-                    new_features[k] = {'dtype': 'bool', 'shape': [1], 'names': None}
-                elif pa.types.is_int64(typ):
-                    new_features[k] = {'dtype': 'int64', 'shape': [1], 'names': None}
+                if k == 'observation.images.wrist_depth':
+                    h, w = st['depth'][0].shape
+                    new_features[k] = {'dtype': 'image', 'shape': [h, w, 1],
+                                       'names': ['height', 'width', 'channels'],
+                                       'info': {'encoding': 'png16', 'units': 'mm'}}
+                elif k == 'action':
+                    new_features[k] = {'dtype': 'float32', 'shape': [6], 'names': F.ACTION_NAMES,
+                                       'info': {'frame': a.action_frame, 'rotation': 'rotation_vector'}}
                 else:
-                    shape = len(col[0].as_py())
-                    new_features[k] = {'dtype': 'float32', 'shape': [shape], 'names': None}
-        print(f'episode {ep_index}: {n} steps, split {o["split"]}, type {o["type"]}')
+                    new_features[k] = feature_of(t.column(k), pa)
+        annotations.append({'episode_index': ep_index, 'episode_id': epj.get('episode_id'), **ann})
+        print(f'episode {ep_index}: {n} steps, split {o["split"]}, type {o["type"]}, '
+              f'status {dict(zip(*np.unique(status, return_counts=True)))}')
+
+    # wrist_rgb is named wrist_camera in the proposal (lerobot_rig.yaml already exports it so)
     info['features'].update(new_features)
     write_jsonl(meta / 'episodes_stats.jsonl', [ep_stats[k] for k in sorted(ep_stats)])
+    write_jsonl(meta / 'annotations.jsonl', annotations)
+    F.write_json(meta / 'calibration' / 'camera_intrinsics.json', intrinsics)
+    F.write_json(meta / 'calibration' / 'prob_cali_mtx.json',
+                 {'prob_cali_mtx': prob_cali, 'frame': 'probe w.r.t. end-effector'})
+    F.write_json(meta / 'calibration' / 'wrist_cali_mtx.json',
+                 {'wrist_cali_mtx': wrist_cali, 'frame': 'wrist camera w.r.t. end-effector (eye-in-hand)'})
 
-    # splits: LeRobot v2.1 uses "start:end" strings over episode indices
     groups = {}
     for o in order['episodes']:
         name = 'test' if o['split'] == 'test' else (

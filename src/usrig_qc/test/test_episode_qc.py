@@ -52,9 +52,16 @@ def write_bag(path, drop_frame=None, duration_s=4.0):
                safety_flags=0, action_source=0, action_is_expert=True)
         msgs.append(('/robot/state', ns, m, RS))
     for t, kind, val in ((0.05, 'phase', {'phase': 'free_air'}), (0.6, 'phase', {'phase': 'contact'}),
-                         (0.7, 'start', {}), (3.8, 'end', {}), (3.8, 'outcome', {'outcome': 'success'})):
+                         (0.7, 'start', {}), (1.0, 'phase', {'phase': 'search'}),
+                         (1.5, 'phase', {'phase': 'onset'}), (2.0, 'phase', {'phase': 'recovery_start'}),
+                         (2.5, 'phase', {'phase': 'recovery_end'}), (2.6, 'phase', {'phase': 'hold'}),
+                         (3.8, 'end', {}), (3.8, 'outcome', {'outcome': 'success'})):
         ns = T0 + int(t * 1e9)
         msgs.append(('/episode/events', ns, EV(header=hdr(ns), episode_id='e1', kind=kind, value=json.dumps(val)), EV))
+    for t, key, down in ((1.0, 'W', True), (1.8, 'W', False), (2.1, 'T', True), (2.3, 'T', False)):
+        ns = T0 + int(t * 1e9)
+        cmd = {'cmd': 'key', 'key': key, 'down': down, 't_ns': ns}
+        msgs.append(('/operator/command', ns, String(data=json.dumps(cmd)), String))
     for k in range(int(duration_s * 2)):
         ns = T0 + int(k * 0.5e9)
         msgs.append(('/qc/status', ns, String(data=json.dumps({'wrist_usb': None})), String))
@@ -109,3 +116,23 @@ def test_null_thresholds_are_unset_not_pass(tmp_path):
     rig['qc']['coupling_floor'] = None
     r = run_episode_qc(tmp_path / 'ep_0003', EP, scfg, rig)
     assert r['checks']['coupling']['status'] == 'unset' and not r['pass']
+
+
+def test_auto_annotate_from_bag(tmp_path):
+    from usrig_qc.auto_annotate import auto_annotate
+    write_bag(tmp_path / 'ep_0004')
+    keymap = yaml.safe_load((REPO / 'src/usrig_bringup/config/keymap.yaml').read_text())
+    ep = dict(EP, episode_id='e4', instruction='centre the vessel', outcome='success')
+    # a human label already in the file must survive re-running the automated pass
+    (tmp_path / 'ep_0004' / 'annotation.json').write_text(json.dumps(
+        {'phases': [], 'gestures': [{'gesture': 'rock', 't0_ns': 1, 't1_ns': 2, 'provenance': 'expert',
+                                     'qa_status': 'accepted'}], 'status_intervals': [], 'narration': []}))
+    ann = auto_annotate(tmp_path / 'ep_0004', ep, keymap)
+    S = 10**9
+    assert [(g['gesture'], g['provenance']) for g in ann['gestures']] == [
+        ('rock', 'expert'), ('slide', 'automated'), ('compress', 'automated')]
+    st = [(x['status'], (x['t0_ns'] - T0) / S, (x['t1_ns'] - T0) / S) for x in ann['status_intervals']]
+    assert st == [('failure', 1.5, 2.0), ('recovery', 2.0, 2.5)]
+    assert [p['phase'] for p in ann['phases']] == ['approach_and_contact', 'target_localisation',
+                                                   'reacquisition_recovery', 'view_acquisition']
+    assert ann['outcome']['value'] == 'success' and ann['task']['value'] == 'centre the vessel'

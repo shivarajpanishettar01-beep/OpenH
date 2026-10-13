@@ -41,3 +41,6 @@ commands:
   P: hold
   K: ack_fault
   B: start_stop         # Stage 0: start / stop an episode
+  O: onset              # view lost / failure starts (g_t = failure)
+  U: recovery_start     # corrective motion starts (g_t = recovery)
+  I: recovery_end       # view reacquired (g_t back to nominal)

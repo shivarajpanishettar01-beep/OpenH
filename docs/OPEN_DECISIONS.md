@@ -5,14 +5,16 @@
 2. ~~Control path A or B~~: **decided 13 Oct 2026: path B** (ur_rtde forceMode + speedL, controller-side
    watchdog). URSim is used for a one-time control dry run before the first real motion and later as a
    GUI view only; it is never part of data collection.
-3. **Action form for Open-H**: absolute or relative TCP. Bags hold both (TCP pose 500 Hz and the
+3. ~~Action form~~: proposal fixes it: incremental TCP pose [dx..drz] (rotation vector);
+   base vs tool frame selectable at export (`--action-frame`, default base). Was: absolute or relative TCP. Bags hold both (TCP pose 500 Hz and the
    executed twist); `export/lerobot_rig.yaml` currently exports the executed probe-frame twist +
    force setpoint.
 4. **`/micrus/beamformed` in the bags** (`session.yaml recording.record_beamformed: null`).
 5. **FM-07 staging**: does the phantom have dense inserts for shadowing?
 6. **Stage 1 data** in the training / released datasets, or pipeline check only
    (`stage_bags.py --include-stage1`).
-7. **Depth**: does GR00T-H use wrist depth; does Open-H accept 16-bit depth? Depth is exported
+7. **Depth**: committed in the proposal as `observation.images.wrist_depth`; exported losslessly as
+   16-bit PNG (large). Was: does Open-H accept 16-bit depth? Depth is exported
    losslessly to `depth/*.npz` (the converter would reduce it to 8 bits).
 8. **Gate values**: `gate01.*`, `gate12.*` in `session.yaml`.
 9. **D415 mount**: move it back or accept colour only if depth is mostly invalid at contact.

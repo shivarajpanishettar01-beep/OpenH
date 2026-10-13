@@ -58,6 +58,10 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
   is not in this repo.
 - GR00T `modality.json` schema vs the GR00T release used.
 
+- Open-H export (proposal fields): 16-bit PNG `wrist_depth` image features through LeRobot 0.6.0's
+  v2.1 -> v3.0 converter and loader; full pipeline bag -> bag_to_lerobot -> openh_export not yet run.
+- `temporal_calib.py --aruco` on real colour frames (marker dictionary / size are inputs).
+
 ## Phantom / plan
 - Fiducial file format `phantoms/<id>.yaml` (`fiducials_mm`), staging method names and
   disturbance magnitudes in `failure_catalog.yaml` (proposed placeholders).

@@ -44,7 +44,13 @@ Optional dashboard:
 ros2 run usrig_dashboard dashboard --ros-args -p session_id:=<SESSION_ID>
 ```
 Keys: W/S A/D Q/E R/F Z/C move, T/G force, Shift fine, Space view reached, 1/2/3 outcome,
-Esc discard, N next, P hold, K acknowledge fault, B start/stop (Stage 0).
+Esc discard, N next, P hold, K acknowledge fault, B start/stop (Stage 0),
+O view lost (failure), U recovery start, I recovery end (view reacquired).
+
+Progress against the 10 h commitment:
+```bash
+ros2 run usrig_qc collection_progress
+```
 
 ## End of session
 1. Ctrl+C the episode manager, then the launch (micrus freezes and powers down on SIGINT).

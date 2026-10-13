@@ -73,6 +73,11 @@ class EpisodeManager(Node):
         self.adhoc = read_json(p('adhoc_json')) if p('adhoc_json') else {}
         self.operator_id = p('operator_id') or self.scfg['session']['operators'][0]
         self.phantom_id = p('phantom_id') or self.scfg['session'].get('phantom_id')
+        phantoms = self.scfg.get('phantoms') or {}
+        if self.phantom_id not in phantoms:
+            raise RuntimeError(f'phantom_id {self.phantom_id!r} is not one of the proposal phantoms '
+                               f'{sorted(phantoms)} (session.yaml phantoms)')
+        self.keymap = config.load_config('keymap', cfg_dir)
         self.sim = bool(p('sim'))
         self.root = data_root(self.scfg, self.sim)
         self.sdir = session_dir(self.root, self.session_id)
@@ -313,6 +318,13 @@ class EpisodeManager(Node):
             ep['qc'] = run_episode_qc(d, ep, self.scfg, self.rig)
         except Exception as e:  # noqa: BLE001
             ep['qc'] = {'pass': False, 'error': f'QC failed to run: {e}'}
+        try:
+            from usrig_qc.auto_annotate import auto_annotate
+            auto_annotate(d, ep, self.keymap)
+            ep['annotation_file'] = 'annotation.json'
+        except Exception as e:  # noqa: BLE001
+            ep['annotation_file'] = None
+            ep['notes'] = (ep['notes'] + f'\nauto-annotation failed: {e}').strip()
         write_json_atomic(d / 'episode.json', ep)
         self.get_logger().info(f'{ep["episode_id"]}: outcome={ep.get("outcome")} '
                                f'duration={ep["duration_s"]} qc_pass={ep["qc"].get("pass")}')

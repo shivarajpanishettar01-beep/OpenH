@@ -6,13 +6,26 @@ session:
   sim_root: ~/data_sim                          # sim:=true runs (micrus --simulate / URSim); never exported
   id_pattern: "{date}_{phantom_id}_{operator_id}_s{n:02d}"
   operators: [op1, op2]                         # [OPERATORS]
-  phantom_id: null
+  phantom_id: null                              # one of the keys under phantoms: below
   phantom_placement: null
   stage: 0                                      # 0 shakedown, 1 constant speed, 2 planned
   min_free_disk_gb: 50
   waypoint_dir: ~/data/waypoints              # waypoints/<phantom_id>.yaml
   path_dir: ~/data/paths                      # paths/<phantom_id>.yaml
   phantom_dir: ~/data/phantoms                # phantoms/<phantom_id>.yaml (fiducials)
+
+# Open-H V2 proposal (IIT Mandi): two phantoms, 10 h total in 20-30 s episodes, ~20 % failure/recovery.
+phantoms:
+  vascular_4vein:
+    name: 4-vein bifurcated vascular phantom
+    target_hours: 6.0
+  central_line_gen2:
+    name: Gen II Central Line phantom (imaging only, no needle insertion)
+    target_hours: 4.0
+targets:
+  total_hours: 10.0
+  failure_recovery_fraction: 0.20
+  episode_s: [20, 30]
 
 micrus:
   command: micrus                               # [MICRUS_CMD]: `micrus` (SDK conda install) or AppImage path

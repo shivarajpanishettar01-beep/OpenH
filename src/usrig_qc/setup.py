@@ -23,5 +23,7 @@ setup(
         'presession_check = usrig_qc.presession_check:main',
         'stream_check = usrig_qc.stream_check:main',
         'camera_autolock = usrig_qc.camera_autolock:main',
+        'auto_annotate = usrig_qc.auto_annotate:main',
+        'collection_progress = usrig_qc.collection_progress:main',
     ]},
 )

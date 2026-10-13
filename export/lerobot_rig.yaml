@@ -16,11 +16,11 @@ images:
   observation.images.ultrasound:
     topic: /micrus/bmode
     time_offset_s: -0.020       # PLACEHOLDER until the P9c temporal calibration measures it
-  observation.images.wrist_rgb:
+  observation.images.wrist_camera:          # proposal name (Open-H ultrasound schema)
     topic: /wrist/d415/color/image_raw
     time_offset_s: 0.0          # PLACEHOLDER until the P9c camera temporal calibration
-  # Wrist depth is NOT exported through the converter: it reduces 16UC1 to 8 bits (>> 8) and
-  # encodes lossy video, which destroys millimetre depth. Use export/depth_export.py instead.
+  # observation.images.wrist_depth is NOT exported through this converter: it reduces 16UC1 to
+  # 8 bits (>> 8) and encodes lossy video. openh_export.py adds it losslessly (16-bit PNG, mm).
 
 micrus_frame_info:
   topic: /micrus/frame_info
@@ -85,6 +85,7 @@ custom_msgs:
   usrig_interfaces/msg/RobotState: ../src/usrig_interfaces/msg/RobotState.msg
   usrig_interfaces/msg/EpisodeEvent: ../src/usrig_interfaces/msg/EpisodeEvent.msg
 
+# GR00T-H is out of scope for now (separate task); this block only writes meta/modality.json.
 groot:
   state_groups:
     joints: [0, 6]
