@@ -26,7 +26,8 @@ RIG = {
                'workspace_box_base_m': {'min': [0.2, -0.3, 0.0], 'max': [0.6, 0.3, 0.4]},
                'max_linear_speed_mm_s': 50.0, 'max_angular_speed_deg_s': 30.0,
                'max_linear_accel_mm_s2': 500.0, 'max_angular_accel_deg_s2': 300.0, 'stop_decel_mm_s2': 1000.0,
-               'deadman_timeout_s': 0.2, 'contact_detect_threshold_n': 1.0},
+               'deadman_timeout_s': 0.2, 'contact_detect_threshold_n': 1.0,
+               'contact_lost_threshold_n': 0.5, 'contact_lost_time_s': 0.1},
     'motion': {'transit_speed_mm_s': 40.0, 'descent_speed_mm_s': 10.0, 'descent_max_travel_mm': 60.0,
                'retract_distance_mm': 30.0, 'approach_offset_mm': 50, 'position_gain_per_s': 4.0,
                'rotation_gain_per_s': 4.0},
@@ -311,7 +312,6 @@ def test_lift_perturbation_stays_in_force_band(sim):
     node.destroy_node()
 
 
-@pytest.mark.xfail(strict=True, reason='R2: no contact-loss detection; force mode keeps driving along the probe axis')
 def test_contact_loss_is_detected(sim):
     from usrig_interfaces.srv import DescendToContact
     node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
@@ -323,8 +323,16 @@ def test_contact_loss_is_detected(sim):
     while time.monotonic() < t_end:
         twist(node)                              # operator present, no keys pressed
         time.sleep(0.01)
-    events = [k for k, v in node.events if k == 'phase' and v.get('phase') in ('contact_lost', 'fault')]
+    events = [v for k, v in node.events if k == 'phase' and v.get('phase') == 'contact_lost']
     assert events and z0 - robot.T[2, 3] < 0.005, f'moved {1000 * (z0 - robot.T[2, 3]):.1f} mm down, events {events}'
+    assert not node.in_contact and isinstance(node.motion, rc.Idle)
+    # operator re-establishes contact
+    robot.surface_z = robot.T[2, 3] - 0.004              # phantom back, 4 mm below the probe
+    cmd(node, {'cmd': 'recontact'})
+    t_end = time.monotonic() + 5
+    while not node.in_contact and time.monotonic() < t_end:
+        time.sleep(0.05)
+    assert node.in_contact and any(k == 'phase' and v.get('phase') == 'recontact' for k, v in node.events)
     node.destroy_node()
 
 
@@ -343,4 +351,26 @@ def test_operator_pause_independent_of_service_hold(sim):
     cmd(node, {'cmd': 'hold'})                       # operator resumes
     drive(node, 0.4, v=(0.02, 0, 0))
     assert robot.T[0, 3] - p0[0] > 0.003
+    node.destroy_node()
+
+
+def test_path_aborts_on_contact_loss(sim):
+    from geometry_msgs.msg import Pose
+    from usrig_interfaces.srv import DescendToContact, RunPath
+    node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+    assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+    node._phantom_T = lambda: np.eye(4)
+    req = RunPath.Request()
+    for x in (0.40, 0.50):
+        T = robot.T.copy()
+        T[:3, 3] = [x, 0.0, robot.T[2, 3]]
+        req.waypoints.append(geometry.fill_pose_msg(Pose(), T))
+    req.speed_mm_s = 15.0
+    out = {}
+    th = threading.Thread(target=lambda: out.update(r=node._srv_run_path(req, RunPath.Response())))
+    th.start()
+    time.sleep(1.0)
+    robot.surface_z = None                               # probe slides off the phantom edge
+    th.join(10)
+    assert not out['r'].success and out['r'].message == 'contact lost'
     node.destroy_node()

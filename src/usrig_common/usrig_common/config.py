@@ -28,6 +28,8 @@ MOTION_LIMITS = (
     'robot.tcp_setting',
     'limits.deadman_timeout_s',
     'limits.contact_detect_threshold_n',
+    'limits.contact_lost_threshold_n',
+    'limits.contact_lost_time_s',
     'limits.force_setpoint_default_n',
     'motion.transit_speed_mm_s',
     'motion.descent_speed_mm_s',

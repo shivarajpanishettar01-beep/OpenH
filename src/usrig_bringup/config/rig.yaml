@@ -39,6 +39,8 @@ limits:
   stop_decel_mm_s2: null            # deceleration for speedStop on FAULT / stop
   deadman_timeout_s: null           # also sets the controller-side ur_rtde watchdog (min frequency = 1 / timeout)
   contact_detect_threshold_n: null
+  contact_lost_threshold_n: null    # in contact: probe-axis force below this ...
+  contact_lost_time_s: null         # ... for this long -> contact_lost: stop force mode, hold position
   measured_speed_margin: 1.2        # FAULT if measured speed > limit x margin
   envelope_lookahead_s: 0.1
 

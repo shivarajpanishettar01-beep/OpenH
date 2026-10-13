@@ -44,3 +44,4 @@ commands:
   O: onset              # view lost / failure starts (g_t = failure)
   U: recovery_start     # corrective motion starts (g_t = recovery)
   I: recovery_end       # view reacquired (g_t back to nominal)
+  J: recontact          # after contact_lost: slow bounded descent back into contact

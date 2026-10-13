@@ -249,6 +249,7 @@ class RobotControlNode(Node):
         self._twist = (None, 0)
         self._twist_lock = threading.Lock()
         self.v_prev, self.w_prev = np.zeros(3), np.zeros(3)
+        self._low_force_since = None    # contact-loss timer (monotonic s)
 
         cb = ReentrantCallbackGroup()
         self.pub_cmd = self.create_publisher(TwistStamped, '/robot/cmd_executed', 10)
@@ -300,6 +301,8 @@ class RobotControlNode(Node):
             lo, hi = self.lim.force_band_n
             self.force_setpoint = float(np.clip(self.force_setpoint + float(c.get('delta', 0.0)), lo, hi))
             self._event('note', {'force_setpoint_n': self.force_setpoint})
+        elif cmd == 'recontact':
+            threading.Thread(target=self._recontact, daemon=True).start()
         elif cmd == 'hold':
             self.operator_pause = bool(c.get('value', not self.operator_pause))
             self._event('note', {'operator_pause': self.operator_pause})
@@ -405,6 +408,43 @@ class RobotControlNode(Node):
         self.get_logger().info('fault acknowledged')
         self._event('phase', {'phase': 'fault_ack'})
 
+    def _check_contact(self, m, T, wrench, stamp_ns):
+        """D8: in force regulation, a probe-axis force below contact_lost_threshold_n for
+        contact_lost_time_s means contact is lost. Stop force mode, hold position, report it."""
+        if not (m.force_on and self.in_contact):
+            self._low_force_since = None
+            return False
+        if abs(safety.probe_axis_force(T, wrench)) >= self.lim.contact_lost_n:
+            self._low_force_since = None
+            return False
+        now = time.monotonic()
+        if self._low_force_since is None:
+            self._low_force_since = now
+            return False
+        if now - self._low_force_since < self.lim.contact_lost_s:
+            return False
+        self._low_force_since = None
+        self.in_contact = False
+        with self.motion_lock:
+            old, self.motion = self.motion, Idle()     # Idle: no command, force mode stopped
+        try:
+            self.backend.stop()
+        except Exception as e:  # noqa: BLE001
+            self.get_logger().error(f'backend stop on contact loss failed: {e}')
+        if not old.done.is_set():
+            old.finish(False, 'contact lost')
+        self.get_logger().warn('contact lost: force mode stopped, holding position (recontact to resume)')
+        self._event('phase', {'phase': 'contact_lost', 'force_axis_n': float(safety.probe_axis_force(T, wrench)),
+                              'motion': type(old).__name__}, stamp_ns)
+        return True
+
+    def _recontact(self):
+        """Operator command after a contact loss: bounded slow descent, then hold in contact."""
+        if self.in_contact or self.status.mode == ST.MODE_FAULT:
+            return
+        self._event('phase', {'phase': 'recontact'})
+        self._srv_descend(DescendToContact.Request(), DescendToContact.Response())
+
     def _phantom_T(self):
         sj = self.get_parameter('session_json').value
         reg = read_json(sj).get('phantom_registration', {}) if sj else {}
@@ -453,6 +493,10 @@ class RobotControlNode(Node):
 
         with self.motion_lock:
             m = self.motion
+        if self._check_contact(m, T, s.wrench, s.stamp_ns):
+            self.v_prev, self.w_prev = np.zeros(3), np.zeros(3)
+            self._publish_status(s.stamp_ns)
+            return
         ctx = {'T': T, 'wrench': s.wrench, 'tcp_speed': s.tcp_speed, 'dt': dt,
                'stamp_ns': s.stamp_ns, 'flags': 0}
         v, w = m.step(ctx)

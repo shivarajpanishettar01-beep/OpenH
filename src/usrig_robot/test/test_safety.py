@@ -12,6 +12,7 @@ RIG = {
                'max_linear_speed_mm_s': 50.0, 'max_angular_speed_deg_s': 20.0,
                'max_linear_accel_mm_s2': 500.0, 'max_angular_accel_deg_s2': 200.0, 'stop_decel_mm_s2': 1000.0,
                'deadman_timeout_s': 0.2, 'contact_detect_threshold_n': 1.5,
+               'contact_lost_threshold_n': 0.5, 'contact_lost_time_s': 0.1,
                'force_setpoint_default_n': 5.0},
     'motion': {'transit_speed_mm_s': 30.0, 'descent_speed_mm_s': 5.0,
                'descent_max_travel_mm': 50.0, 'retract_distance_mm': 50.0},
