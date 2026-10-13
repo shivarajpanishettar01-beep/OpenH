@@ -25,9 +25,10 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - Rate on the real scanner (27.35 Hz measured with the simulator through our launch, P1).
 
 ## Wrist camera
-- realsense2_camera version, every `rs_launch.py` argument name in `session.yaml`
-  (`rgb_camera.color_profile`, `global_time_enabled`, `rgb_camera.exposure`, ...), and the topic
-  names under `/wrist/d415/...`.
+- realsense2_camera 4.58.4 launch-argument names: checked with `--show-args` (dev PC). Still
+  NOT VERIFIED: the node parameter names in `rs_params` (`rgb_camera.exposure`,
+  `rgb_camera.white_balance`, `*.global_time_enabled`), the topic names under `/wrist/d415/...`,
+  the metadata keys `camera_autolock` reads, and the exposure units. Needs the camera on USB 3.
 - Metadata topic and frame-number field (frame gap detection is n/a until confirmed).
 - Header stamps = hardware capture time on the host clock (P1b measurement).
 - USB serial string in sysfs vs camera serial (`usrig_qc/usb.py`).

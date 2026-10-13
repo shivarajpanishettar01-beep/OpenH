@@ -39,7 +39,7 @@ micrus:
 
 wrist_camera:
   enabled: true
-  serial: null                                  # [D415_SERIAL] from rs-enumerate-devices
+  serial: "211422060364"                        # D415 read 13 Oct 2026, firmware 5.17.0.10
   camera_namespace: wrist
   camera_name: d415
   color_width: 640
@@ -47,11 +47,11 @@ wrist_camera:
   depth_width: 640
   depth_height: 480
   fps: 30
-  exposure_us: null                             # manual exposure (locked); set in Stage 0
-  white_balance_k: null                         # manual white balance (locked); set in Stage 0
-  # Arguments passed to realsense2_camera rs_launch.py. Parameter names changed between
-  # wrapper versions: check with `ros2 launch realsense2_camera rs_launch.py --show-args`
-  # and `ros2 param list` on this machine. NOT VERIFIED (realsense-ros not installed yet).
+  # Locked manual colour exposure / white balance. Fill with `camera_autolock --write` on the
+  # capture PC (samples what auto exposure / auto WB settle on, then locks those values).
+  exposure_us: null
+  white_balance_k: null
+  # rs_launch.py arguments: names checked against realsense2_camera 4.58.4 (`--show-args`).
   rs_launch_args:
     serial_no: "'{serial}'"
     camera_namespace: "{camera_namespace}"
@@ -63,18 +63,23 @@ wrist_camera:
     enable_infra1: "false"
     enable_infra2: "false"
     pointcloud.enable: "false"
-    global_time_enabled: "true"
     rgb_camera.enable_auto_exposure: "false"
+  # Not launch arguments in 4.58.4: passed to the node through rs_launch.py's config_file.
+  # These are librealsense sensor options exposed as parameters; names NOT VERIFIED until the
+  # node runs with a camera (`ros2 param list /wrist/d415`).
+  rs_params:
     rgb_camera.exposure: "{exposure_us}"
-    rgb_camera.enable_auto_white_balance: "false"
+    rgb_camera.enable_auto_white_balance: false
     rgb_camera.white_balance: "{white_balance_k}"
+    rgb_camera.global_time_enabled: true
+    depth_module.global_time_enabled: true
   # Topic names expected with namespace/name above; confirm with `ros2 topic list` (P1b).
   topics:
     color: /wrist/d415/color/image_raw
     color_info: /wrist/d415/color/camera_info
     depth: /wrist/d415/aligned_depth_to_color/image_raw
     depth_info: /wrist/d415/aligned_depth_to_color/camera_info
-    metadata: null                              # e.g. /wrist/d415/color/metadata, if published
+    metadata: /wrist/d415/color/metadata        # realsense2_camera_msgs/Metadata (4.58.4 publishes .../metadata); confirm on the capture PC
   charuco:                                      # eye-in-hand calibration board (null until set)
     squares_x: null
     squares_y: null

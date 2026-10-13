@@ -22,5 +22,6 @@ setup(
         'episode_qc = usrig_qc.episode_qc:main',
         'presession_check = usrig_qc.presession_check:main',
         'stream_check = usrig_qc.stream_check:main',
+        'camera_autolock = usrig_qc.camera_autolock:main',
     ]},
 )
