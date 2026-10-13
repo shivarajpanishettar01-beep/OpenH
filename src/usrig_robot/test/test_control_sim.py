@@ -59,8 +59,9 @@ class FakeRobot:
         dt = now - self.t_last
         self.t_last = now
         v = self.v.copy()
-        if self.force_on and self.surface_z is not None:
+        if self.force_on:
             # force mode along the probe axis: move so the spring force approaches the setpoint
+            # (with no surface the measured force stays 0, so it keeps moving: like the real controller)
             z = self.T[:3, 2]
             v = v - z * (v @ z) + z * np.clip((self.fsp - self._f_axis()) * 0.002, -0.02, 0.02)
         self.T[:3, 3] += v * dt
@@ -288,4 +289,40 @@ def test_descend_then_path_then_cancel(sim):
     ev = motion_events(node)
     assert {'PathFollow', 'LinearMove', 'Descent'} <= {e['motion'] for e in ev}
     assert any(e['motion'] == 'PathFollow' and not e['ok'] and e['message'] == 'preempted' for e in ev)
+    node.destroy_node()
+
+
+# ---- Known gaps from the 13 Oct control review (docs/control_review.md). strict xfail: when a gap is
+# fixed these start passing, the suite fails, and the marker must be removed.
+
+@pytest.mark.xfail(strict=True, reason='R3: lift perturbation sets the force setpoint without clamping to the band')
+def test_lift_perturbation_stays_in_force_band(sim):
+    from usrig_interfaces.srv import DescendToContact, InjectPerturbation
+    node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+    assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+    seen = []
+    node._set_motion(rc.Perturbation(node, 'lift', [-10.0, 0, 0], 1.0, node.force_setpoint))
+    t_end = time.monotonic() + 0.8
+    while time.monotonic() < t_end:
+        seen.append(node.force_setpoint)
+        time.sleep(0.02)
+    lo, hi = RIG['limits']['force_band_n']
+    assert min(seen) >= 0.0, f'force setpoint went to {min(seen)} N'
+    node.destroy_node()
+
+
+@pytest.mark.xfail(strict=True, reason='R2: no contact-loss detection; force mode keeps driving along the probe axis')
+def test_contact_loss_is_detected(sim):
+    from usrig_interfaces.srv import DescendToContact
+    node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+    assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+    node._set_motion(rc.Teleop(node, True))
+    z0 = robot.T[2, 3]
+    robot.surface_z = None                       # phantom gone / probe slid off the edge
+    t_end = time.monotonic() + 1.5
+    while time.monotonic() < t_end:
+        twist(node)                              # operator present, no keys pressed
+        time.sleep(0.01)
+    events = [k for k, v in node.events if k == 'phase' and v.get('phase') in ('contact_lost', 'fault')]
+    assert events and z0 - robot.T[2, 3] < 0.005, f'moved {1000 * (z0 - robot.T[2, 3]):.1f} mm down, events {events}'
     node.destroy_node()

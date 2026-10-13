@@ -1,0 +1,5 @@
+lerobot==0.6.0
+rosbags
+pyarrow
+pyyaml
+numpy

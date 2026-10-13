@@ -84,5 +84,7 @@ Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) i
 
 Deadline from the proposal: **representative sample by 1 December 2026**, validated data by 31 January 2027.
 
+Control review before the teleoperation spec: `control_review.md` (10 findings, 11 decisions).
+
 See also: `NOT_VERIFIED.md` (everything not yet checked on hardware), `OPEN_DECISIONS.md`,
 `proposal_alignment.md`, `first_motion_checklist.md`, `collection_day.md`.
