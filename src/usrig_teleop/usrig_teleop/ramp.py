@@ -32,3 +32,31 @@ class TwistRamp:
         self.out = self.out + np.clip(tgt - self.out, -max_step, max_step)
         self.out[np.abs(self.out) < 1e-12] = 0.0
         return self.out.copy()
+
+
+class KeyState:
+    """Held keys from evdev-style events, with the two failure cases handled safely.
+
+    * SYN_DROPPED (kernel buffer overflow, key-ups may be lost): resynchronise from the device's
+      actual key state (`active_keys()` names), never keep a key that may have been released.
+    * device lost (unplugged / read error): clear every key and mark the input as lost; the
+      publisher then stops sending twists so robot_control's deadman stops the robot.
+    """
+
+    def __init__(self):
+        self.held = set()
+        self.lost = False
+
+    def key(self, name, down):
+        (self.held.add if down else self.held.discard)(name)
+
+    def resync(self, active_names):
+        self.held = set(active_names)
+
+    def device_lost(self):
+        self.held.clear()
+        self.lost = True
+
+    def device_back(self, active_names=()):
+        self.held = set(active_names)
+        self.lost = False

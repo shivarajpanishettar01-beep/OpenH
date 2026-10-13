@@ -30,7 +30,8 @@ from std_srvs.srv import SetBool, Trigger
 from usrig_common import config, geometry
 from usrig_common.session import read_json
 from usrig_common.timeutil import now_ns, ns_from_stamp, stamp_from_ns
-from usrig_interfaces.msg import ControlStatus, EpisodeEvent, RobotState
+from usrig_interfaces.msg import ControlStatus as ControlStatusMsg  # not the shared-status class below
+from usrig_interfaces.msg import EpisodeEvent, RobotState
 from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPose, RunPath
 
 from . import safety
@@ -249,7 +250,7 @@ class RobotControlNode(Node):
         cb = ReentrantCallbackGroup()
         self.pub_cmd = self.create_publisher(TwistStamped, '/robot/cmd_executed', 10)
         # mode / flags / source / expert for robot_state_cpp, which merges them into /robot/state
-        self.pub_status = self.create_publisher(ControlStatus, '/robot/control_status', 10)
+        self.pub_status = self.create_publisher(ControlStatusMsg, '/robot/control_status', 10)
         self.pub_evt = self.create_publisher(EpisodeEvent, '/episode/events', 50)
         self.create_subscription(TwistStamped, '/teleop/twist', self._on_twist, 10, callback_group=cb)
         self.create_subscription(String, '/operator/command', self._on_command, 50, callback_group=cb)
@@ -319,11 +320,40 @@ class RobotControlNode(Node):
             old.finish(False, 'preempted')
         return m
 
+    def _move_timeout(self, T_target, speed):
+        """Generous time for a linear move: 3x the nominal time + 5 s. A target that the envelope or
+        the tilt cone makes unreachable ends as 'timeout' instead of blocking the service forever."""
+        s = self.state_node.get_latest()
+        if s is None:
+            return 10.0
+        dp, dr = geometry.pose_error(geometry.pose_from_ur(s.tcp_pose), T_target)
+        t = max(np.linalg.norm(dp) / max(speed, 1e-6), np.linalg.norm(dr) / max(self.lim.w_max, 1e-6))
+        return 3.0 * t + 5.0
+
+    def _hold_in_contact_if_idle(self):
+        """After a successful descend / path: hold position in force mode, but only if no newer
+        motion (e.g. a retract that cancelled it) has taken over in the meantime."""
+        with self.motion_lock:
+            if not isinstance(self.motion, Idle) or self.status.mode == ST.MODE_FAULT:
+                return False
+            self.motion = Teleop(self, True)
+        self.hold = True
+        return True
+
     def _run(self, m, timeout=None):
+        t0 = time.monotonic()
         self._set_motion(m)
         m.done.wait(timeout)
         if not m.done.is_set():
             m.finish(False, 'timeout')
+            if self.status.mode != ST.MODE_FAULT:
+                try:
+                    self.backend.stop()
+                except Exception as e:  # noqa: BLE001
+                    self.get_logger().error(f'backend stop after timeout failed: {e}')
+        # every motion leaves a record: success, timeout, preempted (cancelled), FAULT
+        self._event('motion', {'motion': type(m).__name__, 'ok': bool(m.ok), 'message': m.message,
+                               'duration_s': round(time.monotonic() - t0, 3)})
         with self.motion_lock:
             if self.motion is m:
                 self.motion = Teleop(self, self.in_contact) if isinstance(m, Perturbation) else Idle()
@@ -445,7 +475,7 @@ class RobotControlNode(Node):
 
     def _publish_status(self, stamp_ns=None):
         fsp, mode, flags, src, expert = self.status.snapshot()
-        m = ControlStatus()
+        m = ControlStatusMsg()
         m.header.stamp = stamp_from_ns(stamp_ns or now_ns())
         m.force_setpoint_n = float(fsp)
         m.mode, m.safety_flags, m.action_source, m.action_is_expert = mode, flags, src, bool(expert)
@@ -476,7 +506,7 @@ class RobotControlNode(Node):
         speed = min(speed, self.lim.v_max)
         self.in_contact = False
         self._event('phase', {'phase': 'approach'})
-        m = self._run(LinearMove(self, T, speed))
+        m = self._run(LinearMove(self, T, speed), timeout=self._move_timeout(T, speed))
         res.success, res.message = m.ok, m.message
         return res
 
@@ -485,15 +515,15 @@ class RobotControlNode(Node):
             lo, hi = self.lim.force_band_n
             self.force_setpoint = float(np.clip(req.force_setpoint_n, lo, hi))
         travel = req.max_travel_mm / 1000.0 if req.max_travel_mm > 0 else self.descent_travel
-        m = self._run(Descent(self, min(self.descent_speed, self.lim.v_max), travel))
+        dspeed = min(self.descent_speed, self.lim.v_max)
+        m = self._run(Descent(self, dspeed, travel), timeout=3.0 * travel / dspeed + 5.0)
         res.success, res.message = m.ok, m.message
         res.contact_stamp_s = m.contact_stamp_s
         if m.ok:
             self.in_contact = True
             self._event('phase', {'phase': 'contact', 'force_setpoint_n': self.force_setpoint},
                         int(m.contact_stamp_s * 1e9))
-            self._set_motion(Teleop(self, True))
-            self.hold = True     # in contact, holding still until set_teleop(true)
+            self._hold_in_contact_if_idle()     # holding still until set_teleop(true)
         return res
 
     def _srv_teleop(self, req, res):
@@ -531,7 +561,8 @@ class RobotControlNode(Node):
         self.in_contact = False
         self.hold = False
         self._event('phase', {'phase': 'retract'})
-        m = self._run(LinearMove(self, T_up, self.transit_speed, mode=ST.MODE_RETRACT))
+        m = self._run(LinearMove(self, T_up, self.transit_speed, mode=ST.MODE_RETRACT),
+                      timeout=self._move_timeout(T_up, self.transit_speed))
         res.success, res.message = m.ok, m.message
         return res
 
@@ -559,8 +590,8 @@ class RobotControlNode(Node):
         res.speed_error_max_pct = float(np.nanmax(err))
         self._event('note', {'speed_tracking': {'mean_pct': res.speed_error_mean_pct,
                                                 'max_pct': res.speed_error_max_pct}})
-        self._set_motion(Teleop(self, True))
-        self.hold = True
+        if m.ok:
+            self._hold_in_contact_if_idle()
         return res
 
     def _srv_pstop(self, req, res):

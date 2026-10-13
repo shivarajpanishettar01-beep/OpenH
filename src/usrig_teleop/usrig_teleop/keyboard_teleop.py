@@ -5,12 +5,22 @@ on /operator/command. Every raw key event is also published there ({"cmd": "key"
 bag keeps an audit trail; raw keys are never used as the recorded action.
 
 Needs read access to /dev/input/event* (add the user to the 'input' group).
+
+evdev reads the keyboard device directly, independent of window focus: keys typed into any window
+on this PC reach the robot while teleop is enabled. Use a dedicated USB keyboard / keypad for the
+operator and set keymap.yaml `device:` to its /dev/input/by-id/... path so no other keyboard is read.
+
+Input failures are safe: if the device is lost (unplugged, read error) all keys are released, one
+zero twist is sent and publishing STOPS, so robot_control's deadman stops the robot; the node keeps
+trying to reopen the device. A kernel event overflow (SYN_DROPPED) resynchronises the held keys from
+the device instead of trusting possibly-lost key-ups.
 Speeds come from keymap.yaml and are checked against the rig.yaml limits at start-up.
 """
 import json
 import select
 import sys
 import threading
+import time
 
 import rclpy
 
@@ -22,7 +32,7 @@ from std_msgs.msg import String
 from usrig_common import config
 from usrig_common.timeutil import now_ns, stamp_from_ns
 
-from .ramp import TwistRamp
+from .ramp import KeyState, TwistRamp
 
 AXIS_INDEX = {'vx': 0, 'vy': 1, 'vz': 2, 'wx': 3, 'wy': 4, 'wz': 5}
 
@@ -69,7 +79,9 @@ class KeyboardTeleop(Node):
 
         import evdev
         self.evdev = evdev
-        self.dev = find_keyboard(evdev, km.get('device'))
+        self.device_path = km.get('device')
+        self.dev = find_keyboard(evdev, self.device_path)
+        self.device_path = self.device_path or self.dev.path
         self.get_logger().info(f'reading keys from {self.dev.path} ({self.dev.name})')
 
         self.motion_keys = {}
@@ -81,8 +93,9 @@ class KeyboardTeleop(Node):
         self.force_step = float(km['force_step_n']) if km.get('force_step_n') is not None else None
         self.ramp = TwistRamp(self.motion_keys, speeds, km.get('fine_scale', 0.25), km.get('ramp_s', 0.25))
 
-        self.held = set()
+        self.keys = KeyState()
         self.lock = threading.Lock()
+        self._zero_sent = False
         self.pub_twist = self.create_publisher(TwistStamped, '/teleop/twist', 10)
         self.pub_cmd = self.create_publisher(String, '/operator/command', 50)
         self.rate = float(km.get('publish_rate_hz', 100.0))
@@ -94,27 +107,61 @@ class KeyboardTeleop(Node):
         m.data = json.dumps(payload)
         self.pub_cmd.publish(m)
 
+    def _key_name(self, code):
+        name = self.evdev.ecodes.KEY.get(code, str(code))
+        return (name[0] if isinstance(name, list) else name).replace('KEY_', '')
+
+    def _active_names(self):
+        return [self._key_name(c) for c in self.dev.active_keys()]
+
     def _read_keys(self):
         ec = self.evdev.ecodes
         while rclpy.ok():
-            r, _, _ = select.select([self.dev.fd], [], [], 0.1)
-            if not r:
-                continue
-            for ev in self.dev.read():
-                if ev.type != ec.EV_KEY or ev.value == 2:      # ignore autorepeat
+            try:
+                r, _, _ = select.select([self.dev.fd], [], [], 0.1)
+                if not r:
                     continue
-                name = ec.KEY.get(ev.code, str(ev.code))
-                name = (name[0] if isinstance(name, list) else name).replace('KEY_', '')
-                down = ev.value == 1
-                t_ns = int(ev.sec * 1e9 + ev.usec * 1e3)
-                self._send({'cmd': 'key', 'key': name, 'down': down, 't_ns': t_ns})
+                for ev in self.dev.read():
+                    if ev.type == ec.EV_SYN and ev.code == ec.SYN_DROPPED:
+                        with self.lock:
+                            self.keys.resync(self._active_names())
+                        self.get_logger().warn('keyboard events dropped by the kernel: key state resynchronised')
+                        continue
+                    if ev.type != ec.EV_KEY or ev.value == 2:      # ignore autorepeat
+                        continue
+                    name = self._key_name(ev.code)
+                    down = ev.value == 1
+                    t_ns = int(ev.sec * 1e9 + ev.usec * 1e3)
+                    self._send({'cmd': 'key', 'key': name, 'down': down, 't_ns': t_ns})
+                    with self.lock:
+                        self.keys.key(name, down)
+                    if down and name in self.commands:
+                        self._command(self.commands[name], name)
+            except (OSError, ValueError) as e:
                 with self.lock:
-                    (self.held.add if down else self.held.discard)(name)
-                if down and name in self.commands:
-                    self._command(self.commands[name], name)
+                    self.keys.device_lost()
+                self.get_logger().error(f'keyboard lost ({e}): all keys released, twist publishing stopped '
+                                        '(robot_control deadman stops the robot); reconnecting')
+                self._send({'cmd': 'teleop_input_lost', 'error': str(e)})
+                self._reconnect()
+
+    def _reconnect(self):
+        while rclpy.ok():
+            time.sleep(1.0)
+            try:
+                self.dev = find_keyboard(self.evdev, self.device_path)
+                with self.lock:
+                    self.keys.device_back(self._active_names())
+                self._zero_sent = False
+                self.get_logger().info(f'keyboard back: {self.dev.path}')
+                self._send({'cmd': 'teleop_input_back'})
+                return
+            except (OSError, RuntimeError):
+                continue
 
     def _command(self, action, key):
-        fine = bool(self.held & self.fine_keys)
+        with self.lock:
+            fine = bool(self.keys.held & self.fine_keys)
         if action in ('force_up', 'force_down'):
             if self.force_step is None:
                 self.get_logger().warn('force_step_n is null in keymap.yaml')
@@ -128,8 +175,18 @@ class KeyboardTeleop(Node):
 
     def _publish(self):
         with self.lock:
-            held = set(self.held)
+            held, lost = set(self.keys.held), self.keys.lost
+        if lost:
+            # One zero twist, then silence: robot_control's deadman must see the input as gone.
+            if not self._zero_sent:
+                self.ramp.out[:] = 0.0
+                self._send_twist(self.ramp.out)
+                self._zero_sent = True
+            return
         out = self.ramp.step(held, bool(held & self.fine_keys), 1.0 / self.rate)
+        self._send_twist(out)
+
+    def _send_twist(self, out):
         m = TwistStamped()
         m.header.stamp = stamp_from_ns(now_ns())
         m.header.frame_id = 'probe'

@@ -14,6 +14,8 @@ Every terminal: `source ~/OpenH/scripts/env.sh`.
 - [ ] Every limit in `rig.yaml` is filled from your measurements and protocol (`docs/rig_limits.md`).
       For this first session use **low speed and acceleration caps** (your choice) and a small force band.
 - [ ] `keymap.yaml` speeds and `force_step_n` are set and below the `rig.yaml` caps (keyboard_teleop refuses otherwise).
+- [ ] A **dedicated operator keyboard** is set in `keymap.yaml device:` (its /dev/input/by-id path): evdev reads
+      the device regardless of window focus, so no other keyboard may drive the robot.
 - [ ] **UR safety configuration on the pendant** (Installation > Safety) is set by you and is equal to or
       tighter than `rig.yaml`: TCP speed, TCP force, momentum/power, and a safety plane or boundary around
       the phantom table. This layer works even if our software fails.
@@ -67,6 +69,8 @@ Stop the launch (Ctrl+C) before section C.
 
 ## D. Every safety layer trips (free air)
 After each FAULT: robot stopped, status shows FAULT, nothing moves until acknowledged with **K**.
+- [ ] **Keyboard unplugged**: hold a key, unplug the operator keyboard: motion stops within the deadman
+      timeout (keyboard_teleop stops publishing); plug it back in: no motion until a key is pressed.
 - [ ] **Deadman**: hold a key, then stop keyboard_teleop (Ctrl+C in its terminal). Motion stops within
       `limits.deadman_timeout_s`; status shows flag `deadman`. Restart keyboard_teleop.
 - [ ] **Workspace box (soft)**: teleop slowly toward one face of the box: motion along that axis stops

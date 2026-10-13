@@ -45,6 +45,17 @@ GR00T-H is out of scope for now (separate task).
   (checkerboard or ChArUco) with raw captures saved, re-solve, flange frame, provenance in rig.yaml;
   tested on synthetic data (pivot within 0.5 mm at 0.2 mm noise; rendered board within 2 mm / 0.5 deg).
 
+**Control logic verified in a kinematic simulator** (`src/usrig_robot/test/test_control_sim.py`,
+test-only limits; rig.yaml unchanged): move to pose, unreachable target -> timeout, probe-frame teleop
+directions incl. diagonal, deadman stop, hard envelope FAULT -> acknowledge -> inward-only recovery,
+force-ceiling FAULT (acknowledge refused while violated), descend to contact, constant-speed path
+(speed error < 10 %), path cancelled by retract. Bugs found and fixed by these tests and the review:
+- robot_control crashed on start (ControlStatus message shadowed by the status class);
+- motion services had no timeout: an unreachable target blocked the service forever;
+- a retract that cancelled a path was itself cancelled by the path's cleanup (probe stayed in contact);
+- keyboard loss kept the last motion command publishing at 100 Hz, so the deadman never tripped.
+Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) into the episode bag.
+
 **Data integrity** (`data_integrity.md`)
 - Loss measured at every stage under load. Fixed: Python robot reader (replaced by C++), shallow
   publisher queues, a CPU-heavy QC monitor, readiness subscriptions that decoded every image, a GUI
