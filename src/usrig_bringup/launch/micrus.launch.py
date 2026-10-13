@@ -23,7 +23,7 @@ def config_dir():
 
 
 def micrus_cmd(m, session_id, sim):
-    out = Path(os.path.expanduser(m['out_root'])) / session_id
+    out = Path(os.path.expanduser(m['out_root_sim'] if sim else m['out_root'])) / session_id
     cmd = [os.path.expanduser(m['command']), m['mode'], '--ros2',
            '--lines', str(m['lines']), '--depth', str(m['depth_mm']),
            '--pixel-mm', str(m['pixel_mm']), '--out', str(out),

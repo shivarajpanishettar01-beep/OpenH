@@ -24,6 +24,8 @@ MOTION_LIMITS = (
     'limits.max_angular_speed_deg_s',
     'limits.max_linear_accel_mm_s2',
     'limits.max_angular_accel_deg_s2',
+    'limits.stop_decel_mm_s2',
+    'robot.tcp_setting',
     'limits.deadman_timeout_s',
     'limits.contact_detect_threshold_n',
     'limits.force_setpoint_default_n',
@@ -105,6 +107,19 @@ def find_all_nulls(cfg, prefix='') -> list:
     elif cfg is None:
         out.append(prefix.rstrip('.'))
     return out
+
+
+def set_thread_rt_priority(priority):
+    """SCHED_FIFO for the calling thread. Returns (ok, message); never raises."""
+    import os
+    if not priority:
+        return False, 'rt_priority 0: normal scheduling'
+    try:
+        os.sched_setscheduler(0, os.SCHED_FIFO, os.sched_param(int(priority)))
+        return True, f'SCHED_FIFO priority {priority}'
+    except (PermissionError, OSError) as e:
+        return False, (f'could not set SCHED_FIFO {priority} ({e}); running with normal scheduling. '
+                       'Allow it with an rtprio limit (docs/capture_pc_setup.md)')
 
 
 def require_limits(rig_cfg: dict, keys=MOTION_LIMITS, source='rig.yaml'):

@@ -9,6 +9,7 @@ import threading
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import PoseStamped, WrenchStamped
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
@@ -57,6 +58,7 @@ class RobotStateNode(Node):
         ip = self.get_parameter('robot_ip').value or config.get_path(rig, 'robot.ip')
         if not ip:
             raise RuntimeError('robot.ip is null in rig.yaml and no robot_ip parameter was given')
+        self.robot_ip = ip
         self.base_frame = self.get_parameter('base_frame').value
         self.status = control_status or ControlStatus()
 
@@ -79,7 +81,9 @@ class RobotStateNode(Node):
         self.latest_lock = threading.Lock()
         self.listeners = []          # callables(sample) run in the RTDE thread (robot_control)
 
-        self.reader = RtdeReader(ip, self.get_parameter('frequency_hz').value, self._on_sample)
+        self.reader = RtdeReader(ip, self.get_parameter('frequency_hz').value, self._on_sample,
+                                 rt_priority=config.get_path(rig, 'robot.rt_priority') or 0,
+                                 log=self.get_logger().info)
         self.reader.start()
         self.create_timer(1.0, self._log_stats)
         self.get_logger().info(f'RTDE receive connected to {ip}')
@@ -159,7 +163,7 @@ def main(args=None):
     except RuntimeError as e:
         print(f'[robot_state] {e}', file=sys.stderr)
         sys.exit(2)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         if node is not None:

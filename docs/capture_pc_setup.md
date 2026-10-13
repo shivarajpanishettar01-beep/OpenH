@@ -30,6 +30,17 @@ scripts/build.sh && scripts/test.sh
 - **keyboard_teleop**: add the operator account to the `input` group (`sudo usermod -aG input $USER`, log out and in).
 - **Disk**: a data disk with room for the planned session (QC requires > 50 GB free).
 - **Clock**: NTP on; every stamp is this PC's system clock.
+- **Real-time priority** for the RTDE reader and the 125 Hz control loop (`rig.yaml robot.rt_priority`,
+  SCHED_FIFO). Without it they run at normal priority and log a warning. Allow it once (sudo), then log
+  out and in, and check `ulimit -r` prints 95:
+  ```bash
+  echo "$USER - rtprio 95" | sudo tee /etc/security/limits.d/90-usrig-rtprio.conf
+  ```
+- **Robot (path B)**: the UR7e must be in **Remote Control** mode for ur_rtde to upload its control
+  script; the lab URScript program must not be running. Record the controller's active TCP offset in
+  `rig.yaml robot.tcp_setting`: robot_control refuses to start if the controller's TCP differs.
+- **Data roots**: real sessions go to `session.root` (`~/data`); anything launched with `sim:=true`
+  goes to `session.sim_root` (`~/data_sim`), is tagged `sim: true`, and the export tools refuse it.
 
 ## 4. D415 on USB 3 (start of P1b)
 ```bash

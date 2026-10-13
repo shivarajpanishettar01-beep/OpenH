@@ -5,11 +5,14 @@
 robot:
   ip: null                          # [ROBOT_IP] UR7e controller
   ursim_ip: 127.0.0.1               # URSim (sim:=true); adjust to the URSim container address
-  control_backend: null             # 'rtde' (path B) or 'urscript' (path A): decided at the P3 STOP
+  control_backend: rtde             # path B (ur_rtde forceMode + speedL), decided at the P3 STOP 13 Oct 2026
   control_rate_hz: 125.0
   state_rate_hz: 500.0
   max_state_age_s: 0.02             # robot_control faults if the newest RTDE sample is older
-  tcp_setting: null                 # controller TCP as reported by RTDE (P0); record, don't change
+  rt_priority: 80                   # SCHED_FIFO priority for RTDE and the control loop. Needs an rtprio
+                                    # limit (docs/capture_pc_setup.md); falls back to normal with a warning
+  tcp_setting: null                 # controller TCP offset [x,y,z,rx,ry,rz] (getTCPOffset). robot_control
+                                    # refuses to start if the controller's active TCP differs from this
 
 probe:
   type: null                        # e.g. MPRO-L40S
@@ -29,7 +32,8 @@ limits:
   max_angular_speed_deg_s: null
   max_linear_accel_mm_s2: null
   max_angular_accel_deg_s2: null
-  deadman_timeout_s: null
+  stop_decel_mm_s2: null            # deceleration for speedStop on FAULT / stop
+  deadman_timeout_s: null           # also sets the controller-side ur_rtde watchdog (min frequency = 1 / timeout)
   contact_detect_threshold_n: null
   measured_speed_margin: 1.2        # FAULT if measured speed > limit x margin
   envelope_lookahead_s: 0.1

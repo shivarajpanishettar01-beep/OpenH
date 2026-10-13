@@ -19,6 +19,7 @@ import time
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import TwistStamped
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -228,7 +229,9 @@ class RobotControlNode(Node):
         self.force_setpoint = float(g('limits.force_setpoint_default_n'))
         self.stale_state_s = float(g('robot.max_state_age_s') or 0.02)
 
-        self.backend = make_backend(rig)
+        # Same controller as robot_state (URSim in the dry run, the UR7e otherwise).
+        self.backend = make_backend(rig, log=self.get_logger().info, ip=state_node.robot_ip)
+        self.rt_priority = int(g('robot.rt_priority') or 0)
         self.get_logger().info(f'connecting control backend: {self.backend.name}')
         self.backend.connect()
 
@@ -371,6 +374,9 @@ class RobotControlNode(Node):
 
     # ---------------------------------------------------------------- control loop
     def _control_loop(self):
+        from usrig_common.config import set_thread_rt_priority
+        ok, msg = set_thread_rt_priority(self.rt_priority)
+        (self.get_logger().info if ok else self.get_logger().warn)(f'control loop: {msg}')
         period = 1.0 / self.rate
         nxt = time.monotonic()
         while not self._stop.is_set():
@@ -386,6 +392,8 @@ class RobotControlNode(Node):
                 nxt = time.monotonic()
 
     def _tick(self, dt):
+        # Controller-side deadman: kicked every tick while this loop is alive, whatever the mode.
+        self.backend.kick()
         s = self.state_node.get_latest()
         if s is None or (now_ns() - s.stamp_ns) * 1e-9 > self.stale_state_s:
             if self.status.mode not in (ST.MODE_IDLE, ST.MODE_FAULT):
@@ -576,9 +584,14 @@ def main(args=None):
         print(f'[robot_control] {e}', file=sys.stderr)
         rclpy.shutdown()
         sys.exit(2)
+    if config.get_path(rig, 'robot.control_backend') != 'rtde':
+        print('[robot_control] robot.control_backend must be rtde (path B, decided at P3)', file=sys.stderr)
+        rclpy.shutdown()
+        sys.exit(2)
 
     status = ControlStatus()
     state = control = None
+    rc = 0
     try:
         state = RobotStateNode(control_status=status)
         control = RobotControlNode(state, status, rig)
@@ -586,7 +599,10 @@ def main(args=None):
         ex.add_node(state)
         ex.add_node(control)
         ex.spin()
-    except KeyboardInterrupt:
+    except (RuntimeError, ValueError) as e:
+        print(f'[robot_control] {e}', file=sys.stderr)
+        rc = 2
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         for n in (control, state):
@@ -594,6 +610,7 @@ def main(args=None):
                 n.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()
+    sys.exit(rc)
 
 
 if __name__ == '__main__':

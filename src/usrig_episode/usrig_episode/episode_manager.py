@@ -25,6 +25,7 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import PoseStamped
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
@@ -34,7 +35,8 @@ from std_msgs.msg import String
 from std_srvs.srv import SetBool, Trigger
 
 from usrig_common import config, geometry
-from usrig_common.session import read_json, session_dir, update_session_json, write_json_atomic
+from usrig_common.session import (check_sim_flag, data_root, read_json, session_dir, update_session_json,
+                                  write_json_atomic)
 from usrig_common.timeutil import now_ns, ns_from_stamp, stamp_from_ns
 from usrig_interfaces.msg import EpisodeEvent
 from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPose, RunPath
@@ -57,7 +59,7 @@ class EpisodeManager(Node):
         super().__init__('episode_manager')
         for name, default in (('config_dir', ''), ('session_id', ''), ('session_json', ''),
                               ('stage', -1), ('robot_control', False), ('adhoc_json', ''),
-                              ('operator_id', ''), ('phantom_id', '')):
+                              ('operator_id', ''), ('phantom_id', ''), ('sim', False)):
             self.declare_parameter(name, default)
         p = lambda n: self.get_parameter(n).value  # noqa: E731
         cfg_dir = p('config_dir') or None
@@ -71,8 +73,10 @@ class EpisodeManager(Node):
         self.adhoc = read_json(p('adhoc_json')) if p('adhoc_json') else {}
         self.operator_id = p('operator_id') or self.scfg['session']['operators'][0]
         self.phantom_id = p('phantom_id') or self.scfg['session'].get('phantom_id')
-        self.root = Path(self.scfg['session']['root']).expanduser()
+        self.sim = bool(p('sim'))
+        self.root = data_root(self.scfg, self.sim)
         self.sdir = session_dir(self.root, self.session_id)
+        check_sim_flag(self.sdir, self.sim)
         self.sdir.mkdir(parents=True, exist_ok=True)
 
         cb = ReentrantCallbackGroup()
@@ -97,7 +101,7 @@ class EpisodeManager(Node):
         self.recorder.ensure_micrus_stopped()
         self._recover_interrupted()
 
-        update_session_json(self.sdir, session_id=self.session_id, stage=self.stage,
+        update_session_json(self.sdir, session_id=self.session_id, stage=self.stage, sim=self.sim,
                             operators=self.scfg['session']['operators'], phantom_id=self.phantom_id,
                             phantom_placement=self.scfg['session'].get('phantom_placement'),
                             rig_git_commit=provenance.rig_git_commit(),
@@ -247,7 +251,7 @@ class EpisodeManager(Node):
         idx = self._next_index()
         ep_id = f'{self.session_id}_ep_{idx:04d}'
         ep = {
-            'episode_id': ep_id, 'episode_dir': f'ep_{idx:04d}', 'session_id': self.session_id,
+            'episode_id': ep_id, 'episode_dir': f'ep_{idx:04d}', 'session_id': self.session_id, 'sim': self.sim,
             'stage': self.stage, 'plan_row': None, 'seed': None,
             'mode': 'B' if self.stage == 2 and not self.adhoc else 'A',
             'operator_id': self.operator_id, 'phantom_id': self.phantom_id,
@@ -564,7 +568,7 @@ def main(args=None):
     except (RuntimeError, config.UnsetLimitError) as e:
         print(f'[episode_manager] {e}', file=sys.stderr)
         sys.exit(2)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         if node is not None:

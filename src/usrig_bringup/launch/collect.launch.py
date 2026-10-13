@@ -35,7 +35,8 @@ def generate_launch_description():
         launch_arguments=args.items())
     # value_type=str: a purely numeric session id must not become an int parameter
     params = [{'config_dir': str(config_dir()), 'session_id': ParameterValue(L('session_id'), value_type=str),
-               'session_json': ParameterValue(L('session_json'), value_type=str), 'use_sim_time': False}]
+               'session_json': ParameterValue(L('session_json'), value_type=str),
+               'sim': ParameterValue(L('sim'), value_type=bool), 'use_sim_time': False}]
     return LaunchDescription([
         DeclareLaunchArgument('session_id'),
         DeclareLaunchArgument('session_json', default_value=''),

@@ -103,6 +103,7 @@ def main():
     ap.add_argument('--planned-hours', type=float, default=None)
     ap.add_argument('--mb-per-s', type=float, default=None)
     ap.add_argument('--control', action='store_true', help='robot_control will run')
+    ap.add_argument('--sim', action='store_true', help='simulated run (session.sim_root)')
     ap.add_argument('--listen-s', type=float, default=5.0)
     ap.add_argument('--config-dir')
     a, _ = ap.parse_known_args()
@@ -181,7 +182,10 @@ def main():
                     f'auto_exposure={v[0]} auto_wb={v[1]}')
 
     # gates, limits, plan
-    g = gates.check_stage(a.stage, scfg, Path(scfg['session']['root']).expanduser())
+    from usrig_common.session import data_root
+    root_data = data_root(scfg, a.sim)
+    tab.add('data root', 'PASS', f'{root_data} ({"SIM: never exported" if a.sim else "real collection"})')
+    g = gates.check_stage(a.stage, scfg, root_data)
     tab.add(f'gate for stage {a.stage}', 'PASS' if g['passed'] else 'FAIL', json.dumps(g)[:120])
     if a.control or a.stage > 0:
         miss = config.find_unset(rig, config.MOTION_LIMITS)
@@ -198,13 +202,13 @@ def main():
         tab.add('plan locked', 'N/A', f'stage {a.stage}')
 
     # disk
-    root = Path(scfg['session']['root']).expanduser()
+    root = root_data
     while not root.exists():
         root = root.parent
     free_gb = shutil.disk_usage(root).free / 1e9
     mbps = a.mb_per_s
     if mbps is None:
-        eps = sorted(Path(scfg['session']['root']).expanduser().glob('*/ep_*/episode.json'))
+        eps = sorted(root_data.glob('*/ep_*/episode.json'))
         for e in reversed(eps):
             ep = json.loads(e.read_text())
             if ep.get('duration_s'):

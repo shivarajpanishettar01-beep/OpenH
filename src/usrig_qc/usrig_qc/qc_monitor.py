@@ -14,6 +14,7 @@ from pathlib import Path
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
@@ -63,6 +64,7 @@ class QcMonitor(Node):
         super().__init__('qc_monitor')
         self.declare_parameter('config_dir', '')
         self.declare_parameter('session_id', '')
+        self.declare_parameter('sim', False)
         cfg_dir = self.get_parameter('config_dir').value or None
         self.scfg = config.load_config('session', cfg_dir)
         self.rig = config.load_config('rig', cfg_dir)
@@ -148,7 +150,8 @@ class QcMonitor(Node):
         self.usb_speed = devs[0]['speed_mbps'] if devs else None
 
     def _publish(self):
-        root = Path(self.scfg['session']['root']).expanduser()
+        from usrig_common.session import data_root
+        root = data_root(self.scfg, self.get_parameter('sim').value)
         while not root.exists():
             root = root.parent
         with self.lock:
@@ -178,7 +181,7 @@ def main(args=None):
     n = QcMonitor()
     try:
         rclpy.spin(n)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         n.destroy_node()

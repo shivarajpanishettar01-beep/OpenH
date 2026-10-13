@@ -4,6 +4,7 @@ order). Writes a staging folder of symlinks:
 
   python stage_bags.py --sessions ~/data/S1 ~/data/S2 --test-sessions ~/data/S3 -o ~/datasets/staging
 
+* Simulated sessions / episodes (sim: true) are refused outright.
 * Stage 0 episodes are excluded unless --include-stage0; Stage 1 unless --include-stage1
   (open decision 6); discards and episodes whose QC failed are always excluded.
 * Order inside train / test: success, contact-establishment, recovery-start, recovery-mid,
@@ -22,8 +23,13 @@ TYPE_ORDER = ['success', 'shakedown', 'scripted', 'contact-establishment', 'reco
 def collect(sessions, a):
     eps = []
     for s in sessions:
+        sj = Path(s).expanduser() / 'session.json'
+        if sj.exists() and json.loads(sj.read_text()).get('sim'):
+            raise SystemExit(f'{s} is a simulated session (sim: true): never exported')
         for f in sorted(Path(s).expanduser().glob('ep_*/episode.json')):
             e = json.loads(f.read_text())
+            if e.get('sim'):
+                raise SystemExit(f'{f}: simulated episode (sim: true): never exported')
             if e.get('outcome') == 'discard' or not (e.get('qc') or {}).get('pass'):
                 continue
             if e.get('stage') == 0 and not a.include_stage0:

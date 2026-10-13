@@ -4,6 +4,7 @@ import time
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
@@ -80,7 +81,7 @@ def run_tool(fn, name):
     except (RuntimeError, config.UnsetLimitError, ValueError) as e:
         print(f'[{name}] {e}')
         raise SystemExit(2)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         if node is not None:

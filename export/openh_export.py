@@ -114,6 +114,8 @@ def main():
         if o is None:
             sys.exit(f'episode {ep_index}: bag {bag} not in {a.order}')
         epj = json.loads((Path(bag) / 'episode.json').read_text())
+        if epj.get('sim'):
+            sys.exit(f'{bag}: simulated episode (sim: true): never exported')
         sess = json.loads((Path(bag).parent / 'session.json').read_text())
         n = t.num_rows
         t_steps = (float(s['start_unix']) + np.arange(n) / float(s['fps'])) * 1e9

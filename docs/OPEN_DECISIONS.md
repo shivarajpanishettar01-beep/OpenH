@@ -2,8 +2,9 @@
 
 1. **10 h commitment**: 10 h of recorded episode data? Do autonomous rollouts count? 400 × 25 s
    ≈ 2.8 h; 10 h ≈ 1,440 episodes. Decides whether episodes are chained in contact.
-2. **Control path A or B** (P3 STOP). `rig.yaml robot.control_backend` is null; robot_control
-   refuses to start until it is set. Both backends exist (`usrig_robot/backends.py`).
+2. ~~Control path A or B~~: **decided 13 Oct 2026: path B** (ur_rtde forceMode + speedL, controller-side
+   watchdog). URSim is used for a one-time control dry run before the first real motion and later as a
+   GUI view only; it is never part of data collection.
 3. **Action form for Open-H**: absolute or relative TCP. Bags hold both (TCP pose 500 Hz and the
    executed twist); `export/lerobot_rig.yaml` currently exports the executed probe-frame twist +
    force setpoint.

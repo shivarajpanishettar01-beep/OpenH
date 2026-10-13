@@ -13,6 +13,8 @@ import sys
 import threading
 
 import rclpy
+
+from rclpy.executors import ExternalShutdownException
 from geometry_msgs.msg import TwistStamped
 from rclpy.node import Node
 from std_msgs.msg import String
@@ -145,7 +147,7 @@ def main(args=None):
     except (config.UnsetLimitError, ValueError, RuntimeError) as e:
         print(f'[keyboard_teleop] {e}', file=sys.stderr)
         sys.exit(2)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
         if node is not None:

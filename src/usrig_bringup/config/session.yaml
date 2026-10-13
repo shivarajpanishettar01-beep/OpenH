@@ -2,7 +2,8 @@
 # Values marked "NOT VERIFIED" were not checked on the rig yet.
 
 session:
-  root: ~/data                                  # [SESSION_ROOT]
+  root: ~/data                                  # [SESSION_ROOT] real collection only
+  sim_root: ~/data_sim                          # sim:=true runs (micrus --simulate / URSim); never exported
   id_pattern: "{date}_{phantom_id}_{operator_id}_s{n:02d}"
   operators: [op1, op2]                         # [OPERATORS]
   phantom_id: null
@@ -17,6 +18,7 @@ micrus:
   command: micrus                               # [MICRUS_CMD]: `micrus` (SDK conda install) or AppImage path
   mode: serve                                   # serve (headless) | view
   out_root: ~/MicrUs                            # --out = <out_root>/<session_id>
+  out_root_sim: ~/MicrUs_sim                    # used with sim:=true
   ros2_name: micrus
   ros2_frame: micrus_probe
   # Scan settings: fixed for a whole dataset (image size and frame rate depend on them).

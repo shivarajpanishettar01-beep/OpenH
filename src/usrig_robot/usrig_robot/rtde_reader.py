@@ -32,7 +32,7 @@ class ReaderStats:
 class RtdeReader:
     """Polls RTDEReceiveInterface for new samples and calls ``on_sample(sample)``."""
 
-    def __init__(self, ip, frequency_hz, on_sample, poll_s=0.0002):
+    def __init__(self, ip, frequency_hz, on_sample, poll_s=0.0002, rt_priority=0, log=print):
         self.ip = ip
         self.freq = float(frequency_hz)
         self.on_sample = on_sample
@@ -42,10 +42,18 @@ class RtdeReader:
         self._stop = threading.Event()
         self._thread = None
         self.rtde_r = None
+        self.rt_priority = int(rt_priority or 0)
+        self.log = log
 
     def start(self):
         import rtde_receive
-        self.rtde_r = rtde_receive.RTDEReceiveInterface(self.ip, self.freq)
+        try:
+            self.rtde_r = rtde_receive.RTDEReceiveInterface(self.ip, self.freq, [], False, False, self.rt_priority)
+        except RuntimeError as e:
+            if not self.rt_priority:
+                raise
+            self.log(f'RTDE receive with rt_priority {self.rt_priority} failed ({e}); retrying with 0')
+            self.rtde_r = rtde_receive.RTDEReceiveInterface(self.ip, self.freq)
         self._thread = threading.Thread(target=self._run, name='rtde_reader', daemon=True)
         self._thread.start()
 
@@ -65,6 +73,9 @@ class RtdeReader:
         return s
 
     def _run(self):
+        from usrig_common.config import set_thread_rt_priority
+        ok, msg = set_thread_rt_priority(self.rt_priority)
+        self.log(f'RTDE reader thread: {msg}')
         r = self.rtde_r
         period = 1.0 / self.freq
         last_ctrl = None

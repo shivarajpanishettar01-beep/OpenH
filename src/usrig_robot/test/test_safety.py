@@ -5,12 +5,12 @@ from usrig_common import config
 from usrig_robot import safety
 
 RIG = {
-    'robot': {'ip': '127.0.0.1', 'control_backend': 'rtde'},
+    'robot': {'ip': '127.0.0.1', 'control_backend': 'rtde', 'tcp_setting': [0, 0, 0.2, 0, 0, 0]},
     'limits': {'max_contact_force_n': 20.0, 'force_band_n': [2.0, 10.0], 'tilt_cone_deg': 30.0,
                'tilt_reference_axis_base': [0, 0, -1],
                'workspace_box_base_m': {'min': [-0.5, -0.5, 0.0], 'max': [0.5, 0.5, 0.5]},
                'max_linear_speed_mm_s': 50.0, 'max_angular_speed_deg_s': 20.0,
-               'max_linear_accel_mm_s2': 500.0, 'max_angular_accel_deg_s2': 200.0,
+               'max_linear_accel_mm_s2': 500.0, 'max_angular_accel_deg_s2': 200.0, 'stop_decel_mm_s2': 1000.0,
                'deadman_timeout_s': 0.2, 'contact_detect_threshold_n': 1.5,
                'force_setpoint_default_n': 5.0},
     'motion': {'transit_speed_mm_s': 30.0, 'descent_speed_mm_s': 5.0,

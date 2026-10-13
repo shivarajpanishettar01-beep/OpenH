@@ -15,6 +15,10 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - `actual_TCP_force` frame (base frame assumed, per UR docs) and the sign of `forceMode`'s wrench
   along tool +z (into tissue).
 - `forceMode` + `speedL` combined each cycle (path B): behaviour in URSim and on the robot.
+- ur_rtde `setWatchdog(1/deadman)` + `kickWatchdog()` every tick: stop behaviour when the PC stalls
+  (URSim dry run). `getTCPOffset` vs `rig.yaml robot.tcp_setting` check.
+- SCHED_FIFO for the RTDE reader / control loop: refused on the dev PC (`ulimit -r` = 0); fallback
+  verified (warning, normal scheduling). With the rtprio limit set: NOT VERIFIED.
 - Path A: whether the lab URScript accepts absolute targets at 125 Hz; it has no watchdog unless added.
 - `zero_ft` over the path A protocol is not defined.
 - URSim address (`robot.ursim_ip`).

@@ -40,6 +40,7 @@ class Limits:
     alpha_max: float       # rad/s^2
     deadman_s: float
     contact_threshold_n: float
+    stop_decel: float = 2.0       # m/s^2
     measured_speed_margin: float = 1.2
     lookahead_s: float = 0.1
 
@@ -60,6 +61,7 @@ class Limits:
             alpha_max=np.radians(float(g('limits.max_angular_accel_deg_s2'))),
             deadman_s=float(g('limits.deadman_timeout_s')),
             contact_threshold_n=float(g('limits.contact_detect_threshold_n')),
+            stop_decel=float(g('limits.stop_decel_mm_s2')) / 1000.0,
             measured_speed_margin=float(g('limits.measured_speed_margin') or 1.2),
             lookahead_s=float(g('limits.envelope_lookahead_s') or 0.1),
         )

@@ -108,6 +108,7 @@ def resolve(entries, wps):
 
 def _show(path, wps):
     import rclpy
+    from rclpy.executors import ExternalShutdownException
     from geometry_msgs.msg import PoseStamped
     from nav_msgs.msg import Path as PathMsg
     from rclpy.qos import DurabilityPolicy, QoSProfile
@@ -128,7 +129,7 @@ def _show(path, wps):
         while rclpy.ok():
             rclpy.spin_once(n, timeout_sec=0.5)
             time.sleep(0.5)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     n.destroy_node()
     rclpy.shutdown()

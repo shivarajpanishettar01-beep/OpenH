@@ -15,6 +15,7 @@ import time
 
 import numpy as np
 import rclpy
+from rclpy.executors import ExternalShutdownException
 from rclpy.node import Node
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from sensor_msgs.msg import Image
@@ -149,7 +150,7 @@ def main():
     try:
         while time.monotonic() < t_end:
             rclpy.spin_once(n, timeout_sec=0.1)
-    except KeyboardInterrupt:
+    except (KeyboardInterrupt, ExternalShutdownException):
         pass
     r = n.result()
     print(json.dumps(r, indent=2))

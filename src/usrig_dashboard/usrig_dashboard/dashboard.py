@@ -42,10 +42,12 @@ class RosSide(Node):
         super().__init__('dashboard')
         self.declare_parameter('config_dir', '')
         self.declare_parameter('session_id', '')
+        self.declare_parameter('sim', False)
         cfg_dir = self.get_parameter('config_dir').value or None
         self.scfg = config.load_config('session', cfg_dir)
         self.rig = config.load_config('rig', cfg_dir)
         self.session_id = self.get_parameter('session_id').value
+        self.sim = bool(self.get_parameter('sim').value)
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST)
         self.lock = threading.Lock()
         self.latest = {}
@@ -143,14 +145,16 @@ def main(args=None):
     except Exception:
         lay_file = Path(__file__).resolve().parents[1] / 'config' / 'dashboard_layout.yaml'
     layout = yaml.safe_load(lay_file.read_text())
-    sdir = session_dir(ros.scfg['session']['root'], ros.session_id) if ros.session_id else None
+    from usrig_common.session import data_root
+    root = data_root(ros.scfg, ros.sim)
+    sdir = session_dir(root, ros.session_id) if ros.session_id else None
     band = config.get_path(ros.rig, 'limits.force_band_n')
     cap_s = float(ros.scfg['stage2']['cap_s'])
 
     pg.setConfigOptions(imageAxisOrder='row-major', antialias=False)
     app = QtWidgets.QApplication(sys.argv)
     win = QtWidgets.QMainWindow()
-    win.setWindowTitle(f'usrig dashboard — {ros.session_id or "no session"}')
+    win.setWindowTitle(f'usrig dashboard — {ros.session_id or "no session"}{"  [SIM]" if ros.sim else ""}')
     central = QtWidgets.QWidget()
     vbox = QtWidgets.QVBoxLayout(central)
     win.setCentralWidget(central)
@@ -431,7 +435,7 @@ def main(args=None):
         if sdir and time.monotonic() - gate_cache['t'] > 5:
             gate_cache['t'] = time.monotonic()
             st = int(ros.scfg['session']['stage'])
-            gate_cache['v'] = gates.check_stage(st, ros.scfg, ros.scfg['session']['root'])
+            gate_cache['v'] = gates.check_stage(st, ros.scfg, root)
             prog = read_json(sdir / 'plan_progress.json')
             done = sum(1 for v in prog.values() if v.get('status') == 'done')
             redo = [k for k, v in prog.items() if v.get('status') == 'redo']
