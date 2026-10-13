@@ -24,6 +24,14 @@ from usrig_common import config
 from usrig_common.timeutil import now_ns, ns_from_stamp
 
 
+def stamp_from_cdr(b):
+    """header.stamp of a serialized message whose first field is std_msgs/Header (CDR)."""
+    little = b[1] == 1                   # encapsulation: 0x0001 = CDR little endian
+    sec = int.from_bytes(b[4:8], 'little' if little else 'big', signed=True)
+    nsec = int.from_bytes(b[8:12], 'little' if little else 'big')
+    return sec * 1_000_000_000 + nsec
+
+
 def summarize(stamps, recv):
     s = np.asarray(stamps, np.int64)
     r = np.asarray(recv, np.int64)
@@ -64,12 +72,19 @@ class Checker(Node):
 
     def _track(self, topic, typ, qos, cb=None):
         self.data[topic] = ([], [])
+        if cb is None:
+            # Stamp only: take raw CDR bytes, never deserialize the payload. Decoding large
+            # images in Python makes this checker fall behind and lose frames itself.
+            def f_raw(b, t=topic):
+                self.data[t][1].append(now_ns())
+                self.data[t][0].append(stamp_from_cdr(b))
+            self.create_subscription(typ, topic, f_raw, qos, raw=True)
+            return
 
         def f(m, t=topic):
             self.data[t][0].append(ns_from_stamp(m.header.stamp))
             self.data[t][1].append(now_ns())
-            if cb:
-                cb(m)
+            cb(m)
         self.create_subscription(typ, topic, f, qos)
 
     def _fi(self, m):

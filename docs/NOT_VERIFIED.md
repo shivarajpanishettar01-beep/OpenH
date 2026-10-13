@@ -17,12 +17,12 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - URSim address (`robot.ursim_ip`).
 
 ## micrus
-- `micrus serve --ros2` from launch: SIGINT reaching micrus via `ros2 launch` Ctrl+C (terminal
-  sends SIGINT to the process group, launch sends another) and the power-down message (P1 check).
+- ~~SIGINT via `ros2 launch` Ctrl+C reaching micrus~~: verified with the simulator (docs/P1_results.md);
+  re-check on the real scanner.
 - `micrus --version` output format (episode.json `micrus_version`).
 - `/micrus/snapshot` `message`: assumed to be a path whose `.png` sibling is the image.
 - `frame_info` `image.pixel_spacing_mm` scalar vs pair (dashboard handles both).
-- Rate on the real scanner (27.4 fps measured only in simulation).
+- Rate on the real scanner (27.35 Hz measured with the simulator through our launch, P1).
 
 ## Wrist camera
 - realsense2_camera version, every `rs_launch.py` argument name in `session.yaml`
