@@ -2,49 +2,127 @@
 
 UR7e + Telemed probe (micrus) + wrist RealSense D415, one Ubuntu 22.04 / ROS 2 Humble machine,
 one clock. Records one MCAP bag per episode (ultrasound, robot, camera, events) plus the micrus
-HDF5, and exports LeRobot v2.1 + `modality.json` (GR00T-H) and LeRobot v3.0 (Open-H v2).
+HDF5, and exports LeRobot v3.0 for the Open-H Embodiment V2 contribution (via LeRobot v2.1 from
+`bag_to_lerobot`).
 
 ## Layout
 | Path | Contents |
 |---|---|
-| `src/usrig_interfaces` | `RobotState`, `EpisodeEvent` msgs; `MoveToPose`, `DescendToContact`, `InjectPerturbation`, `RunPath` srvs |
+| `src/usrig_interfaces` | `RobotState`, `EpisodeEvent`, `ControlStatus` msgs; `MoveToPose`, `DescendToContact`, `InjectPerturbation`, `RunPath` srvs |
 | `src/usrig_common` | config + null-limit refusal, geometry (no FK), constant-speed paths, Kabsch, stage gates, legacy packet parser |
 | `src/usrig_robot_cpp` | `robot_state_cpp`: lossless 500 Hz RTDE state (ur_client_library), the recorded robot data |
 | `src/usrig_robot` | `robot_control` (only node that moves the robot; safety envelope, controller watchdog, FAULT/ack, services), Python `robot_state` fallback, `rig_measure` |
 | `src/usrig_teleop` | `keyboard_teleop` (evdev, ramped probe-frame twist at 100 Hz) |
 | `src/usrig_episode` | `episode_manager` (stages 0/1/2, crash-safe recorder, resume), `plan_generator`, `register_phantom`, `waypoint_teach/verify`, `path_editor`, `handeye_calib`, `rig_static_tf` |
-| `src/usrig_qc` | `qc_monitor` (/qc/status), `episode_qc` (from bag stamps), `presession_check`, `stream_check` |
+| `src/usrig_qc` | `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
 | `src/usrig_dashboard` | dashboard (demos only), `annotator` (offline expert labelling) |
 | `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files |
 | `export/` | `lerobot_rig.yaml` (bag_to_lerobot config), `stage_bags.py`, `depth_export.py`, `openh_export.py` |
 | `tools/temporal_calib.py` | ultrasound / D415 latency from a sinusoidal compress test |
-| `docs/` | P0 survey, NOT VERIFIED list, open decisions, collection-day commands |
+| `docs/` | capture-PC setup, rig limits, collection-day commands, data integrity, proposal alignment, P0-P2 results, NOT VERIFIED list, open decisions |
 
-## Setup
+## Capture PC setup
+
+The capture PC runs everything: micrus (ultrasound), the UR7e connection, the wrist D415 and the
+recorder, all on its own clock. Requirements: Ubuntu 22.04, ROS 2 Humble (`/opt/ros/humble`),
+Miniconda, a USB 3 port for the D415, a network link to the UR7e, and a data disk.
+Full details and troubleshooting: [`docs/capture_pc_setup.md`](docs/capture_pc_setup.md).
+
+**1. System packages** (sudo):
+```bash
+sudo apt update && sudo apt install -y ros-humble-ur-client-library ros-humble-realsense2-camera ros-humble-rosbag2-storage-mcap ros-humble-plotjuggler-ros
+```
+
+**2. Clone, create the conda env, build, test:**
+```bash
+git clone https://github.com/shivarajpanishettar01-beep/OpenH.git ~/OpenH && cd ~/OpenH
+```
 ```bash
 scripts/setup_env.sh
 ```
 ```bash
-scripts/build.sh
+scripts/build.sh && scripts/test.sh
+```
+`setup_env.sh` creates the `openh` env (Python 3.10, matching Humble). All Python here runs in it.
+After the build, `ls install/usrig_robot_cpp/lib/usrig_robot_cpp/` must list `robot_state_cpp`
+(the lossless robot-state node); if it is missing, step 1 was not completed.
+
+**3. In every new terminal:**
+```bash
+source ~/OpenH/scripts/env.sh
+```
+It activates `openh`, sources ROS 2 Humble and this workspace. RealSense tools such as
+`rs-enumerate-devices` only work after it.
+
+**4. One-time machine settings** (sudo, then log out and back in):
+```bash
+sudo usermod -aG input $USER
 ```
 ```bash
-scripts/test.sh
+echo "$USER - rtprio 95" | sudo tee /etc/security/limits.d/90-usrig-rtprio.conf
 ```
-System packages (sudo): `ros-humble-rosbag2-storage-mcap ros-humble-realsense2-camera ros-humble-plotjuggler-ros`.
-The Open-H export uses a second env (`scripts/setup_env.sh --with-export`, Python 3.12, LeRobot 0.6.0).
+The first lets `keyboard_teleop` read the keyboard; the second allows real-time priority for the
+robot-state reader, control loop and recorder (check `ulimit -r` prints 95). Without it they run
+at normal priority and log a warning.
+
+**5. micrus on this machine:** install the micrus SDK (conda, Python 3.10) or AppImage and its USB
+udev rule, run `micrus machine-id`, install the licence file for this machine, then set
+`micrus.command`, `micrus.licence_file` and `micrus.usb_vendor_id` in
+`src/usrig_bringup/config/session.yaml`. Check the simulator:
+```bash
+ros2 launch usrig_bringup micrus.launch.py session_id:=setup_check sim:=true
+```
+
+**6. Wrist D415:** plug it into a USB 3 port on the PC (not a hub or dock) with a SuperSpeed cable:
+```bash
+rs-enumerate-devices | grep -E "Serial Number|Usb Type"
+```
+`Usb Type` must be `3.x`. Put the serial in `session.yaml` (`wrist_camera.serial`), then lock exposure
+and white balance from auto: start the camera with `auto:=true`, then let the tool sample and write them:
+```bash
+ros2 launch usrig_bringup wrist_camera.launch.py auto:=true
+```
+```bash
+ros2 run usrig_qc camera_autolock --write
+```
+
+**7. UR7e:** set `robot.ip` in `src/usrig_bringup/config/rig.yaml`, put the robot in **Remote Control**
+on the pendant, and record its active TCP offset in `robot.tcp_setting`. Check the read-only connection:
+```bash
+ros2 run usrig_robot rig_measure pose
+```
+
+**8. Safety limits:** every limit in `rig.yaml` is `null` until filled from your measurements and
+protocol (see [`docs/rig_limits.md`](docs/rig_limits.md); `rig_measure box`, `tilt-axis` and
+`force-noise` help). `robot_control` refuses to start while any is null and names each one.
+Run the control dry run in URSim before the first real motion.
+
+**9. Before each session:**
+```bash
+ros2 run usrig_qc presession_check --stage 0 --session ~/data/<SESSION_ID> --control
+```
+Collection runs headless; the operator view is `ros2 run usrig_qc status_console`. The dashboard
+is for demos only. Day-to-day commands: [`docs/collection_day.md`](docs/collection_day.md).
+
+**Open-H export** (any PC with the recorded data): a second env with Python 3.12 and LeRobot 0.6.0,
+`scripts/setup_env.sh --with-export`, then `export/stage_bags.py` and `export/openh_export.py`.
 
 ## Safety rules built into the code
-- `robot_control`, `keyboard_teleop`, `episode_manager` (stages 1-2) refuse to start while any
-  limit in `rig.yaml` is null and name each one.
-- `robot_control` refuses until `robot.control_backend` is chosen (path A `urscript` / path B `rtde`).
-- Test motion in URSim first (`sim:=true`). The real robot moves only after the limits are filled
-  and the go is given.
+- `robot_control`, `keyboard_teleop` and `episode_manager` (stages 1-2) refuse to start while any
+  limit in `rig.yaml` is null, and name each one.
+- Control is path B (ur_rtde `forceMode` + `speedL`) with a watchdog on the robot controller: if this
+  PC stops sending, the UR7e stops by itself. `robot_control` also refuses to start if the robot is
+  not in Remote Control or its active TCP differs from `rig.yaml robot.tcp_setting`.
+- Motion is tested in URSim first (`sim:=true`); the real robot moves only after the limits are
+  filled and the go is given. Simulated runs are stored separately and never exported.
 - micrus is never modified; it is driven only through its CLI and ROS 2 interface.
 
 ## Status
-Code base only. Nothing has run against micrus, URSim, the robot or the camera yet: see
-`docs/NOT_VERIFIED.md` and `docs/OPEN_DECISIONS.md`. Next step is the P1 check with
-`micrus --simulate`.
+Built and unit-tested (46 tests). Verified so far: micrus simulator bringup (27.35 Hz, 0 frame gaps
+in 5 min, clean power-down), robot state on URSim, and data integrity under load on the development
+PC (C++ robot_state: 0 of ~31,000 samples lost per minute). Not yet run: the URSim control dry run
+(needs the limits), the D415 on USB 3, the real scanner, and the real UR7e. See
+[`docs/NOT_VERIFIED.md`](docs/NOT_VERIFIED.md) and [`docs/OPEN_DECISIONS.md`](docs/OPEN_DECISIONS.md).
 
 ## License
 Code: MIT (see `LICENSE`). This covers the rig code in this repository only. micrus is a separate,
