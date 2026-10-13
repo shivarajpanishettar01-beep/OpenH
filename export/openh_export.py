@@ -13,6 +13,9 @@ Per step (added to every episode parquet and to meta/info.json):
                                                      next step, rotation vector (proposal eq. 2)
   observation.meta.commanded_twist       float32[6]  executed probe-frame twist (the rig's raw action)
   observation.meta.force_setpoint_n      float32[1]
+  observation.meta.command_valid         bool        false where nothing was commanded (freedrive by hand,
+                                                     robot_control off): twist and setpoint are 0 there and
+                                                     must be ignored (NaN would become null in LeRobot v3.0)
   observation.images.wrist_depth         image       16-bit PNG, millimetres, aligned to colour (lossless)
   observation.meta.force_torque          float32[6]
   observation.meta.probe_type            string
@@ -60,9 +63,13 @@ def write_jsonl(p, rows):
 
 
 def stats_of(arr):
+    """NaN-aware (no-command steps are NaN); a column that is all NaN gets NaN stats."""
+    import warnings
     a = np.asarray(arr, np.float64).reshape(len(arr), -1)
-    return {'min': a.min(0).tolist(), 'max': a.max(0).tolist(), 'mean': a.mean(0).tolist(),
-            'std': a.std(0).tolist(), 'count': [len(a)]}
+    with warnings.catch_warnings():
+        warnings.simplefilter('ignore', RuntimeWarning)
+        return {'min': np.nanmin(a, 0).tolist(), 'max': np.nanmax(a, 0).tolist(), 'mean': np.nanmean(a, 0).tolist(),
+                'std': np.nanstd(a, 0).tolist(), 'count': [len(a)]}
 
 
 def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic, want_depth):
@@ -213,6 +220,12 @@ def main():
         wrist_cali = wrist_cali or cam
         state = np.asarray(t.column('observation.state').to_pylist(), float)
         old_action = np.asarray(t.column('action').to_pylist(), float)
+        # no command existed on kinesthetic steps (freedrive by hand) or without robot_control (NaN in the
+        # bag): flagged by command_valid = false and stored as 0 (LeRobot v3.0 turns NaN into null)
+        src = (np.asarray(t.column('observation.meta.action_source').to_pylist(), float).ravel()
+               if 'observation.meta.action_source' in t.column_names else np.full(len(old_action), np.nan))
+        command_valid = ~np.isnan(old_action).any(axis=1) & (src != 5)
+        old_action[~command_valid, :] = 0.0
         act = F.delta_actions(state[:, tcp_idx], a.action_frame)
         fc = (ann.get('failure_class') or {}).get('value') or ''
         cols = {
@@ -221,6 +234,7 @@ def main():
                                                          pa.list_(pa.float32(), 6)),
             # shape [1] numeric features are scalars in LeRobot's HF schema (a 1-element list fails to load)
             'observation.meta.force_setpoint_n': pa.array(old_action[:, 6].astype(np.float32), pa.float32()),
+            'observation.meta.command_valid': pa.array(command_valid, pa.bool_()),
             'observation.meta.force_torque': t.column('observation.force_torque')
             if 'observation.force_torque' in t.column_names else pa.array([[np.nan] * 6] * n),
             'observation.meta.probe_type': pa.array([probe_type] * n),
@@ -260,7 +274,8 @@ def main():
         for k in ('action', 'observation.meta.commanded_twist', 'observation.meta.force_setpoint_n',
                   'observation.meta.host_stamp_ns', 'observation.meta.stage', 'observation.meta.prob_cali_mtx',
                   'observation.meta.wrist_cali_mtx', 'observation.meta.force_torque',
-                  'observation.meta.probe_acquisition_param', 'observation.meta.action_is_expert'):
+                  'observation.meta.probe_acquisition_param', 'observation.meta.action_is_expert',
+                  'observation.meta.command_valid'):
             es[k] = stats_of(np.asarray(t.column(k).to_pylist(), np.float64))
         if a.depth == 'png':
             d = np.stack([st['depth'][i] for i in di]).astype(np.float64)

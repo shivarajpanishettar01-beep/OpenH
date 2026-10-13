@@ -11,6 +11,10 @@ Stage 2  per plan row (Mode B): move_to_pose(approach + start_offset) -> recordi
          end/outcome -> retract -> QC (pass: next row, fail: redo). Restart resumes at the first
          incomplete row.
 Mode A   any stage: extra fields from adhoc_json are merged into episode.json.
+Freedrive  -p collection_mode:=freedrive (robot_control off): the operator guides the arm by hand with
+         the foot pedal (UR "Freedrive" input). B start -> recording -> free-air hold -> start ->
+         demonstration -> outcome keys -> B stop. Nothing is commanded; episodes are type
+         'kinesthetic', stage 0, with the grip from session.yaml freedrive.grip.
 
 A stage whose gate has not passed is refused; the gate result goes to session.json.
 """
@@ -60,7 +64,8 @@ class EpisodeManager(Node):
         super().__init__('episode_manager')
         for name, default in (('config_dir', ''), ('session_id', ''), ('session_json', ''),
                               ('stage', -1), ('robot_control', False), ('adhoc_json', ''),
-                              ('operator_id', ''), ('phantom_id', ''), ('sim', False)):
+                              ('operator_id', ''), ('phantom_id', ''), ('sim', False),
+                              ('collection_mode', 'robot')):
             self.declare_parameter(name, default)
         p = lambda n: self.get_parameter(n).value  # noqa: E731
         cfg_dir = p('config_dir') or None
@@ -71,6 +76,15 @@ class EpisodeManager(Node):
             raise RuntimeError('session_id parameter is required')
         self.stage = int(p('stage')) if int(p('stage')) >= 0 else int(self.scfg['session']['stage'])
         self.control = bool(p('robot_control'))
+        self.collection_mode = p('collection_mode')
+        if self.collection_mode not in ('robot', 'freedrive'):
+            raise RuntimeError("collection_mode must be 'robot' or 'freedrive'")
+        if self.collection_mode == 'freedrive':
+            if self.control:
+                raise RuntimeError('collection_mode freedrive: the robot is guided by hand; run with robot_control:=false')
+            if config.get_path(self.rig, 'freedrive.input') is None:
+                raise RuntimeError('collection_mode freedrive: rig.yaml freedrive.input (pedal input) is null')
+            self.stage = 0                 # operator-paced, no stage gate; episodes are type 'kinesthetic'
         self.adhoc = read_json(p('adhoc_json')) if p('adhoc_json') else {}
         self.operator_id = p('operator_id') or self.scfg['session']['operators'][0]
         self.phantom_id = p('phantom_id') or self.scfg['session'].get('phantom_id')
@@ -372,6 +386,9 @@ class EpisodeManager(Node):
     # ------------------------------------------------------------------ stages
     def _run_stage(self):
         try:
+            if self.collection_mode == 'freedrive':
+                self._freedrive()
+                return
             {0: self._stage0, 1: self._stage1, 2: self._stage2}[self.stage]()
         except Abort as e:
             self.get_logger().error(f'stage stopped: {e}')
@@ -417,6 +434,43 @@ class EpisodeManager(Node):
                         self.ep = None
                 if self.control:
                     self._safe_retract()
+
+    def _freedrive(self):
+        """Kinesthetic episodes: the operator moves the arm with the freedrive pedal; nothing is commanded."""
+        cap = float(self.scfg['stage0']['max_duration_s'])
+        grip = config.get_path(self.scfg, 'freedrive.grip')
+        while rclpy.ok():
+            self.get_logger().info('Freedrive: probe in free air, press B to start; hold the pedal to guide '
+                                   'the arm; B again to stop')
+            self._drain()
+            self.wait_cmd({'start_stop'})
+            if self.count_publishers('/robot/control_status') > 0:
+                self.get_logger().error('robot_control is running: stop it for freedrive collection (episode not started)')
+                continue
+            ep = self._new_episode(type='kinesthetic', collection_mode='freedrive', grip=grip,
+                                   force_label_valid=grip == 'wrist_handle', force_setpoint_n=None)
+            try:
+                self._begin_recording(ep)          # includes the free-air hold (F/T offset window)
+                self._start_event(ep)
+                c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=cap)
+                while c is not None and c['cmd'] == 'outcome':
+                    ep['outcome'] = c['value']
+                    c = self.wait_cmd({'start_stop', 'discard', 'outcome'},
+                                      timeout=max(0.0, cap - (now_ns() - ep['t_start_ns']) * 1e-9))
+                if c is None:
+                    ep['notes'] = (ep['notes'] + '\nstopped by stage0.max_duration_s').strip()
+                elif c['cmd'] == 'discard':
+                    ep['outcome'] = 'discard'
+            except (Abort, RecorderError) as e:
+                ep['outcome'] = 'discard'
+                ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
+            finally:
+                if ep.get('t_bag_ready_ns'):
+                    self._finish(ep)
+                else:
+                    self.recorder.abort()
+                    with self.ep_lock:
+                        self.ep = None
 
     def _stage1(self):
         st1 = self.scfg['stage1']

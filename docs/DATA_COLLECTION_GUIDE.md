@@ -5,7 +5,8 @@ Recording and crash recovery were run in simulation (`P4_results.md`); a real se
 yet. Every terminal starts with `cd ~/OpenH && source scripts/env.sh`.
 
 Related: `TELEOPERATION_GUIDE.md` (keys, enable, stop), `WAYPOINT_COLLECTION_GUIDE.md` (waypoints,
-paths, plans), `first_motion_checklist.md` (before the first real session).
+paths, plans), `FREEDRIVE_COLLECTION_GUIDE.md` (guiding the arm by hand with the freedrive pedal),
+`first_motion_checklist.md` (before the first real session).
 
 ## 1. Power-on
 1. Power the UR7e and release brakes on the pendant (you, not software). Check the controller TCP and
@@ -147,8 +148,10 @@ In the `openh-export` env (Python 3.12, LeRobot 0.6.0):
 ```
 Needs `probe.type` and `calibration.prob_cali_mtx` in `rig.yaml`. Action = incremental TCP pose
 `[dx, dy, dz, drx, dry, drz]` (base frame, rotation vector; `--action-frame tool` for the TCP frame); the
-executed probe-frame twist is kept as `observation.meta.commanded_twist`; wrist depth is a lossless
-16-bit PNG in mm. Then Open-H's `validate_formatting.py` (not in this repo).
+executed probe-frame twist is kept as `observation.meta.commanded_twist`, with
+`observation.meta.command_valid` false where nothing was commanded (freedrive, robot_control off: twist
+and setpoint are 0 there); wrist depth is a lossless 16-bit PNG in mm. Freedrive episodes (type
+`kinesthetic`) go to the train split; `--exclude-kinesthetic` on `stage_bags.py` leaves them out. Then Open-H's `validate_formatting.py` (not in this repo).
 
 The whole chain is checked on synthetic episodes with known ground truth (no hardware, ~25 s):
 ```bash

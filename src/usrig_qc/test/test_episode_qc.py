@@ -14,7 +14,7 @@ RIG = yaml.safe_load((REPO / 'src/usrig_bringup/config/rig.yaml').read_text())
 T0 = 1_760_000_000_000_000_000
 
 
-def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=()):
+def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mode=3, vx_mm_s=0.0):
     from rosbags.rosbag2 import StoragePlugin, Writer
     ts = _typestore()
     Image = ts.types['sensor_msgs/msg/Image']
@@ -48,10 +48,10 @@ def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=()):
             continue
         ns = T0 + k * 2_000_000
         m = RS(header=hdr(ns), controller_time_s=k * 0.002, q=np.zeros(6), qd=np.zeros(6),
-               tcp_base=Pose(position=Point(x=0.0, y=0.0, z=0.2), orientation=q_down),
+               tcp_base=Pose(position=Point(x=vx_mm_s * 1e-3 * k * 0.002, y=0.0, z=0.2), orientation=q_down),
                tcp_phantom=Pose(position=Point(x=0.0, y=0.0, z=0.0), orientation=q_down),
-               wrench=np.array([0.0, 0.0, -4.0, 0.0, 0.0, 0.0]), force_setpoint_n=4.0, mode=3,
-               safety_flags=0, action_source=0, action_is_expert=True)
+               wrench=np.array([0.0, 0.0, -4.0, 0.0, 0.0, 0.0]), force_setpoint_n=4.0, mode=mode,
+               safety_flags=0, action_source=source, action_is_expert=source in (0, 1, 5))
         msgs.append(('/robot/state', ns, m, RS))
     for t, kind, val in ((0.05, 'phase', {'phase': 'free_air'}), (0.6, 'phase', {'phase': 'contact'}),
                          (0.7, 'start', {}), (1.0, 'phase', {'phase': 'search'}),
@@ -145,3 +145,36 @@ def test_lost_robot_samples_fail(tmp_path):
     r = run_episode_qc(tmp_path / 'ep_0005', EP, *config())
     c = r['checks']['robot_sample_gaps']
     assert c['status'] == 'fail' and c['gaps'] == 2 and c['samples_lost'] == 4
+
+
+FD = dict(EP, type='kinesthetic', collection_mode='freedrive', grip='wrist_handle', force_label_valid=True)
+
+
+def freedrive_config():
+    scfg, rig = config()
+    rig['limits']['max_linear_speed_mm_s'] = 50.0
+    return scfg, rig
+
+
+def test_freedrive_episode_passes(tmp_path):
+    write_bag(tmp_path / 'ep_0006', source=5, mode=7, vx_mm_s=20.0)
+    r = run_episode_qc(tmp_path / 'ep_0006', FD, *freedrive_config())
+    assert r['pass'], r['failed']
+    c = r['checks']
+    assert c['freedrive_engaged']['share'] == 1.0 and c['expert_flag']['status'] == 'pass'
+    assert c['freedrive_speed']['max_mm_s'] == pytest.approx(20.0, rel=0.02)
+
+
+def test_freedrive_pedal_never_used_or_too_fast_fails(tmp_path):
+    write_bag(tmp_path / 'ep_0007', source=4, mode=0)
+    r = run_episode_qc(tmp_path / 'ep_0007', FD, *freedrive_config())
+    assert 'freedrive_engaged' in r['failed']
+    write_bag(tmp_path / 'ep_0008', source=5, mode=7, vx_mm_s=80.0)
+    r = run_episode_qc(tmp_path / 'ep_0008', FD, *freedrive_config())
+    assert 'freedrive_speed' in r['failed'] and r['checks']['freedrive_speed']['max_mm_s'] > 75
+
+
+def test_grip_on_probe_makes_force_band_not_applicable(tmp_path):
+    write_bag(tmp_path / 'ep_0009', source=5, mode=7)
+    r = run_episode_qc(tmp_path / 'ep_0009', dict(FD, grip='probe', force_label_valid=False), *freedrive_config())
+    assert r['checks']['force_band']['status'] == 'n/a'

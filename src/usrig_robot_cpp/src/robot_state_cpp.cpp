@@ -7,11 +7,18 @@
 // /joint_states, /robot/tcp_pose and /robot/wrench. No forward kinematics: TCP pose is the
 // controller's actual_TCP_pose (rotation vector -> quaternion).
 //
-// mode / safety_flags / action_source / action_is_expert / force_setpoint_n come from robot_control
-// on /robot/control_status (latest value; at most one control period old).
+// mode / safety_flags / action_source / action_is_expert / force_setpoint_n: same rule as
+// usrig_robot/labels.py (keep in step):
+//   * robot_control's /robot/control_status if younger than 50 ms (never carried forward);
+//   * else freedrive: the configurable input wired to the foot pedal (UR installation: "Freedrive")
+//     is held and robot_mode is RUNNING -> FREEDRIVE / KINESTHETIC / expert;
+//   * else IDLE / NONE / not expert. Without robot_control the force setpoint is NaN.
+// While robot_control is not commanding, /robot/cmd_executed carries NaN twists at 125 Hz: an explicit
+// "no command" marker (the converter needs the topic; nothing is invented).
 //
 // Parameters: robot_ip, frequency_hz (500), rt_priority (0 = off), base_frame ("base"),
-//             T_base_phantom (16 doubles, row-major; identity until phantom registration).
+//             T_base_phantom (16 doubles, row-major; identity until phantom registration),
+//             freedrive_input (configurable digital input 0-7 of the pedal; -1 = none).
 #include <pthread.h>
 #include <sched.h>
 
@@ -21,6 +28,7 @@
 #include <chrono>
 #include <cmath>
 #include <cstring>
+#include <limits>
 #include <memory>
 #include <mutex>
 #include <string>
@@ -28,6 +36,7 @@
 #include <vector>
 
 #include <geometry_msgs/msg/pose_stamped.hpp>
+#include <geometry_msgs/msg/twist_stamped.hpp>
 #include <geometry_msgs/msg/wrench_stamped.hpp>
 #include <rclcpp/rclcpp.hpp>
 #include <sensor_msgs/msg/joint_state.hpp>
@@ -46,7 +55,17 @@ namespace
 const std::vector<std::string> kJointNames = {"shoulder_pan_joint", "shoulder_lift_joint", "elbow_joint",
                                               "wrist_1_joint", "wrist_2_joint", "wrist_3_joint"};
 const std::vector<std::string> kOutputs = {"timestamp", "actual_q", "actual_qd", "actual_TCP_pose",
-                                           "actual_TCP_speed", "actual_TCP_force"};
+                                           "actual_TCP_speed", "actual_TCP_force",
+                                           "actual_digital_input_bits", "robot_mode"};
+constexpr double kControlStatusMaxAgeS = 0.05;  // labels.py CONTROL_STATUS_MAX_AGE_S
+constexpr int kConfigurableInputBit0 = 8;       // actual_digital_input_bits: 8-15 = configurable inputs
+constexpr int32_t kRobotModeRunning = 7;
+
+int64_t steady_ns()
+{
+  return std::chrono::duration_cast<std::chrono::nanoseconds>(
+             std::chrono::steady_clock::now().time_since_epoch()).count();
+}
 
 int64_t now_ns()
 {
@@ -123,6 +142,10 @@ public:
     freq_ = declare_parameter<double>("frequency_hz", 500.0);
     rt_priority_ = static_cast<int>(declare_parameter<int64_t>("rt_priority", 0));
     frame_ = declare_parameter<std::string>("base_frame", "base");
+    freedrive_input_ = static_cast<int>(declare_parameter<int64_t>("freedrive_input", -1));
+    if (freedrive_input_ > 7) {
+      throw std::runtime_error("freedrive_input must be a configurable digital input 0-7 (or -1)");
+    }
     auto T = declare_parameter<std::vector<double>>("T_base_phantom", std::vector<double>{});
     if (ip_.empty()) {
       throw std::runtime_error("robot_ip parameter is empty (rig.yaml robot.ip / ursim_ip)");
@@ -134,11 +157,13 @@ public:
     pub_js_ = create_publisher<sensor_msgs::msg::JointState>("/joint_states", qos);
     pub_pose_ = create_publisher<geometry_msgs::msg::PoseStamped>("/robot/tcp_pose", qos);
     pub_wrench_ = create_publisher<geometry_msgs::msg::WrenchStamped>("/robot/wrench", qos);
+    pub_nocmd_ = create_publisher<geometry_msgs::msg::TwistStamped>("/robot/cmd_executed", 10);
     sub_status_ = create_subscription<ControlStatus>(
         "/robot/control_status", rclcpp::QoS(10).reliable(), [this](ControlStatus::SharedPtr m) {
           std::lock_guard<std::mutex> lk(status_mtx_);
           status_ = *m;
           have_status_ = true;
+          status_t_ns_ = steady_ns();
         });
     status_.mode = RobotState::MODE_IDLE;
     status_.action_source = RobotState::SOURCE_NONE;
@@ -221,15 +246,19 @@ private:
       const int64_t stamp_ns = now_ns();  // one stamp per sample, taken at reception
       double ctrl_t = 0;
       urcl::vector6d_t q{}, qd{}, pose{}, speed{}, force{};
+      uint64_t di_bits = 0;
+      int32_t robot_mode = -1;
       pkg->getData("timestamp", ctrl_t);
       pkg->getData("actual_q", q);
       pkg->getData("actual_qd", qd);
       pkg->getData("actual_TCP_pose", pose);
       pkg->getData("actual_TCP_speed", speed);
       pkg->getData("actual_TCP_force", force);
+      pkg->getData("actual_digital_input_bits", di_bits);
+      pkg->getData("robot_mode", robot_mode);
       (void)speed;
       account(ctrl_t, stamp_ns, period);
-      publish(stamp_ns, ctrl_t, q, qd, pose, force);
+      publish(stamp_ns, ctrl_t, q, qd, pose, force, di_bits, robot_mode);
     }
   }
 
@@ -251,8 +280,44 @@ private:
     stamp_minus_ctrl_.push_back(stamp_ns * 1e-9 - ctrl_t);
   }
 
+  bool freedrive_engaged(uint64_t di_bits, int32_t robot_mode) const
+  {
+    if (freedrive_input_ < 0 || robot_mode != kRobotModeRunning) {
+      return false;
+    }
+    return ((di_bits >> (kConfigurableInputBit0 + freedrive_input_)) & 1ULL) != 0;
+  }
+
+  // labels.py label_sample(); returns true if robot_control's status is in use
+  bool label_sample(RobotState& m, uint64_t di_bits, int32_t robot_mode)
+  {
+    std::lock_guard<std::mutex> lk(status_mtx_);
+    if (have_status_ && (steady_ns() - status_t_ns_) * 1e-9 <= kControlStatusMaxAgeS) {
+      m.force_setpoint_n = status_.force_setpoint_n;
+      m.mode = status_.mode;
+      m.safety_flags = status_.safety_flags;
+      m.action_source = status_.action_source;
+      m.action_is_expert = status_.action_is_expert;
+      return true;
+    }
+    m.force_setpoint_n = std::numeric_limits<double>::quiet_NaN();
+    m.safety_flags = 0;
+    if (freedrive_engaged(di_bits, robot_mode)) {
+      m.mode = RobotState::MODE_FREEDRIVE;
+      m.action_source = RobotState::SOURCE_KINESTHETIC;
+      m.action_is_expert = true;
+      ++freedrive_samples_;
+    } else {
+      m.mode = RobotState::MODE_IDLE;
+      m.action_source = RobotState::SOURCE_NONE;
+      m.action_is_expert = false;
+    }
+    return false;
+  }
+
   void publish(int64_t stamp_ns, double ctrl_t, const urcl::vector6d_t& q, const urcl::vector6d_t& qd,
-               const urcl::vector6d_t& pose, const urcl::vector6d_t& force)
+               const urcl::vector6d_t& pose, const urcl::vector6d_t& force, uint64_t di_bits,
+               int32_t robot_mode)
   {
     const auto stamp = to_stamp(stamp_ns);
     const auto quat = rotvec_to_quat(pose[3], pose[4], pose[5]);
@@ -284,13 +349,15 @@ private:
     } else {
       fill_pose(m->tcp_phantom, xyz, quat);  // identity until phantom registration exists
     }
-    {
-      std::lock_guard<std::mutex> lk(status_mtx_);
-      m->force_setpoint_n = status_.force_setpoint_n;
-      m->mode = status_.mode;
-      m->safety_flags = status_.safety_flags;
-      m->action_source = status_.action_source;
-      m->action_is_expert = status_.action_is_expert;
+    const bool controlled = label_sample(*m, di_bits, robot_mode);
+    std::unique_ptr<geometry_msgs::msg::TwistStamped> nocmd;
+    if (!controlled && (++nocmd_counter_ % 4) == 0) {  // 125 Hz "no command" marker (NaN)
+      nocmd = std::make_unique<geometry_msgs::msg::TwistStamped>();
+      nocmd->header.stamp = stamp;
+      nocmd->header.frame_id = "none";
+      const double nan = std::numeric_limits<double>::quiet_NaN();
+      nocmd->twist.linear.x = nocmd->twist.linear.y = nocmd->twist.linear.z = nan;
+      nocmd->twist.angular.x = nocmd->twist.angular.y = nocmd->twist.angular.z = nan;
     }
 
     auto js = std::make_unique<sensor_msgs::msg::JointState>();
@@ -316,6 +383,9 @@ private:
     pub_js_->publish(std::move(js));
     pub_pose_->publish(std::move(ps));
     pub_wrench_->publish(std::move(w));
+    if (nocmd) {
+      pub_nocmd_->publish(std::move(nocmd));
+    }
   }
 
   void log_stats()
@@ -345,9 +415,9 @@ private:
     }
     RCLCPP_INFO(get_logger(),
                 "RTDE %ld Hz, repeated ctrl time %ld, gaps %ld (samples lost %ld), jitter(stamp-ctrl) "
-                "p50=%.3f ms p99=%.3f ms, read failures %ld, control status %s",
+                "p50=%.3f ms p99=%.3f ms, read failures %ld, control status %s, freedrive samples %ld",
                 samples, repeated, gaps, lost, p50, p99, read_failures_.exchange(0),
-                have_status_ ? "received" : "none (no robot_control)");
+                have_status_ ? "received" : "none (no robot_control)", freedrive_samples_.exchange(0));
   }
 
   std::string ip_, frame_;
@@ -359,6 +429,11 @@ private:
   rclcpp::Publisher<sensor_msgs::msg::JointState>::SharedPtr pub_js_;
   rclcpp::Publisher<geometry_msgs::msg::PoseStamped>::SharedPtr pub_pose_;
   rclcpp::Publisher<geometry_msgs::msg::WrenchStamped>::SharedPtr pub_wrench_;
+  rclcpp::Publisher<geometry_msgs::msg::TwistStamped>::SharedPtr pub_nocmd_;
+  int freedrive_input_ = -1;
+  int64_t status_t_ns_ = 0;
+  long nocmd_counter_ = 0;
+  std::atomic<long> freedrive_samples_{0};
   rclcpp::Subscription<ControlStatus>::SharedPtr sub_status_;
   rclcpp::TimerBase::SharedPtr stats_timer_;
   std::thread reader_;

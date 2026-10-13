@@ -1,7 +1,9 @@
 """robot_state: UR7e state at 500 Hz over read-only RTDE.
 
 Publishes /robot/state, /joint_states, /robot/tcp_pose, /robot/wrench, all with the same stamp
-per RTDE sample. No forward kinematics: the TCP pose is the controller's actual_TCP_pose.
+per RTDE sample. Labels (mode, source, expert, force setpoint) follow labels.py: robot_control's
+status when embedded in robot_control, else freedrive detection, else IDLE; standalone it also
+publishes the NaN "no command" marker on /robot/cmd_executed (as robot_state_cpp). No forward kinematics: the TCP pose is the controller's actual_TCP_pose.
 RTDE receive is read-only, so this can run next to whatever program is on the robot.
 """
 import sys
@@ -10,7 +12,7 @@ import threading
 import numpy as np
 import rclpy
 from rclpy.executors import ExternalShutdownException
-from geometry_msgs.msg import PoseStamped, WrenchStamped
+from geometry_msgs.msg import PoseStamped, TwistStamped, WrenchStamped
 from rclpy.node import Node
 from rclpy.qos import QoSProfile, ReliabilityPolicy, HistoryPolicy
 from sensor_msgs.msg import JointState
@@ -20,6 +22,7 @@ from usrig_common.session import read_json
 from usrig_common.timeutil import stamp_from_ns
 from usrig_interfaces.msg import RobotState
 
+from .labels import label_sample
 from .rtde_reader import RtdeReader
 
 JOINT_NAMES = ['shoulder_pan_joint', 'shoulder_lift_joint', 'elbow_joint',
@@ -61,7 +64,11 @@ class RobotStateNode(Node):
             raise RuntimeError('robot.ip is null in rig.yaml and no robot_ip parameter was given')
         self.robot_ip = ip
         self.base_frame = self.get_parameter('base_frame').value
+        self.embedded = control_status is not None      # inside robot_control: its status is always current
         self.status = control_status or ControlStatus()
+        fd = config.get_path(rig, 'freedrive.input')
+        self.freedrive_input = None if fd is None else int(fd)
+        self._nocmd_n = 0
 
         # Phantom registration (identity until P5 writes it into session.json).
         self.T_phantom_base = np.eye(4)
@@ -78,6 +85,7 @@ class RobotStateNode(Node):
         self.pub_js = self.create_publisher(JointState, '/joint_states', qos)
         self.pub_pose = self.create_publisher(PoseStamped, '/robot/tcp_pose', qos)
         self.pub_wrench = self.create_publisher(WrenchStamped, '/robot/wrench', qos)
+        self.pub_nocmd = None if self.embedded else self.create_publisher(TwistStamped, '/robot/cmd_executed', 10)
 
         self.latest = None
         self.latest_lock = threading.Lock()
@@ -123,7 +131,8 @@ class RobotStateNode(Node):
     def _publish(self, s):
         stamp = stamp_from_ns(s.stamp_ns)
         T = geometry.pose_from_ur(s.tcp_pose)
-        fsp, mode, flags, src, expert = self.status.snapshot()
+        fsp, mode, flags, src, expert = label_sample(self.status.snapshot() if self.embedded else None, 0.0,
+                                                     self.freedrive_input, s.di_bits, s.robot_mode)
 
         m = RobotState()
         m.header.stamp = stamp
@@ -159,6 +168,16 @@ class RobotStateNode(Node):
         (w.wrench.force.x, w.wrench.force.y, w.wrench.force.z,
          w.wrench.torque.x, w.wrench.torque.y, w.wrench.torque.z) = map(float, s.wrench)
         self.pub_wrench.publish(w)
+        if self.pub_nocmd is not None:
+            self._nocmd_n += 1
+            if self._nocmd_n % 4 == 0:              # 125 Hz "no command" marker
+                t = TwistStamped()
+                t.header.stamp = stamp
+                t.header.frame_id = 'none'
+                nan = float('nan')
+                (t.twist.linear.x, t.twist.linear.y, t.twist.linear.z,
+                 t.twist.angular.x, t.twist.angular.y, t.twist.angular.z) = (nan,) * 6
+                self.pub_nocmd.publish(t)
 
     def get_latest(self):
         with self.latest_lock:

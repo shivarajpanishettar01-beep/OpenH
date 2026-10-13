@@ -62,7 +62,7 @@ extra:
       fields: [wrench.force.x, wrench.force.y, wrench.force.z,
                wrench.torque.x, wrench.torque.y, wrench.torque.z]
       names: [fx, fy, fz, tx, ty, tz]
-  observation.meta.action_source:      # 0 teleop 1 scripted_task 2 transit 3 perturbation 4 none
+  observation.meta.action_source:      # 0 teleop 1 scripted_task 2 transit 3 perturbation 4 none 5 kinesthetic
     - topic: /robot/state
       type: fields
       fields: [action_source]

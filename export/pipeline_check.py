@@ -45,7 +45,9 @@ DOWN = np.diag([1.0, -1.0, -1.0])
 EPISODES = [  # (episode_id, type, stage, instruction, failure interval s, recovery interval s)
     ('ep_0001', 'success', 2, 'Find the long-axis view of the vessel', None, None),
     ('ep_0002', 'recovery-mid', 2, 'Recover the transverse view after the probe slips', (1.5, 2.2), (2.2, 3.0)),
+    ('ep_0003', 'kinesthetic', 0, 'Guide the probe to the long-axis view by hand', None, None),
 ]
+KINESTHETIC = {'ep_0003'}      # freedrive: no command (NaN marker on /robot/cmd_executed), no setpoint
 
 
 # ------------------------------------------------------------------------------- ground truth
@@ -102,6 +104,7 @@ def write_bag(bag_dir, ep):
 
     msgs = []   # (t_ns_abs, topic, msg)
     st = stamps()
+    kin = ep[0] in KINESTHETIC
     for t in st['robot']:
         tau = t * 1e-9
         p, R = tcp_pose(tau)
@@ -125,15 +128,20 @@ def write_bag(bag_dir, ep):
         rs.controller_time_s = tau
         rs.tcp_base = ps.pose
         rs.wrench = [0.0, 0.0, 2.0 + tau, 0.0, 0.0, 0.0]
-        rs.force_setpoint_n = force_setpoint(tau)
-        rs.mode = RobotState.MODE_TELEOP if expert(tau) else RobotState.MODE_MOVING
-        rs.action_source = RobotState.SOURCE_TELEOP if expert(tau) else RobotState.SOURCE_TRANSIT
-        rs.action_is_expert = expert(tau)
+        if kin:              # as robot_state_cpp labels freedrive: pedal held for the whole episode
+            rs.force_setpoint_n = math.nan
+            rs.mode, rs.action_source, rs.action_is_expert = (RobotState.MODE_FREEDRIVE,
+                                                              RobotState.SOURCE_KINESTHETIC, True)
+        else:
+            rs.force_setpoint_n = force_setpoint(tau)
+            rs.mode = RobotState.MODE_TELEOP if expert(tau) else RobotState.MODE_MOVING
+            rs.action_source = RobotState.SOURCE_TELEOP if expert(tau) else RobotState.SOURCE_TRANSIT
+            rs.action_is_expert = expert(tau)
         msgs += [(t, '/robot/tcp_pose', ps), (t, '/joint_states', js), (t, '/robot/wrench', w), (t, '/robot/state', rs)]
     for t in st['cmd']:
         m = TwistStamped()
-        m.header.stamp, m.header.frame_id = tm(t), 'probe'
-        v = twist(t * 1e-9)
+        m.header.stamp, m.header.frame_id = tm(t), ('none' if kin else 'probe')
+        v = [math.nan] * 6 if kin else twist(t * 1e-9)
         (m.twist.linear.x, m.twist.linear.y, m.twist.linear.z, m.twist.angular.x, m.twist.angular.y,
          m.twist.angular.z) = v
         msgs.append((t, '/robot/cmd_executed', m))
@@ -203,7 +211,9 @@ def write_session(root):
             ann['failure_class'] = {'value': 'probe_slip'}
         (d / 'annotation.json').write_text(json.dumps(ann, indent=1))
         (d / 'task.txt').write_text(instr)
-        (d / 'episode.json').write_text(json.dumps({
+        extra = ({'collection_mode': 'freedrive', 'grip': 'wrist_handle', 'force_label_valid': True}
+                 if eid in KINESTHETIC else {})
+        (d / 'episode.json').write_text(json.dumps({**extra,
             'episode_id': eid, 'session_id': 'SYNTHETIC_session', 'type': typ, 'stage': stage,
             'instruction': instr, 'outcome': 'recovered' if fail else 'success', 'qc': {'pass': True},
             'failure_mode': 'FM-SYN' if fail else None, 'sim': False, 'synthetic_pipeline_check': True}, indent=1))
@@ -300,11 +310,12 @@ def verify(a):
     raw_info = json.loads((meta / 'info.json').read_text())
     ann = [json.loads(x) for x in (meta / 'annotations.jsonl').read_text().splitlines() if x.strip()] \
         if (meta / 'annotations.jsonl').exists() else []
-    check(len(ann) == 2 and ann[1].get('failure_class', {}).get('value') == 'probe_slip', 'annotations.jsonl content')
+    check(len(ann) == len(EPISODES) and any(a.get('failure_class', {}).get('value') == 'probe_slip' for a in ann),
+          'annotations.jsonl content')
     for k in ('action', 'observation.state', 'observation.images.ultrasound', 'observation.images.wrist_camera',
               'observation.images.wrist_depth', 'observation.meta.status', 'observation.meta.host_stamp_ns',
               'observation.meta.commanded_twist', 'observation.meta.force_setpoint_n',
-              'observation.meta.action_is_expert', 'instruction.text'):
+              'observation.meta.action_is_expert', 'observation.meta.command_valid', 'instruction.text'):
         check(k in feats, f'feature {k}')
     act = raw_info['features']['action']
     check(list(act['shape']) == [6] and act.get('names') == F.ACTION_NAMES and act['info']['frame'] == 'base',
@@ -314,6 +325,11 @@ def verify(a):
     check(ds.num_episodes == len(truth['episodes']), f'{ds.num_episodes} episodes')
     check(ds.num_frames == sum(e['length'] for e in truth['episodes']), f'{ds.num_frames} frames')
     print(f'  info splits: {info.get("splits")}')
+    check(dict(info.get('splits') or {}) == {'train': '0:2', 'recovery': '2:3'},
+          'splits: success + kinesthetic in train, recovery contiguous')
+    st_a = ds.meta.stats.get('action', {})
+    check(all(np.isfinite(np.asarray(st_a.get(k, [np.nan]), float)).all() for k in ('mean', 'std', 'min', 'max')),
+          'action statistics finite (NaN no-command steps do not leak into the action)')
 
     st = stamps()
     t_robot = (T0_NS + st['robot']) * 1e-9
@@ -334,17 +350,28 @@ def verify(a):
         t_steps_ns = ((float(e['start_unix']) + np.arange(n) / truth['fps']) * 1e9).astype(np.int64)
         id_ = F.sample_hold(t_cam_ns, t_steps_ns)
         ep_fail = e['episode_id'] == 'ep_0002'
+        kin = e['episode_id'] in KINESTHETIC
         for k in range(n):
             item = ds[gidx + k]
             act = item['action'].numpy()
             worst['action'] = max(worst['action'], float(np.abs(act - exp_action[k]).max()))
             tw = item['observation.meta.commanded_twist'].numpy()
-            worst['twist'] = max(worst['twist'], float(np.abs(tw - exp_twist[k]).max()))
             tau = st['robot'][ir[k]] * 1e-9
-            if abs(float(item['observation.meta.force_setpoint_n'].numpy().ravel()[0]) - force_setpoint(tau)) > 1e-4:
-                fails.append(f'ep {e["episode_id"]} step {k}: force setpoint')
-            if bool(item['observation.meta.action_is_expert']) != expert(tau):
-                fails.append(f'ep {e["episode_id"]} step {k}: action_is_expert')
+            fsp = float(item['observation.meta.force_setpoint_n'].numpy().ravel()[0])
+            valid = bool(item['observation.meta.command_valid'])
+            if kin:                 # no command, no setpoint: command_valid false (values 0); always expert
+                if valid or np.abs(tw).max() != 0 or fsp != 0:
+                    fails.append(f'ep {e["episode_id"]} step {k}: kinesthetic step not flagged command_valid=false')
+                if not bool(item['observation.meta.action_is_expert']):
+                    fails.append(f'ep {e["episode_id"]} step {k}: kinesthetic not expert')
+            else:
+                if not valid:
+                    fails.append(f'ep {e["episode_id"]} step {k}: commanded step flagged invalid')
+                worst['twist'] = max(worst['twist'], float(np.abs(tw - exp_twist[k]).max()))
+                if abs(fsp - force_setpoint(tau)) > 1e-4:
+                    fails.append(f'ep {e["episode_id"]} step {k}: force setpoint')
+                if bool(item['observation.meta.action_is_expert']) != expert(tau):
+                    fails.append(f'ep {e["episode_id"]} step {k}: action_is_expert')
             us = item['observation.images.ultrasound'].numpy()            # C, H, W float in [0, 1]
             worst['us_px'] = max(worst['us_px'], abs(float(us.mean()) * 255.0 - us_value(int(iu[k]))))
             if int(np.asarray(item['observation.meta.host_stamp_ns']).ravel()[0]) != int(T0_NS + st['us'][iu[k]]):
@@ -370,7 +397,7 @@ def verify(a):
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')
     check(worst['us_px'] <= 3.0, f'ultrasound frame selection + pixels (h264), max error {worst["us_px"]:.2f} grey levels')
     per_step = [f for f in fails if ' step ' in f]
-    check(not per_step, f'per-step force setpoint / expert flag / host stamp / depth (lossless) / status: '
+    check(not per_step, f'per-step force setpoint / expert flag / command_valid / host stamp / depth / status: '
                         f'{len(per_step)} mismatches {per_step[:3]}')
     # LeRobot query with history, as a training loader would use it
     q = LeRobotDataset(f'local/{out.name}', root=out, video_backend='pyav',

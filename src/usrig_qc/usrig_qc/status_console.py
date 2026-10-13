@@ -17,8 +17,8 @@ from std_msgs.msg import String
 
 from usrig_interfaces.msg import ControlStatus, EpisodeEvent
 
-MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT']
-SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none']
+MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']
+SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic']
 FLAGS = {1: 'envelope', 2: 'tilt', 4: 'force_max', 8: 'deadman', 16: 'speed'}
 CLEAR = '\033[2J\033[H'
 STALE_S = {'ctl': 0.5, 'qc': 2.0}      # control status 125 Hz, QC 2 Hz
@@ -73,7 +73,7 @@ def main():
                 flags = [v for b, v in FLAGS.items() if c.safety_flags & b]
                 mode = MODES[c.mode] if c.mode < len(MODES) else str(c.mode)
                 warn = '   <<< FAULT: acknowledge with K' if mode == 'FAULT' else ''
-                lines.append(f'robot: {mode}  source {SOURCES[c.action_source] if c.action_source < 5 else c.action_source}'
+                lines.append(f'robot: {mode}  source {SOURCES[c.action_source] if c.action_source < len(SOURCES) else c.action_source}'
                              f'  expert {c.action_is_expert}  force setpoint {c.force_setpoint_n:.1f} N'
                              f'  flags {",".join(flags) or "none"}{warn}')
             q = st['qc']

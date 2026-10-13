@@ -19,6 +19,10 @@ robot:
   speedl_time_ticks: 1.0            # R8: speedL command lifetime in control ticks (1 = 8 ms at 125 Hz). Raise to
                                     # 2-3 only if the tick jitter measured on the capture PC makes the arm stutter
 
+freedrive:                          # kinesthetic collection (docs/FREEDRIVE_COLLECTION_GUIDE.md)
+  input: null                       # configurable digital input (0-7) wired to the hold-to-run foot pedal and set
+                                    # to "Freedrive" in the UR installation (I/O Setup). null = freedrive not used
+
 pointer:                            # calibration pointer (PH_calibration_pointer), for phantom fiducials
   tip_offset_flange_m: null         # [x, y, z] tip in the flange frame, from `pivot_calib --tool pointer --write`
   tip_calibration: null             # provenance written by pivot_calib (date, rms, poses, file)

@@ -19,6 +19,8 @@ class RobotSample:
     tcp_pose: np.ndarray        # [x, y, z, rx, ry, rz], rotation vector, base frame
     tcp_speed: np.ndarray       # [vx, vy, vz, wx, wy, wz], base frame
     wrench: np.ndarray          # actual_TCP_force, as reported by the controller
+    di_bits: int = None         # actual_digital_input_bits (freedrive pedal on a configurable input)
+    robot_mode: int = None      # RTDE robot_mode (7 = RUNNING)
 
 
 @dataclass
@@ -93,6 +95,8 @@ class RtdeReader:
                 tcp_pose=np.asarray(r.getActualTCPPose(), float),
                 tcp_speed=np.asarray(r.getActualTCPSpeed(), float),
                 wrench=np.asarray(r.getActualTCPForce(), float),
+                di_bits=int(r.getActualDigitalInputBits()),
+                robot_mode=int(r.getRobotMode()),
             )
             with self._stats_lock:
                 st = self.stats

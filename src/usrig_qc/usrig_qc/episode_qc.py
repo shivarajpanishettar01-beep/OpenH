@@ -16,7 +16,8 @@ import numpy as np
 
 from usrig_common import config
 
-ROBOT_SOURCES = {0: 'teleop', 1: 'scripted_task', 2: 'transit', 3: 'perturbation', 4: 'none'}
+ROBOT_SOURCES = {0: 'teleop', 1: 'scripted_task', 2: 'transit', 3: 'perturbation', 4: 'none', 5: 'kinesthetic'}
+EXPERT_SOURCES = (0, 1, 5)          # teleop, scripted task, kinesthetic (freedrive by hand)
 PLANNED_LIFT = {'FM-01', 'FM-02'}
 
 
@@ -138,6 +139,8 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     band = config.get_path(rig, 'limits.force_band_n')
     if ep.get('type') == 'failure' or ep.get('failure_mode') in PLANNED_LIFT:
         checks['force_band'] = {'status': 'n/a', 'reason': 'planned'}
+    elif ep.get('force_label_valid') is False:
+        checks['force_band'] = {'status': 'n/a', 'reason': f'grip {ep.get("grip")}: hand force is in the F/T reading'}
     elif band is None:
         checks['force_band'] = {'status': 'unset', 'reason': 'rig.yaml limits.force_band_n is null'}
     elif contact_ns is None:
@@ -157,10 +160,30 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     # ---- free air, expert flag, events
     fa = [s for s, k, v in events if k == 'phase' and v.get('phase') == 'free_air']
     checks['free_air_window'] = _status(bool(fa) and bool(np.any(r_st >= fa[0])))
-    bad_expert = sum(1 for _, m in rs if m.action_is_expert and m.action_source not in (0, 1))
+    bad_expert = sum(1 for _, m in rs if m.action_is_expert and m.action_source not in EXPERT_SOURCES)
     checks['expert_flag'] = _status(bad_expert == 0, samples_flagged_wrongly=bad_expert)
     need = {'start', 'end', 'outcome'}
     checks['events'] = _status(need <= kinds, missing=sorted(need - kinds))
+
+    # ---- freedrive (kinesthetic) episodes: the pedal was used, and the hand did not exceed the speed cap
+    if ep.get('collection_mode') == 'freedrive':
+        win = [m for _, m in rs if in_win(stamp_ns(m))]
+        n_fd = sum(1 for m in win if m.action_source == 5)
+        checks['freedrive_engaged'] = _status(n_fd > 0, samples=n_fd, share=n_fd / len(win) if win else 0.0)
+        vmax = config.get_path(rig, 'limits.max_linear_speed_mm_s')
+        if len(win) > 10:
+            p = np.array([[m.tcp_base.position.x, m.tcp_base.position.y, m.tcp_base.position.z] for m in win])
+            t = np.array([stamp_ns(m) for m in win]) * 1e-9
+            step = 10                                        # 20 ms at 500 Hz: smooths quantisation noise
+            v = np.linalg.norm(p[step:] - p[:-step], axis=1) / np.maximum(t[step:] - t[:-step], 1e-6) * 1000.0
+            vpk = float(v.max()) if len(v) else 0.0
+            if vmax is None:
+                checks['freedrive_speed'] = {'status': 'unset', 'reason': 'limits.max_linear_speed_mm_s is null',
+                                             'max_mm_s': vpk}
+            else:
+                checks['freedrive_speed'] = _status(vpk <= float(vmax), max_mm_s=vpk, limit_mm_s=float(vmax))
+        else:
+            checks['freedrive_speed'] = {'status': 'n/a', 'reason': 'too few robot samples'}
 
     # ---- control-loop timing (R8): robot_control reports tick intervals every 10 s while recording
     timing = [v for s, k, v in events if k == 'control_timing' and in_win(s)]

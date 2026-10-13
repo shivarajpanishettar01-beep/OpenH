@@ -36,3 +36,6 @@
     images (mm), verified lossless through the v3.0 conversion and reload (`pipeline_check.py`). LeRobot 0.6.0
     also has native depth options (`depth_encoder`, `depth_output_unit`) that may suit Open-H better; check
     with the Open-H guide before the first release.
+18. **F/T offset in freedrive episodes**: no `zero_ft` service without robot_control. Each episode records a
+    free-air window (`free_air` phase); subtract its mean force in the export, or rely on zeroing on the
+    pendant at the start of the session? (Applies to robot episodes too if the offset drifts.)

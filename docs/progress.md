@@ -22,6 +22,8 @@ GR00T-H is out of scope for now (separate task).
 
 ## Done
 **Code base** (9 ROS 2 packages, 104 tests, fresh clone builds and passes in a clean shell)
+- Freedrive (kinesthetic) collection (13 Oct): pedal on a UR "Freedrive" input, per-sample labels from the
+  controller's inputs, `collection_mode:=freedrive`, QC and export support (`FREEDRIVE_COLLECTION_GUIDE.md`).
 - Audit against the master prompt (13 Oct): `IMPLEMENTATION_AUDIT.md`, evidence in `TEST_AND_VERIFICATION.md`;
   guides `TELEOPERATION_GUIDE.md`, `WAYPOINT_COLLECTION_GUIDE.md`, `DATA_COLLECTION_GUIDE.md`.
 - micrus launch from config, SIGINT power-down; nothing in micrus modified.
@@ -89,6 +91,7 @@ real robot. In order:
 | Gate values `gate01.*`, `gate12.*` | `session.yaml` | you |
 | Open decisions 1 (10 h: what counts), 4 (beamformed in bags), 5, 6, 9, 13-17 | `OPEN_DECISIONS.md` | you |
 | micrus licence file path, USB ids for the pre-session check | `session.yaml` | you |
+| Freedrive: foot pedal wired to a configurable input + "Freedrive" action on the pendant, `freedrive.input`, wrist handle | robot, `rig.yaml` | you |
 
 **2. ~~URSim control dry run~~** skipped by decision (13 Oct): its items are checked on the real arm in free
 air, at low speed, in `first_motion_checklist.md` C-D.

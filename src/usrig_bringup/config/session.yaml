@@ -133,6 +133,10 @@ recording:
   ready_timeout_s: 20.0
   free_air_hold_s: 1.5                          # recorded before zero_ft / contact
 
+freedrive:                                      # kinesthetic collection (docs/FREEDRIVE_COLLECTION_GUIDE.md)
+  grip: wrist_handle                            # where the hand holds the arm: wrist_handle (above the F/T sensor:
+                                                # force labels valid) | probe (hand force mixed into the F/T reading)
+
 stage0:
   max_duration_s: 300
   approach_waypoint: null                       # optional waypoint name for automatic approach

@@ -30,8 +30,8 @@ from usrig_common.session import read_json, session_dir
 from usrig_common.timeutil import ns_from_stamp
 from usrig_interfaces.msg import EpisodeEvent, RobotState
 
-MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT']
-SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none']
+MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']
+SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic']
 FLAGS = {1: 'envelope', 2: 'tilt', 4: 'force_max', 8: 'deadman', 16: 'speed'}
 
 
@@ -450,7 +450,7 @@ def main(args=None):
             flags = [n for b, n in FLAGS.items() if robot.safety_flags & b]
             p = robot.tcp_phantom.position
             lbl_teleop.setText(f'keys held: {" ".join(keys) or "—"}\n'
-                               f'source: {SOURCES[robot.action_source] if robot.action_source < 5 else "?"}  '
+                               f'source: {SOURCES[robot.action_source] if robot.action_source < len(SOURCES) else "?"}  '
                                f'expert: {robot.action_is_expert}\n'
                                f'TCP (phantom) [{p.x * 1000:.1f}, {p.y * 1000:.1f}, {p.z * 1000:.1f}] mm\n'
                                f'safety flags: {", ".join(flags) or "none"}')

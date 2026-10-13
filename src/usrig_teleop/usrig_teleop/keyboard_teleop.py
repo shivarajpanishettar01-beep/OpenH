@@ -76,7 +76,9 @@ class KeyboardTeleop(Node):
         cfg_dir = self.get_parameter('config_dir').value or None
         km = config.load_config('keymap', cfg_dir)
         rig = config.load_config('rig', cfg_dir)
-        speeds = check_speeds(km, rig)
+        publish_twist = bool(km.get('publish_twist', True)) and bool(self.get_parameter('publish_twist').value)
+        # commands only (SpaceMouse drives, or freedrive collection): no motion, so no speeds needed
+        speeds = check_speeds(km, rig) if publish_twist else [0.0] * 6
 
         import evdev
         self.evdev = evdev
@@ -93,7 +95,7 @@ class KeyboardTeleop(Node):
         self.fine_keys = {k.upper() for k in km.get('fine_keys', ['LEFTSHIFT', 'RIGHTSHIFT'])}
         self.force_step = float(km['force_step_n']) if km.get('force_step_n') is not None else None
         self.enable_keys = {k.upper() for k in km.get('enable_keys') or []}
-        self.publish_twist = bool(km.get('publish_twist', True)) and bool(self.get_parameter('publish_twist').value)
+        self.publish_twist = publish_twist
         self.ramp = TwistRamp(self.motion_keys, speeds, km.get('fine_scale', 0.25), km.get('ramp_s', 0.25),
                               enable_keys=self.enable_keys)
 

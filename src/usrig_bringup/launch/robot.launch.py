@@ -51,7 +51,8 @@ def _setup(context):
     use_cpp = cpp_available()
     if use_cpp:
         p = {'robot_ip': ip or '', 'frequency_hz': float(rig['robot']['state_rate_hz']),
-             'rt_priority': int(rig['robot'].get('rt_priority') or 0), 'use_sim_time': False}
+             'rt_priority': int(rig['robot'].get('rt_priority') or 0), 'use_sim_time': False,
+             'freedrive_input': int(-1 if (rig.get('freedrive') or {}).get('input') is None else rig['freedrive']['input'])}
         if T:          # launch rejects empty lists: pass the registration only when it exists
             p['T_base_phantom'] = T
         actions.append(Node(package='usrig_robot_cpp', executable='robot_state_cpp', output='screen',

@@ -2,6 +2,7 @@
 
   ros2 launch usrig_bringup collect.launch.py session_id:=<id> [sim:=true] [control:=false]
       [camera:=true] [teleop:=true] [episode_manager:=true] [qc:=true] [dashboard:=false]
+      [input:=keyboard|spacemouse|freedrive]
 
 sim:=true -> micrus --simulate and the robot nodes on URSim. The wrist camera has no simulator:
 use camera:=false in simulation.
@@ -45,7 +46,8 @@ def generate_launch_description():
         DeclareLaunchArgument('camera', default_value='true'),
         DeclareLaunchArgument('teleop', default_value='false'),
         DeclareLaunchArgument('input', default_value='keyboard',
-                              description='keyboard | spacemouse (D1). With spacemouse the keyboard sends commands only'),
+                              description='keyboard | spacemouse (D1) | freedrive (arm guided by hand with the UR '
+                                          'freedrive pedal; keyboard sends commands only, use control:=false)'),
         DeclareLaunchArgument('episode_manager', default_value='false'),
         DeclareLaunchArgument('qc', default_value='true'),
         DeclareLaunchArgument('dashboard', default_value='false'),
@@ -66,7 +68,9 @@ def generate_launch_description():
         Node(package='usrig_qc', executable='qc_monitor', output='screen',
              parameters=params, condition=IfCondition(L('qc'))),
         Node(package='usrig_episode', executable='episode_manager', output='screen',
-             parameters=params + [{'robot_control': ParameterValue(L('control'), value_type=bool)}],
+             parameters=params + [{'robot_control': ParameterValue(L('control'), value_type=bool),
+                                   'collection_mode': ParameterValue(PythonExpression(
+                                       ["'freedrive' if '", L('input'), "' == 'freedrive' else 'robot'"]), value_type=str)}],
              condition=IfCondition(L('episode_manager'))),
         Node(package='usrig_episode', executable='rig_static_tf', output='screen', parameters=params),
         Node(package='usrig_dashboard', executable='dashboard', output='screen',

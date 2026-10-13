@@ -9,6 +9,8 @@ order). Writes a staging folder of symlinks:
   are refused unless --pipeline-check, which in turn refuses every episode that is not synthetic.
 * Stage 0 episodes are excluded unless --include-stage0; Stage 1 unless --include-stage1
   (open decision 6); discards and episodes whose QC failed are always excluded.
+* Freedrive (kinesthetic) episodes are expert demonstrations: included whatever their stage, in the
+  train split, unless --exclude-kinesthetic.
 * Order inside train / test: success, contact-establishment, recovery-start, recovery-mid,
   failure, so the recovery and failure ranges in info.json are contiguous.
 * Test = whole held-out sessions (never episodes from sessions also used for training).
@@ -18,7 +20,7 @@ import argparse
 import json
 from pathlib import Path
 
-TYPE_ORDER = ['success', 'shakedown', 'scripted', 'contact-establishment', 'recovery-start',
+TYPE_ORDER = ['success', 'kinesthetic', 'shakedown', 'scripted', 'contact-establishment', 'recovery-start',
               'recovery-mid', 'failure']
 
 
@@ -43,7 +45,10 @@ def collect(sessions, a):
             check_synthetic(e, a.pipeline_check, f)
             if e.get('outcome') == 'discard' or not (e.get('qc') or {}).get('pass'):
                 continue
-            if e.get('stage') == 0 and not a.include_stage0:
+            if e.get('type') == 'kinesthetic':
+                if a.exclude_kinesthetic:
+                    continue
+            elif e.get('stage') == 0 and not a.include_stage0:
                 continue
             if e.get('stage') == 1 and not a.include_stage1:
                 continue
@@ -60,6 +65,7 @@ def main():
     ap.add_argument('--test-sessions', nargs='*', default=[])
     ap.add_argument('--include-stage0', action='store_true')
     ap.add_argument('--include-stage1', action='store_true')
+    ap.add_argument('--exclude-kinesthetic', action='store_true', help='leave freedrive episodes out')
     ap.add_argument('-o', '--out', required=True)
     ap.add_argument('--pipeline-check', action='store_true', help='synthetic episodes only (pipeline_check.py)')
     a = ap.parse_args()

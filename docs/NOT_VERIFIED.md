@@ -48,6 +48,15 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 - Minimum depth distance vs camera-to-phantom distance at contact.
 - `easy_handeye2` on Humble: not checked; `handeye_calib` uses OpenCV directly.
 
+## Freedrive (kinesthetic) collection
+- Pedal on a configurable input set to "Freedrive": the input bit in `actual_digital_input_bits` (8 + input)
+  and freedrive behaviour on the UR7e; whether it works in Remote Control mode (Local is assumed).
+- `robot_state_cpp` with the new RTDE outputs (`actual_digital_input_bits`, `robot_mode`): runs on URSim
+  5.26.1 (13 Oct 2026, read-only: 475 Hz, IDLE labels, NaN marker at 120 Hz); the FREEDRIVE label itself
+  (pedal held) is tested only as pure logic (`test_labels.py`).
+- Gravity compensation with the probe + camera + handle payload; hand in the wrist camera view; F/T reading
+  with the handle above the sensor.
+
 ## Teleop
 - SpaceMouse: spacenav driver Joy axis order, scaling (`full_scale`) and the axis signs in `keymap.yaml spacemouse.axes`.
 - Contact-loss thresholds on the real phantom; recontact behaviour in real contact.

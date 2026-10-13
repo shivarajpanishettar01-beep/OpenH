@@ -28,7 +28,7 @@ git clone ~/OpenH /tmp/clean && cd /tmp/clean && env -i HOME=$HOME USER=$USER PA
 |---|---|---|
 | fresh clone + `scripts/build.sh` in an empty environment | exit 0, 9 packages, 30 s | warnings only: CMake "cannot generate a safe runtime search path" (conda vs system libraries, harmless) |
 | same clone + `scripts/test.sh` | 83 passed (before this audit's additions) | |
-| `scripts/test.sh` (final) | **104 passed**, ~60 s | 17 files, inventory below |
+| `scripts/test.sh` (final) | **110 passed**, ~60 s | 18 files |
 | `pyflakes src export tools` | clean (after removing 6 unused imports) | |
 | `ros2 launch usrig_bringup {robot,micrus,wrist_camera,collect}.launch.py --show-args` | all parse; arguments listed | |
 | `dashboard` offscreen (`QT_QPA_PLATFORM=offscreen`, no topics) | ran 8 s, no exception | |
@@ -93,6 +93,16 @@ README, modality and custom keys.
 
 Not covered: real episodes, Open-H `validate_formatting.py` (not in this repo), GR00T `modality.json`
 against a GR00T release, `torchcodec` decoding (FFmpeg shared libraries missing in `openh-export`; pyav used).
+
+## Freedrive (kinesthetic) collection
+| Check | Level | Result |
+|---|---|---|
+| labelling rule (fresh control status wins, stale never carried forward, pedal bit + RUNNING) | unit `test_labels.py` | pass |
+| QC: pedal used, hand speed vs limit, force check n/a for a probe grip | mocked `test_episode_qc.py` (bags written by the test) | pass |
+| export: synthetic freedrive episode in `pipeline_check.py`: train split, `command_valid` false, action from measured motion, expert true, finite action stats, dataset loads | sim (synthetic) | pass (37 checks, 3 episodes) |
+| `robot_state_cpp` with the new RTDE outputs against URSim (read-only, 10 s) | sim | 475 Hz, IDLE / none / NaN setpoint, NaN marker 120 Hz, 0 samples lost |
+Found by the export check: LeRobot's v3.0 conversion turns NaN into null and the loader then fails, so
+"no command" is a boolean `command_valid` in the dataset (NaN stays in the bags).
 
 ## URSim
 URSim e-series 5.26.1 (UR5e model) runs in Docker on the dev PC. During this audit: Remote Control enabled
