@@ -11,3 +11,5 @@ dependencies:
       - pyarrow
       - pyyaml
       - numpy
+      - scipy                     # openh_fields.delta_actions (rotation vectors)
+      - opencv-python-headless    # 16-bit PNG depth (already pulled in by lerobot)

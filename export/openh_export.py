@@ -88,6 +88,33 @@ def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic,
     return out
 
 
+# Files the LeRobot v2.1 -> v3.0 converter does not keep (it rebuilds meta/): copied back afterwards.
+EXTRA_META = ('calibration', 'annotations.jsonl', 'README.md', 'modality.json', 'micrus_sources.jsonl')
+
+
+def carry_meta(work, custom_info):
+    """After conversion: the converter leaves the v2.1 copy in <work>_old. Copy the Open-H meta files
+    and custom info.json keys into the v3.0 meta, check they arrived, then drop the v2.1 copy."""
+    old = work.parent / (work.name + '_old')
+    if not old.exists():
+        sys.exit(f'{old} not found: the converter changed its layout; copy {EXTRA_META} into {work}/meta by hand')
+    for name in EXTRA_META:
+        s, d = old / 'meta' / name, work / 'meta' / name
+        if s.is_dir():
+            shutil.copytree(s, d, dirs_exist_ok=True)
+        elif s.exists():
+            shutil.copy2(s, d)
+    if custom_info:
+        p = work / 'meta' / 'info.json'
+        info = json.loads(p.read_text())
+        info.update(custom_info)
+        p.write_text(json.dumps(info, indent=4))
+    missing = [n for n in EXTRA_META if (old / 'meta' / n).exists() and not (work / 'meta' / n).exists()]
+    if missing:
+        sys.exit(f'meta files lost in conversion: {missing}')
+    shutil.rmtree(old)
+
+
 def feature_of(col, pa):
     typ = col.type
     if pa.types.is_string(typ):
@@ -96,6 +123,8 @@ def feature_of(col, pa):
         return {'dtype': 'bool', 'shape': [1], 'names': None}
     if pa.types.is_int64(typ):
         return {'dtype': 'int64', 'shape': [1], 'names': None}
+    if pa.types.is_floating(typ):
+        return {'dtype': 'float32', 'shape': [1], 'names': None}
     return {'dtype': 'float32', 'shape': [len(col[0].as_py())], 'names': None}
 
 
@@ -114,6 +143,8 @@ def main():
     ap.add_argument('--action-frame', choices=['base', 'tool'], default='base')
     ap.add_argument('--depth', choices=['png', 'none'], default='png')
     ap.add_argument('--skip-convert', action='store_true')
+    ap.add_argument('--pipeline-check', action='store_true',
+                    help='synthetic episodes only (pipeline_check.py); output name must start with SYNTHETIC_')
     a = ap.parse_args()
 
     import pyarrow as pa
@@ -134,6 +165,8 @@ def main():
 
     src = Path(a.v21).expanduser()
     out = Path(a.out).expanduser()
+    if a.pipeline_check and not out.name.startswith('SYNTHETIC_'):
+        sys.exit('--pipeline-check output must be named SYNTHETIC_* (never confused with a real dataset)')
     work = out.parent / (out.name + '_v21_work')
     if out.exists() or work.exists():
         sys.exit(f'{out} or {work} exists')
@@ -160,6 +193,9 @@ def main():
         epj = json.loads((Path(bag) / 'episode.json').read_text())
         if epj.get('sim'):
             sys.exit(f'{bag}: simulated episode (sim: true): never exported')
+        if bool(epj.get('synthetic_pipeline_check')) != a.pipeline_check:
+            sys.exit(f'{bag}: synthetic pipeline-check episodes only with --pipeline-check, and never mixed '
+                     'with real episodes')
         sess = json.loads((Path(bag).parent / 'session.json').read_text())
         ann_path = Path(bag) / 'annotation.json'
         ann = json.loads(ann_path.read_text()) if ann_path.exists() else {}
@@ -183,8 +219,8 @@ def main():
             'action': pa.array(act.astype(np.float32).tolist(), pa.list_(pa.float32(), 6)),
             'observation.meta.commanded_twist': pa.array(old_action[:, :6].astype(np.float32).tolist(),
                                                          pa.list_(pa.float32(), 6)),
-            'observation.meta.force_setpoint_n': pa.array(old_action[:, 6:7].astype(np.float32).tolist(),
-                                                          pa.list_(pa.float32(), 1)),
+            # shape [1] numeric features are scalars in LeRobot's HF schema (a 1-element list fails to load)
+            'observation.meta.force_setpoint_n': pa.array(old_action[:, 6].astype(np.float32), pa.float32()),
             'observation.meta.force_torque': t.column('observation.force_torque')
             if 'observation.force_torque' in t.column_names else pa.array([[np.nan] * 6] * n),
             'observation.meta.probe_type': pa.array([probe_type] * n),
@@ -249,6 +285,8 @@ def main():
 
     # wrist_rgb is named wrist_camera in the proposal (lerobot_rig.yaml already exports it so)
     info['features'].update(new_features)
+    if a.pipeline_check:
+        info['pipeline_check'] = 'SYNTHETIC data from export/pipeline_check.py: not a real dataset'
     write_jsonl(meta / 'episodes_stats.jsonl', [ep_stats[k] for k in sorted(ep_stats)])
     write_jsonl(meta / 'annotations.jsonl', annotations)
     F.write_json(meta / 'calibration' / 'camera_intrinsics.json', intrinsics)
@@ -295,9 +333,11 @@ def main():
     print(h.stdout[-2000:])
     cmd = [sys.executable, '-m', mod, f'--repo-id=local/{out.name}', f'--root={work}', '--push-to-hub=false']
     print('running:', ' '.join(cmd))
+    custom_info = {k: info[k] for k in ('pipeline_check',) if k in info}
     r = subprocess.run(cmd)
     if r.returncode:
         sys.exit(f'converter failed ({r.returncode}); check its --help above for this version')
+    carry_meta(work, custom_info)
     shutil.move(str(work), str(out))
     print(f'wrote {out}. Next: python validate_formatting.py {out}  (Open-H)')
 

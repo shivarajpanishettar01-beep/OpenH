@@ -5,6 +5,8 @@ order). Writes a staging folder of symlinks:
   python stage_bags.py --sessions ~/data/S1 ~/data/S2 --test-sessions ~/data/S3 -o ~/datasets/staging
 
 * Simulated sessions / episodes (sim: true) are refused outright.
+* Synthetic pipeline-check episodes (synthetic_pipeline_check: true, written by pipeline_check.py)
+  are refused unless --pipeline-check, which in turn refuses every episode that is not synthetic.
 * Stage 0 episodes are excluded unless --include-stage0; Stage 1 unless --include-stage1
   (open decision 6); discards and episodes whose QC failed are always excluded.
 * Order inside train / test: success, contact-establishment, recovery-start, recovery-mid,
@@ -20,6 +22,14 @@ TYPE_ORDER = ['success', 'shakedown', 'scripted', 'contact-establishment', 'reco
               'recovery-mid', 'failure']
 
 
+def check_synthetic(ep, pipeline_check, where):
+    synthetic = bool(ep.get('synthetic_pipeline_check'))
+    if synthetic and not pipeline_check:
+        raise SystemExit(f'{where}: synthetic pipeline-check episode: only with --pipeline-check')
+    if pipeline_check and not synthetic:
+        raise SystemExit(f'{where}: real episode in a --pipeline-check run: refused (never mixed)')
+
+
 def collect(sessions, a):
     eps = []
     for s in sessions:
@@ -30,6 +40,7 @@ def collect(sessions, a):
             e = json.loads(f.read_text())
             if e.get('sim'):
                 raise SystemExit(f'{f}: simulated episode (sim: true): never exported')
+            check_synthetic(e, a.pipeline_check, f)
             if e.get('outcome') == 'discard' or not (e.get('qc') or {}).get('pass'):
                 continue
             if e.get('stage') == 0 and not a.include_stage0:
@@ -50,6 +61,7 @@ def main():
     ap.add_argument('--include-stage0', action='store_true')
     ap.add_argument('--include-stage1', action='store_true')
     ap.add_argument('-o', '--out', required=True)
+    ap.add_argument('--pipeline-check', action='store_true', help='synthetic episodes only (pipeline_check.py)')
     a = ap.parse_args()
     overlap = {Path(s).resolve() for s in a.sessions} & {Path(s).resolve() for s in a.test_sessions}
     if overlap:
