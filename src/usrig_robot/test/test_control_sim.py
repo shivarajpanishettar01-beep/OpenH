@@ -374,3 +374,10 @@ def test_path_aborts_on_contact_loss(sim):
     th.join(10)
     assert not out['r'].success and out['r'].message == 'contact lost'
     node.destroy_node()
+
+
+def test_design_requires_tcp_at_probe_face():
+    assert rc.design_requirements(RIG) == []
+    bad = json.loads(json.dumps(RIG))
+    bad['probe']['tcp_already_includes_probe'] = False
+    assert 'probe face' in rc.design_requirements(bad)[0]

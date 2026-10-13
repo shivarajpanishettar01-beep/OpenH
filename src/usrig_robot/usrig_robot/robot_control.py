@@ -665,6 +665,19 @@ class RobotControlNode(Node):
         super().destroy_node()
 
 
+def design_requirements(rig):
+    """Problems with the rig configuration that make the teleop design unsafe (list of strings).
+
+    D4: rock / tilt / rotate pivot about the active TCP, so the TCP must be the probe face;
+    with the flange as TCP, rotations would slide the probe across the phantom.
+    """
+    problems = []
+    if config.get_path(rig, 'probe.tcp_already_includes_probe') is not True:
+        problems.append('probe.tcp_already_includes_probe must be true: set the controller TCP to the probe '
+                        'face (rotations pivot about the TCP; with the flange they slide the probe)')
+    return problems
+
+
 def remote_control_enabled(ip, timeout=3.0):
     """Ask the dashboard server (read-only query). Returns True / False, or None if unreachable."""
     import socket
@@ -700,6 +713,8 @@ def main(args=None):
         config.require_limits(rig, keys)
     except config.UnsetLimitError as e:
         refuse(str(e))
+    for problem in design_requirements(rig):
+        refuse(problem)
     if config.get_path(rig, 'robot.control_backend') != 'rtde':
         refuse('robot.control_backend must be rtde (path B, decided at P3)')
     ip = ip_override or config.get_path(rig, 'robot.ip')
