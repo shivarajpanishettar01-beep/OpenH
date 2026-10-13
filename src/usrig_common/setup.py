@@ -15,6 +15,6 @@ setup(
     maintainer='Shivaraj Panishettar',
     maintainer_email='shivarajpanishettar01@gmail.com',
     description='Shared helpers for the ultrasound rig.',
-    license='Proprietary',
+    license='MIT',
     tests_require=['pytest'],
 )

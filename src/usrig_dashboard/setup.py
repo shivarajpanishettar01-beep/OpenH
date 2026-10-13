@@ -18,7 +18,7 @@ setup(
     maintainer='Shivaraj Panishettar',
     maintainer_email='shivarajpanishettar01@gmail.com',
     description='Operator dashboard for the ultrasound rig.',
-    license='Proprietary',
+    license='MIT',
     entry_points={'console_scripts': [
         'dashboard = usrig_dashboard.dashboard:main',
         'annotator = usrig_dashboard.annotator:main',

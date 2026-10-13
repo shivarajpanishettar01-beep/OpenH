@@ -18,7 +18,7 @@ setup(
     maintainer='Shivaraj Panishettar',
     maintainer_email='shivarajpanishettar01@gmail.com',
     description='Episodes, plans and calibration tools for the ultrasound rig.',
-    license='Proprietary',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={'console_scripts': [
         'episode_manager = usrig_episode.episode_manager:main',

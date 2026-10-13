@@ -5,7 +5,7 @@
   <version>0.1.0</version>
   <description>Shared helpers for the ultrasound rig: config, limits, geometry, timing.</description>
   <maintainer email="shivarajpanishettar01@gmail.com">Shivaraj Panishettar</maintainer>
-  <license>Proprietary</license>
+  <license>MIT</license>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>builtin_interfaces</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>

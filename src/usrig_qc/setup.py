@@ -15,7 +15,7 @@ setup(
     maintainer='Shivaraj Panishettar',
     maintainer_email='shivarajpanishettar01@gmail.com',
     description='QC for the ultrasound rig.',
-    license='Proprietary',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={'console_scripts': [
         'qc_monitor = usrig_qc.qc_monitor:main',

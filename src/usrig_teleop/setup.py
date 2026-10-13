@@ -15,7 +15,7 @@ setup(
     maintainer='Shivaraj Panishettar',
     maintainer_email='shivarajpanishettar01@gmail.com',
     description='Keyboard teleoperation for the ultrasound rig.',
-    license='Proprietary',
+    license='MIT',
     tests_require=['pytest'],
     entry_points={'console_scripts': ['keyboard_teleop = usrig_teleop.keyboard_teleop:main']},
 )

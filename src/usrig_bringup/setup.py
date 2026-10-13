@@ -19,5 +19,5 @@ setup(
     maintainer='Shivaraj Panishettar',
     maintainer_email='shivarajpanishettar01@gmail.com',
     description='Configuration and launch files for the ultrasound rig.',
-    license='Proprietary',
+    license='MIT',
 )

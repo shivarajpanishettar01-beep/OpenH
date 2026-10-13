@@ -45,3 +45,8 @@ The Open-H export uses a second env (`scripts/setup_env.sh --with-export`, Pytho
 Code base only. Nothing has run against micrus, URSim, the robot or the camera yet: see
 `docs/NOT_VERIFIED.md` and `docs/OPEN_DECISIONS.md`. Next step is the P1 check with
 `micrus --simulate`.
+
+## License
+Code: MIT (see `LICENSE`). This covers the rig code in this repository only. micrus is a separate,
+licensed package that is not included here, and datasets produced with the rig are released under
+their own licence (OpenMDW-1.1 for the Open-H contribution).
