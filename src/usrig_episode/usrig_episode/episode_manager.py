@@ -284,6 +284,8 @@ class EpisodeManager(Node):
         write_json_atomic(self.sdir / f'.{ep["episode_dir"]}.partial.json', ep)
         ep['t_bag_ready_ns'] = self.recorder.start(self.sdir / ep['episode_dir'])
         ep['micrus_hdf5_path'] = self.recorder.hdf5_path
+        # refresh the crash record now that the HDF5 path is known (used if this process dies)
+        write_json_atomic(self.sdir / f'.{ep["episode_dir"]}.partial.json', ep)
         self.event('phase', {'phase': 'free_air', 'hold_s': self.scfg['recording']['free_air_hold_s']})
         time.sleep(float(self.scfg['recording']['free_air_hold_s']))
         self.event('phase', {'phase': 'free_air_end'})

@@ -112,7 +112,8 @@ class EpisodeRecorder:
         def cb(_msg, t=topic):
             with self._seen_lock:
                 self._seen[t] = now_ns()
-        self._subs.append(self.node.create_subscription(msg_type, topic, cb, self._qos))
+        # raw: never deserialize (images at 27 Hz, robot at 500 Hz); removed again once the bag is ready
+        self._subs.append(self.node.create_subscription(msg_type, topic, cb, self._qos, raw=True))
         self._typed.add(topic)
         return True
 
@@ -179,6 +180,15 @@ class EpisodeRecorder:
             return []
         return ['chrt', '-f', str(prio)]
 
+    def _unwatch(self):
+        """Drop the readiness subscriptions: they must not load this process during the episode."""
+        for sub in self._subs:
+            self.node.destroy_subscription(sub)
+        self._subs.clear()
+        self._typed.clear()
+        with self._seen_lock:
+            self._seen.clear()
+
     def _bag_subscribed(self, topic):
         for info in self.node.get_subscriptions_info_by_topic(topic):
             if info.node_name in BAG_NODE_NAMES:
@@ -195,6 +205,7 @@ class EpisodeRecorder:
                 break
             if time.monotonic() - t0 > self.ready_timeout:
                 self._stop_bag()
+                self._unwatch()
                 raise RecorderError(f'bag did not subscribe to {missing} within {self.ready_timeout} s')
             time.sleep(0.05)
         t_sub = now_ns()
@@ -202,9 +213,11 @@ class EpisodeRecorder:
             with self._seen_lock:
                 stale = [t for t in self.ready_topics if self._seen.get(t, 0) <= t_sub]
             if not stale:
+                self._unwatch()
                 return now_ns()
             if time.monotonic() - t0 > self.ready_timeout:
                 self._stop_bag()
+                self._unwatch()
                 raise RecorderError(f'no fresh message on {stale} after the bag subscribed')
             time.sleep(0.01)
 
