@@ -95,7 +95,7 @@ ros2 run usrig_robot rig_measure pose
 **8. Safety limits:** every limit in `rig.yaml` is `null` until filled from your measurements and
 protocol (see [`docs/rig_limits.md`](docs/rig_limits.md); `rig_measure box`, `tilt-axis` and
 `force-noise` help). `robot_control` refuses to start while any is null and names each one.
-Run the control dry run in URSim before the first real motion.
+Run the control dry run in URSim, then [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md) on the real arm.
 
 **9. Before each session:**
 ```bash
@@ -121,7 +121,8 @@ is for demos only. Day-to-day commands: [`docs/collection_day.md`](docs/collecti
 Built and unit-tested (46 tests). Verified so far: micrus simulator bringup (27.35 Hz, 0 frame gaps
 in 5 min, clean power-down), robot state on URSim, and data integrity under load on the development
 PC (C++ robot_state: 0 of ~31,000 samples lost per minute). Not yet run: the URSim control dry run
-(needs the limits), the D415 on USB 3, the real scanner, and the real UR7e. See
+(needs the limits), the D415 on USB 3, the real scanner, and the real UR7e. Full status: [`docs/progress.md`](docs/progress.md). Before the first real
+motion: [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md). See also
 [`docs/NOT_VERIFIED.md`](docs/NOT_VERIFIED.md) and [`docs/OPEN_DECISIONS.md`](docs/OPEN_DECISIONS.md).
 
 ## License
