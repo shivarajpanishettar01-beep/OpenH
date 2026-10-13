@@ -5,6 +5,7 @@ when the probe tip is below a phantom surface; in force mode it regulates penetr
 Limits here are TEST values for this simulator only (rig.yaml keeps its nulls).
 """
 import json
+import sys
 import threading
 import time
 
@@ -24,6 +25,7 @@ RIG = {
     'limits': {'max_contact_force_n': 20.0, 'force_band_n': [2.0, 10.0], 'force_setpoint_default_n': 4.0,
                'tilt_cone_deg': 30.0, 'tilt_reference_axis_base': [0, 0, -1],
                'workspace_box_base_m': {'min': [0.2, -0.3, 0.0], 'max': [0.6, 0.3, 0.4]},
+               'phantom_box_m': {'pmin': [-0.1, -0.1, 0.0], 'pmax': [0.1, 0.1, 0.2]}, 'local_tilt_cone_deg': 10.0,
                'max_linear_speed_mm_s': 50.0, 'max_angular_speed_deg_s': 30.0,
                'max_linear_accel_mm_s2': 500.0, 'max_angular_accel_deg_s2': 300.0, 'stop_decel_mm_s2': 1000.0,
                'deadman_timeout_s': 0.2, 'contact_detect_threshold_n': 1.0,
@@ -126,7 +128,7 @@ def sim(monkeypatch):
         robots.append(robot)
         monkeypatch.setattr(rc, 'make_backend', lambda rig, log=print, ip=None: robot)
         status = rc.ControlStatus()
-        node = rc.RobotControlNode(robot, status, RIG)
+        node = rc.RobotControlNode(robot, status, sys.modules[__name__].RIG)
         node.events = []
         orig = node._event
 
@@ -441,4 +443,43 @@ def test_phantom_move_refuses_without_safe_height(sim):
     geometry.fill_pose_msg(req.target.pose, robot.T)
     res = node._srv_move(req, MoveToPose.Response())
     assert not res.success and 'transit_safe_height_mm' in res.message
+    node.destroy_node()
+
+
+def test_phantom_box_and_local_tilt_cone(sim, monkeypatch):
+    # registration: phantom origin at (0.4, 0, 0) in base, axes aligned
+    T_bp = np.eye(4)
+    T_bp[:3, 3] = [0.4, 0.0, 0.0]
+    monkeypatch.setattr(rc.RobotControlNode, '_phantom_T', lambda self: T_bp)
+    node, robot = sim(p0=(0.45, 0.0, 0.10))
+    assert node.lim.extra_boxes, 'phantom box not active'
+    node._set_motion(rc.Teleop(node, False))
+    node.hold = False
+    flags = []
+    t_end = time.monotonic() + 2.0
+    while time.monotonic() < t_end:                  # towards phantom x max (0.4 + 0.1 = 0.5 base)
+        twist(node, v=(0.03, 0, 0))
+        flags.append(node.status.safety_flags)
+        time.sleep(0.01)
+    assert robot.T[0, 3] <= 0.5 + 0.004 and robot.T[0, 3] > 0.48
+    assert any(f & rc.safety.FLAG_ENVELOPE for f in flags)
+    # D10: local cone 10 deg around straight down; tilting further is refused, rotation about the axis is not
+    cmd(node, {'cmd': 'set_local_tilt_axis', 'axis_base': [0, 0, -1]})
+    drive(node, 2.0, w=(0.2, 0, 0))                  # tilt about probe x
+    tilt = geometry.tilt_deg(robot.T, [0, 0, -1])
+    assert tilt <= 10.0 + 1.0, tilt
+    cmd(node, {'cmd': 'clear_local_tilt_axis'})
+    drive(node, 1.0, w=(0.2, 0, 0))
+    assert geometry.tilt_deg(robot.T, [0, 0, -1]) > tilt + 3      # global 30 deg cone allows more
+    node.destroy_node()
+
+
+def test_registration_without_phantom_box_refuses_motion(sim, monkeypatch):
+    monkeypatch.setattr(rc.RobotControlNode, '_phantom_T', lambda self: np.eye(4))
+    rig = json.loads(json.dumps(RIG))
+    rig['limits']['phantom_box_m'] = {'pmin': None, 'pmax': None}
+    monkeypatch.setattr(sys.modules[__name__], 'RIG', rig)
+    node, robot = sim()
+    m = node._set_motion(rc.Teleop(node, False))
+    assert m.done.is_set() and 'phantom_box_m' in m.message
     node.destroy_node()

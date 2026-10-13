@@ -32,6 +32,10 @@ limits:
   workspace_box_base_m:
     min: null                       # [x, y, z] in the robot base frame
     max: null
+  phantom_box_m:                    # D9: extra box in the phantom frame, enforced once a phantom is registered
+    pmin: null                      # [x, y, z] phantom frame (z up out of the phantom)
+    pmax: null
+  local_tilt_cone_deg: null         # D10: cone around the current waypoint's probe axis (inside the global cone)
   max_linear_speed_mm_s: null
   max_angular_speed_deg_s: null
   max_linear_accel_mm_s2: null

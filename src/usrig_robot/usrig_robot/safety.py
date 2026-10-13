@@ -45,6 +45,9 @@ class Limits:
     stop_decel: float = 2.0       # m/s^2
     measured_speed_margin: float = 1.2
     lookahead_s: float = 0.1
+    local_cone_deg: float = None   # D10 cone around a waypoint axis (set at run time)
+    local_axis: np.ndarray = None
+    extra_boxes: list = None       # D9: [(T_base_frame, min, max)] e.g. the phantom box
 
     @classmethod
     def from_rig(cls, rig):
@@ -68,6 +71,8 @@ class Limits:
             stop_decel=float(g('limits.stop_decel_mm_s2')) / 1000.0,
             measured_speed_margin=float(g('limits.measured_speed_margin') or 1.2),
             lookahead_s=float(g('limits.envelope_lookahead_s') or 0.1),
+            local_cone_deg=float(g('limits.local_tilt_cone_deg')),
+            extra_boxes=[],
         )
 
 
@@ -83,6 +88,10 @@ def hard_violations(lim: Limits, T, wrench_base, tcp_speed):
     p = T[:3, 3]
     if np.any(p < lim.box_min) or np.any(p > lim.box_max):
         flags |= FLAG_ENVELOPE
+    for T_bf, bmin, bmax in lim.extra_boxes or []:
+        pf = geometry.inv(T_bf)[:3, :3] @ p + geometry.inv(T_bf)[:3, 3]
+        if np.any(pf < bmin) or np.any(pf > bmax):
+            flags |= FLAG_ENVELOPE
     if geometry.tilt_deg(T, lim.tilt_ref_axis) > lim.tilt_cone_deg:
         flags |= FLAG_TILT_CONE
     if np.linalg.norm(np.asarray(wrench_base[:3], float)) > lim.max_force_n:
@@ -126,15 +135,33 @@ def filter_command(lim: Limits, T, v, w, v_prev, w_prev, dt):
             v[i] = 0.0
             flags |= FLAG_ENVELOPE
 
-    # Tilt cone: refuse rotation that increases tilt beyond the cone.
+    # Extra boxes (D9, e.g. phantom frame): same rule, in that frame.
+    for T_bf, bmin, bmax in lim.extra_boxes or []:
+        Rfb = T_bf[:3, :3].T
+        pf = Rfb @ (T[:3, 3] - T_bf[:3, 3])
+        vf = Rfb @ v
+        nf = pf + vf * lim.lookahead_s
+        for i in range(3):
+            if (nf[i] < bmin[i] and vf[i] < 0) or (nf[i] > bmax[i] and vf[i] > 0):
+                vf[i] = 0.0
+                flags |= FLAG_ENVELOPE
+        v = T_bf[:3, :3] @ vf
+
+    # Tilt cones: refuse rotation that increases tilt beyond the global cone, or beyond the local
+    # cone around the current waypoint axis (D10) when one is set.
     if np.linalg.norm(w) > 0:
         from scipy.spatial.transform import Rotation
         T_next = np.eye(4)
         T_next[:3, :3] = Rotation.from_rotvec(w * lim.lookahead_s).as_matrix() @ T[:3, :3]
-        now = geometry.tilt_deg(T, lim.tilt_ref_axis)
-        nxt = geometry.tilt_deg(T_next, lim.tilt_ref_axis)
-        if nxt > lim.tilt_cone_deg and nxt > now:
-            z = T[:3, 2]
-            w = z * (w @ z)        # keep only rotation about the probe axis (does not change tilt)
-            flags |= FLAG_TILT_CONE
+        cones = [(lim.tilt_ref_axis, lim.tilt_cone_deg)]
+        if lim.local_axis is not None and lim.local_cone_deg is not None:
+            cones.append((lim.local_axis, lim.local_cone_deg))
+        for axis, cone in cones:
+            now = geometry.tilt_deg(T, axis)
+            nxt = geometry.tilt_deg(T_next, axis)
+            if nxt > cone and nxt > now:
+                z = T[:3, 2]
+                w = z * (w @ z)        # keep only rotation about the probe axis (does not change tilt)
+                flags |= FLAG_TILT_CONE
+                break
     return v, w, flags

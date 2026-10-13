@@ -86,6 +86,7 @@ class EpisodeManager(Node):
 
         cb = ReentrantCallbackGroup()
         self.pub_evt = self.create_publisher(EpisodeEvent, '/episode/events', 50)
+        self.pub_cmd = self.create_publisher(String, '/operator/command', 10)
         self.create_subscription(String, '/operator/command', self._on_cmd, 50, callback_group=cb)
         self.create_subscription(String, '/micrus/frame_info', self._on_frame_info, 10, callback_group=cb)
         self.create_subscription(EpisodeEvent, '/episode/events', self._on_event, 50, callback_group=cb)
@@ -351,6 +352,16 @@ class EpisodeManager(Node):
         req.target.header.frame_id = frame
         geometry.fill_pose_msg(req.target.pose, T)
         self.call('move', req)
+        if frame == 'phantom':
+            self._set_local_tilt(T)
+
+    def _set_local_tilt(self, T_phantom):
+        """D10: tilt cone around this waypoint's probe axis, sent to robot_control (base frame)."""
+        reg = read_json(self.sdir / 'session.json').get('phantom_registration', {})
+        if 'T_base_phantom' not in reg:
+            return
+        axis = (np.array(reg['T_base_phantom'])[:3, :3] @ np.asarray(T_phantom)[:3, 2]).tolist()
+        self.pub_cmd.publish(String(data=json.dumps({'cmd': 'set_local_tilt_axis', 'axis_base': axis})))
 
     # ------------------------------------------------------------------ stages
     def _run_stage(self):

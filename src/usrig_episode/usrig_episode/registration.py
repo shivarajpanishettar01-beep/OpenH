@@ -46,6 +46,14 @@ def _register(node, a):
         'T_base_phantom': T.tolist(), 'rms_residual_mm': rms_mm, 'per_fiducial_mm': per.tolist(),
         'fiducials_mm': fid, 'phantom_file': str(pf), 'tool': a.tool, 'stamp_ns': now_ns()})
     print(f'saved to {Path(a.session) / "session.json"}')
+    # robot_control enforces the phantom-frame box (D9) once it has the registration
+    import json as _json
+    from std_msgs.msg import String
+    pub = node.create_publisher(String, '/operator/command', 10)
+    import time as _time
+    _time.sleep(0.5)
+    pub.publish(String(data=_json.dumps({'cmd': 'reload_registration'})))
+    print('asked robot_control to reload the registration (phantom box active)')
 
 
 def main():

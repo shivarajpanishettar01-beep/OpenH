@@ -18,6 +18,7 @@ MOTION_LIMITS = (
     'limits.force_band_n',
     'limits.tilt_cone_deg',
     'limits.tilt_reference_axis_base',
+    'limits.local_tilt_cone_deg',
     'limits.workspace_box_base_m.min',
     'limits.workspace_box_base_m.max',
     'limits.max_linear_speed_mm_s',

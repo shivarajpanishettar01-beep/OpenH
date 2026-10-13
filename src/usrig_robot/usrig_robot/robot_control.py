@@ -253,6 +253,8 @@ class RobotControlNode(Node):
         self._twist_lock = threading.Lock()
         self.v_prev, self.w_prev = np.zeros(3), np.zeros(3)
         self._low_force_since = None    # contact-loss timer (monotonic s)
+        self.registration_problem = None
+        self._load_registration()
 
         cb = ReentrantCallbackGroup()
         self.pub_cmd = self.create_publisher(TwistStamped, '/robot/cmd_executed', 10)
@@ -304,6 +306,16 @@ class RobotControlNode(Node):
             lo, hi = self.lim.force_band_n
             self.force_setpoint = float(np.clip(self.force_setpoint + float(c.get('delta', 0.0)), lo, hi))
             self._event('note', {'force_setpoint_n': self.force_setpoint})
+        elif cmd == 'reload_registration':
+            self._load_registration()
+        elif cmd == 'set_local_tilt_axis':
+            axis = np.asarray(c.get('axis_base', []), float)
+            if axis.shape == (3,) and np.linalg.norm(axis) > 0:
+                self.lim.local_axis = axis / np.linalg.norm(axis)
+                self._event('note', {'local_tilt_axis_base': self.lim.local_axis.tolist(),
+                                     'local_tilt_cone_deg': self.lim.local_cone_deg})
+        elif cmd == 'clear_local_tilt_axis':
+            self.lim.local_axis = None
         elif cmd == 'recontact':
             threading.Thread(target=self._recontact, daemon=True).start()
         elif cmd == 'hold':
@@ -323,10 +335,31 @@ class RobotControlNode(Node):
         e.value = json.dumps(value)
         self.pub_evt.publish(e)
 
+    def _load_registration(self):
+        """D9: with a phantom registration, also enforce the phantom-frame box (required then)."""
+        self.lim.extra_boxes = []
+        self.registration_problem = None
+        try:
+            T_bp = self._phantom_T()
+        except RuntimeError:
+            return                      # no registration yet: base-frame limits only
+        pmin = config.get_path(self.rig, 'limits.phantom_box_m.pmin')
+        pmax = config.get_path(self.rig, 'limits.phantom_box_m.pmax')
+        if pmin is None or pmax is None:
+            self.registration_problem = ('phantom registered but limits.phantom_box_m is null: '
+                                         'motion refused until it is set (D9)')
+            self.get_logger().error(self.registration_problem)
+            return
+        self.lim.extra_boxes = [(T_bp, np.asarray(pmin, float), np.asarray(pmax, float))]
+        self.get_logger().info(f'phantom box active: {pmin} .. {pmax} m (phantom frame)')
+
     def _set_motion(self, m):
         with self.motion_lock:
             if self.status.mode == ST.MODE_FAULT:
                 m.finish(False, 'robot in FAULT; acknowledge first')
+                return m
+            if self.registration_problem and not isinstance(m, Idle):
+                m.finish(False, self.registration_problem)
                 return m
             old = self.motion
             self.motion = m
@@ -645,6 +678,7 @@ class RobotControlNode(Node):
         T_up[:3, 3] = T[:3, 3] - T[:3, 2] * self.retract_dist
         self.in_contact = False
         self.hold = False
+        self.lim.local_axis = None       # leaving the waypoint: local tilt cone no longer applies
         self._event('phase', {'phase': 'retract'})
         m = self._run(LinearMove(self, T_up, self.transit_speed, mode=ST.MODE_RETRACT),
                       timeout=self._move_timeout(T_up, self.transit_speed))
