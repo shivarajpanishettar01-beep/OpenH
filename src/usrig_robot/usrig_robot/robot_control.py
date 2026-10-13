@@ -775,6 +775,7 @@ class RobotControlNode(Node):
             if problem:
                 raise ValueError(problem)
         except (RuntimeError, ValueError) as e:
+            self._event('motion', {'motion': 'PathFollow', 'ok': False, 'message': str(e)})
             res.success, res.message = False, str(e)
             return res
         self.hold = False

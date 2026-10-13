@@ -238,6 +238,7 @@ def test_run_path_outside_envelope_refused_before_moving(sim, monkeypatch):
     res = node._srv_run_path(req, RunPath.Response())
     assert not res.success and 'refused before moving' in res.message
     assert not any(k == 'phase' and v.get('phase') == 'search' for k, v in node.events)
+    assert motion_events(node)[-1]['motion'] == 'PathFollow' and not motion_events(node)[-1]['ok']
     node.destroy_node()
 
 

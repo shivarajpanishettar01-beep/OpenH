@@ -18,3 +18,10 @@ def test_rate_drops_to_zero_when_stream_stops():
 
 def test_motion_buttons_are_confirmed():
     assert MOTION_BUTTONS == {'start_stop', 'next'}
+
+
+def test_status_console_flags_stale_status():
+    from usrig_qc.status_console import staleness
+    assert staleness(None, 5.0, 0.5) is None
+    assert staleness(4.8, 5.0, 0.5) is None
+    assert 'NO UPDATE FOR 2.0 s' in staleness(3.0, 5.0, 0.5)
