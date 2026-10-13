@@ -7,6 +7,9 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - Lab URScript: orientation format (rotvec vs RPY), wrench frame, `fz` / `start`, `force_mode`,
   watchdog, loop rate (P0 item 3). Path A backend's `orientation_format` stays null until known.
 - Controller TCP setting and whether it already includes the probe (`probe.tcp_already_includes_probe`).
+- `RtdeReader` on URSim (P2, docs/P2_results.md): no repeats, identical stamps on all derived
+  messages, but URSim runs at 0.968x real time and ~2 samples/s are missed by polling.
+  Real-controller rate / jitter still NOT VERIFIED.
 - `RtdeReader`: one stamp per new `getTimestamp()`; values are read after the timestamp, so on a
   heavily loaded PC a read can straddle two samples. Check repeated controller times and jitter (P2).
 - `actual_TCP_force` frame (base frame assumed, per UR docs) and the sign of `forceMode`'s wrench
