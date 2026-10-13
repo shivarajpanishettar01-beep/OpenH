@@ -14,6 +14,10 @@ robot:
   tcp_setting: null                 # controller TCP offset [x,y,z,rx,ry,rz] (getTCPOffset). robot_control
                                     # refuses to start if the controller's active TCP differs from this
 
+pointer:                            # calibration pointer (PH_calibration_pointer), for phantom fiducials
+  tip_offset_flange_m: null         # [x, y, z] tip in the flange frame, from `pivot_calib --tool pointer --write`
+  tip_calibration: null             # provenance written by pivot_calib (date, rms, poses, file)
+
 probe:
   type: null                        # e.g. MPRO-L40S
   tcp_already_includes_probe: null  # true if the controller TCP is the probe tip (offset never applied twice)
@@ -68,7 +72,8 @@ registration_max_residual_mm: null
 waypoint_verify_min_ncc: null
 
 calibration:
-  wrist_cam_cali_mtx: null          # 4x4 camera-to-flange from eye-in-hand calibration (P1b)
+  wrist_cam_cali_mtx: null          # 4x4 T_flange_camera (camera colour optical frame in the flange frame), from handeye_calib --write-rig
+  wrist_cam_cali_info: null         # provenance written by handeye_calib (method, residual, poses, board, date, files)
   ultrasound_time_offset_s: -0.020  # PLACEHOLDER until temporal calibration (P9c)
   camera_time_offset_s: 0.0         # PLACEHOLDER until temporal calibration (P9c)
-  prob_cali_mtx: null               # ultrasound image to probe/TCP calibration
+  prob_cali_mtx: null               # ultrasound image to probe calibration: file from the lab's calibration (pending)

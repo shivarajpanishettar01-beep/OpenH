@@ -46,14 +46,9 @@ def rig_path(config_dir):
 
 def write_key(path, key, value):
     """Replace `key: <anything>` (first occurrence) in rig.yaml, keeping comments."""
-    text = Path(path).read_text()
-    flow = '[' + ', '.join(f'{v:.5f}' if isinstance(v, float) else str(v) for v in value) + ']' \
-        if isinstance(value, (list, tuple)) else str(value)
-    pat = re.compile(rf'^(\s*{re.escape(key)}:\s*)([^#\n]*?)(\s*(#.*)?)$', re.M)
-    new, n = pat.subn(lambda m: m.group(1) + flow + (('   ' + m.group(4)) if m.group(4) else ''), text, count=1)
-    if n != 1:
-        raise RuntimeError(f'{key} not found in {path}')
-    Path(path).write_text(new)
+    if isinstance(value, (list, tuple)):
+        value = [round(float(v), 5) for v in value]
+    config.write_yaml_key(path, key, value)
 
 
 def cmd_pose(r, a):

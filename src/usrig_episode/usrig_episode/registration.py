@@ -4,6 +4,7 @@
 
 phantoms/<id>.yaml:  fiducials_mm: {F1: [x, y, z], F2: ..., F3: ..., F4: ...}  (phantom frame)
 Teleop the probe tip onto each fiducial (keyboard_teleop runs separately), press Enter here.
+With --tool pointer the calibrated pointer tip (pivot_calib) is used instead: sharper, more accurate.
 Rejected if the RMS residual exceeds rig.yaml registration_max_residual_mm.
 Saves T_base_phantom to <session>/session.json; rig_static_tf publishes it on /tf_static.
 """
@@ -31,7 +32,7 @@ def _register(node, a):
     src, dst = [], []
     for name, p_mm in fid.items():
         input(f'Put the probe tip on fiducial {name} {p_mm} mm and press Enter... ')
-        p = node.averaged_tip_position()
+        p = node.averaged_tip_position(tool=a.tool)
         print(f'  {name}: base {np.round(p * 1000, 2)} mm')
         src.append(np.asarray(p_mm, float) / 1000.0)
         dst.append(p)
@@ -43,7 +44,7 @@ def _register(node, a):
         raise ValueError('registration rejected: residual above registration_max_residual_mm')
     update_session_json(a.session, phantom_registration={
         'T_base_phantom': T.tolist(), 'rms_residual_mm': rms_mm, 'per_fiducial_mm': per.tolist(),
-        'fiducials_mm': fid, 'phantom_file': str(pf), 'stamp_ns': now_ns()})
+        'fiducials_mm': fid, 'phantom_file': str(pf), 'tool': a.tool, 'stamp_ns': now_ns()})
     print(f'saved to {Path(a.session) / "session.json"}')
 
 
@@ -51,6 +52,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('session')
     ap.add_argument('--phantom-file')
+    ap.add_argument('--tool', choices=['probe', 'pointer'], default='probe')
     a, _ = ap.parse_known_args()
     run_tool(lambda n: _register(n, a), 'register_phantom')
 

@@ -19,7 +19,7 @@ HDF5, and exports LeRobot v3.0 for the Open-H Embodiment V2 contribution (via Le
 | `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files |
 | `export/` | `lerobot_rig.yaml` (bag_to_lerobot config), `stage_bags.py`, `depth_export.py`, `openh_export.py` |
 | `tools/temporal_calib.py` | ultrasound / D415 latency from a sinusoidal compress test |
-| `docs/` | capture-PC setup, rig limits, collection-day commands, data integrity, proposal alignment, P0-P2 results, NOT VERIFIED list, open decisions |
+| `docs/` | capture-PC setup, calibration, rig limits, collection-day commands, data integrity, proposal alignment, P0-P2 results, NOT VERIFIED list, open decisions |
 
 ## Capture PC setup
 

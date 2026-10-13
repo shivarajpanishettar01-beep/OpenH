@@ -172,6 +172,16 @@ class ConstantSpeedPath:
         return T, sd, t >= self.duration
 
 
+def tool_tip_in_base(T_base_tcp, tcp_setting, tip_offset_flange):
+    """Tip pose of a second tool (e.g. the calibration pointer) given the active-TCP pose,
+    the controller's TCP offset (UR pose, flange -> TCP) and the tip position in the flange frame.
+    Orientation = flange orientation (a pointer tip has no meaningful orientation)."""
+    T_base_flange = T_base_tcp @ inv(pose_from_ur(tcp_setting))
+    T = T_base_flange.copy()
+    T[:3, 3] = (T_base_flange @ np.append(np.asarray(tip_offset_flange, float), 1.0))[:3]
+    return T
+
+
 def pose_error(T_cur, T_des):
     """(position error in base [m], rotation error as rotvec in base [rad]) of des relative to cur."""
     dp = T_des[:3, 3] - T_cur[:3, 3]

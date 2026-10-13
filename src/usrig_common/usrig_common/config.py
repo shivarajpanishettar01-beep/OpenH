@@ -128,5 +128,24 @@ def require_limits(rig_cfg: dict, keys=MOTION_LIMITS, source='rig.yaml'):
         raise UnsetLimitError(missing, source)
 
 
+def write_yaml_key(path, key, value):
+    """Replace the value of the first `key:` line in a YAML file, keeping every comment.
+
+    Lists, nested lists (4x4 matrices) and dicts are written in flow style on that one line.
+    Used by the calibration and measurement tools to fill rig.yaml / session.yaml.
+    """
+    import re
+    p = Path(path)
+    text = p.read_text()
+    flow = yaml.safe_dump(value, default_flow_style=True, width=10**6).strip()
+    if flow.endswith('...'):
+        flow = flow[:-3].strip()
+    pat = re.compile(rf'^(\s*{re.escape(key)}:\s*)([^#\n]*?)(\s*(#.*)?)$', re.M)
+    new, n = pat.subn(lambda m: m.group(1) + flow + (('   ' + m.group(4)) if m.group(4) else ''), text, count=1)
+    if n != 1:
+        raise KeyError(f'{key} not found in {path}')
+    p.write_text(new)
+
+
 def expand(path: str, **fmt) -> Path:
     return Path(os.path.expandvars(str(path).format(**fmt))).expanduser()

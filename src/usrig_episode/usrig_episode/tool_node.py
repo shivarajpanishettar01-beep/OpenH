@@ -38,10 +38,22 @@ class ToolNode(Node):
             time.sleep(0.01)
         raise RuntimeError('no /robot/state (is robot_state running?)')
 
-    def tip_pose_base(self):
-        """Probe-tip pose in the base frame. Never applies the probe offset twice."""
+    def tip_pose_base(self, tool='probe'):
+        """Tool-tip pose in the base frame. Never applies the probe offset twice.
+
+        tool 'probe': the probe face (controller TCP, or TCP + probe.tip_offset_flange_m).
+        tool 'pointer': the calibration pointer tip (pointer.tip_offset_flange_m from pivot_calib),
+        expressed from the flange via robot.tcp_setting.
+        """
         s = self.state()
         T = geometry.pose_from_msg(s.tcp_base)
+        if tool == 'pointer':
+            off = config.get_path(self.rig, 'pointer.tip_offset_flange_m')
+            tcp = config.get_path(self.rig, 'robot.tcp_setting')
+            if off is None or tcp is None:
+                raise config.UnsetLimitError([k for k, v in (('pointer.tip_offset_flange_m', off),
+                                                             ('robot.tcp_setting', tcp)) if v is None], 'rig.yaml')
+            return geometry.tool_tip_in_base(T, tcp, off)
         inc = config.get_path(self.rig, 'probe.tcp_already_includes_probe')
         if inc is None:
             raise config.UnsetLimitError(['probe.tcp_already_includes_probe'], 'rig.yaml')
@@ -52,11 +64,11 @@ class ToolNode(Node):
             raise config.UnsetLimitError(['probe.tip_offset_flange_m'], 'rig.yaml')
         return T @ geometry.pose_from_ur(off)
 
-    def averaged_tip_position(self, seconds=0.5):
+    def averaged_tip_position(self, seconds=0.5, tool='probe'):
         pts = []
         t0 = time.monotonic()
         while time.monotonic() - t0 < seconds:
-            pts.append(self.tip_pose_base()[:3, 3])
+            pts.append(self.tip_pose_base(tool)[:3, 3])
             time.sleep(0.01)
         return np.mean(pts, axis=0)
 

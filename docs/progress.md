@@ -41,6 +41,9 @@ GR00T-H is out of scope for now (separate task).
 - Tools: `rig_measure` (read-only box / tilt axis / F/T noise), hand-eye calibration, phantom
   registration, waypoint teach / verify, path editor, plan generator, temporal calibration (ultrasound
   keypoint + ArUco, drift start vs end of session), camera auto-then-lock.
+- Calibration (`calibration.md`): pointer pivot calibration (arm) and wrist-camera hand-eye
+  (checkerboard or ChArUco) with raw captures saved, re-solve, flange frame, provenance in rig.yaml;
+  tested on synthetic data (pivot within 0.5 mm at 0.2 mm noise; rendered board within 2 mm / 0.5 deg).
 
 **Data integrity** (`data_integrity.md`)
 - Loss measured at every stage under load. Fixed: Python robot reader (replaced by C++), shallow
@@ -62,8 +65,8 @@ GR00T-H is out of scope for now (separate task).
 | URSim control dry run | the limits | then me |
 | Capture PC setup, P1b camera on USB 3, micrus licence, rtprio, data disk (> 50 GB) | the capture PC | you + me |
 | Real UR7e: read-only P2, then `first_motion_checklist.md` | capture PC + limits + your go-ahead | you + me |
-| Probe calibration `prob_cali_mtx` | **no tool yet** | me |
-| Calibrations on the rig: hand-eye, phantom registration (fiducial files per phantom), temporal offsets | real hardware | you + me |
+| Ultrasound image-to-probe calibration `prob_cali_mtx` | the lab's calibration file (pending) | you, then me |
+| Calibrations on the rig: pointer pivot, hand-eye, phantom registration (fiducial files per phantom), temporal offsets (tools ready, `calibration.md`) | real hardware | you + me |
 | Waypoints, paths and a locked plan per phantom (P5) | robot motion | you + me |
 | Export end to end on real episodes + Open-H `validate_formatting.py` | recorded episodes, LeRobot 0.6.0 env | me |
 | Release extras: robot description (URDF / USD / DH), vessel masks on a subset, model-assisted labelling | later | open |

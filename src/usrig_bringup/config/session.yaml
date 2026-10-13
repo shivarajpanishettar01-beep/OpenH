@@ -12,6 +12,7 @@ session:
   min_free_disk_gb: 50
   waypoint_dir: ~/data/waypoints              # waypoints/<phantom_id>.yaml
   path_dir: ~/data/paths                      # paths/<phantom_id>.yaml
+  calibration_dir: ~/data/calibration         # raw captures of every calibration (images, poses)
   phantom_dir: ~/data/phantoms                # phantoms/<phantom_id>.yaml (fiducials)
 
 # Open-H V2 proposal (IIT Mandi): two phantoms, 10 h total in 20-30 s episodes, ~20 % failure/recovery.
@@ -95,12 +96,13 @@ wrist_camera:
     depth: /wrist/d415/aligned_depth_to_color/image_raw
     depth_info: /wrist/d415/aligned_depth_to_color/camera_info
     metadata: /wrist/d415/color/metadata        # realsense2_camera_msgs/Metadata (4.58.4 publishes .../metadata); confirm on the capture PC
-  charuco:                                      # eye-in-hand calibration board (null until set)
-    squares_x: null
+  calib_board:                                  # hand-eye calibration board (null until set)
+    type: null                                  # checkerboard | charuco
+    squares_x: null                             # squares along x (inner corners = squares - 1)
     squares_y: null
     square_mm: null
-    marker_mm: null
-    dictionary: null                            # e.g. DICT_5X5_100
+    marker_mm: null                             # charuco only
+    dictionary: null                            # charuco only, e.g. DICT_5X5_100
 
 recording:
   storage: mcap
