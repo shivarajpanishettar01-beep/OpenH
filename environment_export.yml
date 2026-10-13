@@ -6,7 +6,7 @@ dependencies:
   - python=3.12
   - pip
   - pip:
-      - lerobot==0.6.0
+      - lerobot[dataset]==0.6.0   # the dataset extra holds the v2.1 -> v3.0 converter and LeRobotDataset
       - rosbags
       - pyarrow
       - pyyaml

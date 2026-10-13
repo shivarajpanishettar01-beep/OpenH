@@ -54,6 +54,27 @@ kinematic simulator, `src/usrig_robot/test/test_control_sim.py`, 6 passing [Meas
 | D10 | Tilt reference | **Waypoint's probe axis (local surface normal)** or fixed vertical | Curved phantoms (central-line neck) |
 | D11 | Transit between waypoints | **Via a safe-height plane** | Closes R5 |
 
+## 3b. Decisions taken (13 October 2026): the recommended defaults for D1-D11
+
+| Item | Implemented | Test (kinematic simulator / fake devices) |
+|---|---|---|
+| R2 / D8 contact loss | force below `contact_lost_threshold_n` for `contact_lost_time_s` in force regulation -> stop force mode, hold, `contact_lost` event, path / perturbation aborted; key **J** = recontact (bounded descent) | `test_contact_loss_is_detected`, `test_path_aborts_on_contact_loss` |
+| R3 lift | clamped to [0, band high] | `test_lift_perturbation_stays_in_force_band` |
+| R9 hold | operator pause (P) separate from service hold | `test_operator_pause_independent_of_service_hold` |
+| D4 TCP | robot_control refuses unless the controller TCP is the probe face | `test_design_requires_tcp_at_probe_face` |
+| R7 transit | coordinated position + orientation | `test_coordinated_move_finishes_position_and_rotation_together` |
+| D11 safe height | phantom-frame moves go up / across / down at `transit_safe_height_mm`; refused while null | `test_phantom_moves_go_via_safe_height`, `..._refuses_without_safe_height` |
+| D9 phantom box | extra box in the phantom frame once registered; motion refused if registered without it | `test_phantom_box_and_local_tilt_cone`, `test_registration_without_phantom_box_refuses_motion` |
+| D10 local cone | cone around the waypoint axis, set by episode_manager after each phantom move, cleared at retract | `test_phantom_box_and_local_tilt_cone` |
+| D2 enable | keyboard: Ctrl held to move; SpaceMouse: left button held | `test_enable_key_required`, keyboard + SpaceMouse node tests |
+| D1 SpaceMouse | `spacemouse_teleop` (ROS spacenav driver), proportional, deadband, fine button, cap push = force nudge, driver loss -> silence | `test_spacemouse.py` |
+| R6 guard | `set_teleop` refused with more than one `/teleop/twist` publisher | `test_two_twist_publishers_refuse_teleop` |
+| D3, D5, D7 | already the design (probe frame, force-regulated axis, automatic approach + descend) | earlier tests |
+| D6 | your speeds in keymap.yaml (null) | - |
+
+Still open: R1 (contact behaviour only on the real arm), R4 (payload check), R8 (tick jitter), SpaceMouse axis
+signs and the spacenav Joy scaling on real hardware (NOT VERIFIED).
+
 ## 4. What to verify before capturing training data (order)
 1. URSim dry run with your limits: kinematics, envelope, deadman, watchdog, cancel / timeout (URSim cannot test force).
 2. Real arm, free air (`first_motion_checklist.md` C-D) plus **payload check and free-air force vs tilt** (R4).

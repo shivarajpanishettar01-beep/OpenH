@@ -66,6 +66,10 @@ Stop the launch (Ctrl+C) before section C.
 - [ ] Each axis, short key presses, fine mode (Shift) first: W/S, A/D (slide), Q/E (rock), R/F (tilt),
       Z/C (rotate). Motion direction matches the probe frame (x along the array, y across, z into tissue).
 - [ ] Two keys together (diagonal) move smoothly; releasing all keys ramps to a stop.
+- [ ] **Hold-to-move**: motion keys without Ctrl held do nothing; releasing Ctrl mid-motion ramps to a stop.
+- [ ] SpaceMouse (if used, `input:=spacemouse`): each cap axis moves the matching probe axis with the right sign
+      (fix `keymap.yaml spacemouse.axes` otherwise); releasing the left button stops; stopping `spacenav_node`
+      stops the robot (deadman); cap push changes the force setpoint only in contact.
 
 ## D. Every safety layer trips (free air)
 After each FAULT: robot stopped, status shows FAULT, nothing moves until acknowledged with **K**.
@@ -112,6 +116,8 @@ After each FAULT: robot stopped, status shows FAULT, nothing moves until acknowl
       above the band), restart control, descend and raise the setpoint (T): FAULT when the ceiling is
       exceeded; robot stops. Restore the real value afterwards.
 - [ ] Teleop in contact: slide and rock while the force stays in the band; release keys: holds position and force.
+- [ ] **Contact loss**: slide slowly off the phantom edge (or lift it away): `contact_lost` event, force mode
+      stops, the probe holds; **J** (recontact) descends slowly back into contact.
 - [ ] Retract:
       ```bash
       ros2 service call /robot/retract std_srvs/srv/Trigger

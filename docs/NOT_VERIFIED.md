@@ -42,6 +42,10 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - Minimum depth distance vs camera-to-phantom distance at contact.
 - `easy_handeye2` on Humble: not checked; `handeye_calib` uses OpenCV directly.
 
+## Teleop
+- SpaceMouse: spacenav driver Joy axis order, scaling (`full_scale`) and the axis signs in `keymap.yaml spacemouse.axes`.
+- Contact-loss thresholds on the real phantom; recontact behaviour in real contact.
+
 ## Recording
 - Loss budget on the capture PC (docs/data_integrity.md): dev-PC numbers are with the micrus
   simulator using ~4 cores; real scanner, D415 and UR7e not measured together yet.

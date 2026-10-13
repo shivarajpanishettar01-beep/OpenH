@@ -12,7 +12,7 @@ HDF5, and exports LeRobot v3.0 for the Open-H Embodiment V2 contribution (via Le
 | `src/usrig_common` | config + null-limit refusal, geometry (no FK), constant-speed paths, Kabsch, stage gates, legacy packet parser |
 | `src/usrig_robot_cpp` | `robot_state_cpp`: lossless 500 Hz RTDE state (ur_client_library), the recorded robot data |
 | `src/usrig_robot` | `robot_control` (only node that moves the robot; safety envelope, controller watchdog, FAULT/ack, services), Python `robot_state` fallback, `rig_measure` |
-| `src/usrig_teleop` | `keyboard_teleop` (evdev, ramped probe-frame twist at 100 Hz) |
+| `src/usrig_teleop` | `spacemouse_teleop` (proportional 6-DoF, hold-to-move) and `keyboard_teleop` (Ctrl hold-to-move, commands); fail-safe on device loss |
 | `src/usrig_episode` | `episode_manager` (stages 0/1/2, crash-safe recorder, resume), `plan_generator`, `register_phantom`, `waypoint_teach/verify`, `path_editor`, `handeye_calib`, `rig_static_tf` |
 | `src/usrig_qc` | `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
 | `src/usrig_dashboard` | dashboard (demos only), `annotator` (offline expert labelling) |
@@ -30,7 +30,7 @@ Full details and troubleshooting: [`docs/capture_pc_setup.md`](docs/capture_pc_s
 
 **1. System packages** (sudo):
 ```bash
-sudo apt update && sudo apt install -y ros-humble-ur-client-library ros-humble-realsense2-camera ros-humble-rosbag2-storage-mcap ros-humble-plotjuggler-ros
+sudo apt update && sudo apt install -y ros-humble-ur-client-library ros-humble-realsense2-camera ros-humble-rosbag2-storage-mcap ros-humble-plotjuggler-ros ros-humble-spacenav spacenavd
 ```
 
 **2. Clone, create the conda env, build, test:**

@@ -58,7 +58,7 @@ class Hub:
 def hub(monkeypatch, tmp_path):
     h = Hub()
     ec = types.SimpleNamespace(EV_SYN=0, EV_KEY=1, SYN_DROPPED=3, KEY_W=17, KEY_SPACE=57,
-                               KEY={17: 'KEY_W', 57: 'KEY_SPACE', 42: 'KEY_LEFTSHIFT'})
+                               KEY={17: 'KEY_W', 57: 'KEY_SPACE', 42: 'KEY_LEFTSHIFT', 29: 'KEY_LEFTCTRL'})
 
     def input_device(path):
         if not h.available:
@@ -97,7 +97,10 @@ def test_device_loss_stops_twists_and_reconnects(hub):
         ex.add_node(listen)
         threading.Thread(target=ex.spin, daemon=True).start()
         time.sleep(0.5)
-        hub.push(FakeEvent(1, 17, 1))                     # W down: slide along +x
+        hub.push(FakeEvent(1, 17, 1))                     # W alone: no enable held -> no motion (D2)
+        time.sleep(0.4)
+        assert max(abs(v) for _, v in got) == 0.0
+        hub.push(FakeEvent(1, 29, 1))                     # Ctrl held (enable) + W: slide along +x
         time.sleep(0.6)
         assert max(v for _, v in got) == pytest.approx(0.010, rel=0.05)   # ramped to 10 mm/s
         hub.break_device()                                # unplugged while W is held

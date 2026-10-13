@@ -13,7 +13,7 @@ from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, IncludeLaunchDescription
 from launch.conditions import IfCondition
 from launch.launch_description_sources import PythonLaunchDescriptionSource
-from launch.substitutions import LaunchConfiguration, PathJoinSubstitution
+from launch.substitutions import LaunchConfiguration, PathJoinSubstitution, PythonExpression
 from launch_ros.actions import Node
 from launch_ros.parameter_descriptions import ParameterValue
 from launch_ros.substitutions import FindPackageShare
@@ -44,6 +44,8 @@ def generate_launch_description():
         DeclareLaunchArgument('control', default_value='false'),
         DeclareLaunchArgument('camera', default_value='true'),
         DeclareLaunchArgument('teleop', default_value='false'),
+        DeclareLaunchArgument('input', default_value='keyboard',
+                              description='keyboard | spacemouse (D1). With spacemouse the keyboard sends commands only'),
         DeclareLaunchArgument('episode_manager', default_value='false'),
         DeclareLaunchArgument('qc', default_value='true'),
         DeclareLaunchArgument('dashboard', default_value='false'),
@@ -55,7 +57,12 @@ def generate_launch_description():
         inc('robot.launch.py', {'sim': L('sim'), 'control': L('control'),
                                 'session_json': L('session_json')}),
         Node(package='usrig_teleop', executable='keyboard_teleop', output='screen',
-             parameters=params, condition=IfCondition(L('teleop'))),
+             parameters=params + [{'publish_twist': ParameterValue(PythonExpression(["'", L('input'), "' == 'keyboard'"]), value_type=bool)}],
+             condition=IfCondition(L('teleop'))),
+        Node(package='spacenav', executable='spacenav_node', output='screen',
+             condition=IfCondition(PythonExpression(["'", L('teleop'), "' == 'true' and '", L('input'), "' == 'spacemouse'"]))),
+        Node(package='usrig_teleop', executable='spacemouse_teleop', output='screen', parameters=params,
+             condition=IfCondition(PythonExpression(["'", L('teleop'), "' == 'true' and '", L('input'), "' == 'spacemouse'"]))),
         Node(package='usrig_qc', executable='qc_monitor', output='screen',
              parameters=params, condition=IfCondition(L('qc'))),
         Node(package='usrig_episode', executable='episode_manager', output='screen',

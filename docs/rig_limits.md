@@ -8,7 +8,7 @@ ones that can be measured. Units are in the key names.
 |---|---|---|
 | `robot.ip` | UR7e controller IP (not needed for the URSim dry run) | pendant: Settings, System, Network |
 | `robot.tcp_setting` | active TCP offset `[x, y, z, rx, ry, rz]` (m, rotvec) | pendant: Installation, General, TCP. Set the same TCP in URSim for the dry run |
-| `probe.tcp_already_includes_probe` | is that TCP the probe tip? | `true` if the TCP was measured to the probe face; else `false` and fill `probe.tip_offset_flange_m` |
+| `probe.tcp_already_includes_probe` | is that TCP the probe face? | must be `true` (D4): rotations pivot about the TCP; robot_control refuses otherwise |
 | `limits.workspace_box_base_m.min/max` | box the probe tip must stay in, base frame | `rig_measure box --write`: touch the extremes of the allowed volume; add your own margin |
 | `limits.tilt_reference_axis_base` | axis the tilt cone is measured from | `rig_measure tilt-axis --write` with the probe square to the phantom |
 | `limits.tilt_cone_deg` | max angle between probe axis and that reference | your choice for the protocol |
@@ -16,6 +16,10 @@ ones that can be measured. Units are in the key names.
 | `limits.force_band_n` | `[low, high]` allowed force setpoint along the probe axis | protocol (QC also uses it) |
 | `limits.force_setpoint_default_n` | setpoint after contact | inside the band |
 | `limits.contact_detect_threshold_n` | descent stops when probe-axis force exceeds this | above the noise from `rig_measure force-noise` |
+| `limits.contact_lost_threshold_n`, `contact_lost_time_s` | in contact, force below this for this long = contact lost (hold, event) | below the band low, above the noise; time long enough to ignore brief dips |
+| `limits.phantom_box_m.pmin/pmax` | extra box in the phantom frame (z up), enforced once registered | `rig_measure box` around the phantom after registration, converted to the phantom frame |
+| `limits.local_tilt_cone_deg` | cone around each waypoint's probe axis | protocol (inside the global cone) |
+| `motion.transit_safe_height_mm` | phantom-frame z for transit between waypoints | above the phantom's highest point + margin |
 | `limits.max_linear_speed_mm_s`, `max_angular_speed_deg_s` | command speed caps | protocol; keymap speeds must be below them |
 | `limits.max_linear_accel_mm_s2`, `max_angular_accel_deg_s2` | command acceleration caps | protocol |
 | `limits.stop_decel_mm_s2` | deceleration of speedStop on FAULT / stop | higher than the accel caps |

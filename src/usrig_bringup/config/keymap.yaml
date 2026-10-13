@@ -7,6 +7,8 @@ publish_rate_hz: 100
 ramp_s: 0.25
 fine_scale: 0.25
 fine_keys: [LEFTSHIFT, RIGHTSHIFT]
+enable_keys: [LEFTCTRL, RIGHTCTRL]   # D2 hold-to-move: motion keys act only while one is held
+publish_twist: true                  # false when the SpaceMouse drives (keyboard = commands only)
 
 speeds:
   slide_along_mm_s: null
@@ -15,6 +17,26 @@ speeds:
   tilt_deg_s: null      # out-of-plane rotation (about probe x)
   rotate_deg_s: null    # about the beam axis (probe z)
 force_step_n: null
+
+# D1: SpaceMouse (3Dconnexion) via the ROS spacenav driver (sudo apt install ros-humble-spacenav).
+# Proportional probe-frame velocity while the enable button is held; same speeds as above (full
+# deflection = the speed listed). Axis indices and signs depend on how the puck sits in front of the
+# operator: check them in free air (NOT VERIFIED). Pushing / pulling the cap (force_axis) nudges the
+# force setpoint, since the probe axis is force-regulated (compress / decompress).
+spacemouse:
+  topic: /spacenav/joy
+  deadband: 0.08              # fraction of full deflection ignored (noise / unintended axes)
+  enable_button: 0            # left button, held to move (D2)
+  fine_button: 1              # right button, held for fine mode
+  joy_timeout_s: 0.1          # no Joy for this long: stop publishing (deadman trips)
+  axes:                       # probe-frame component: [joy axis index, sign]
+    vx: [0, 1]                # slide along the array
+    vy: [1, 1]                # slide across
+    wx: [3, 1]                # tilt
+    wy: [4, 1]                # rock
+    wz: [5, 1]                # rotate
+  force_axis: [2, -1]         # push down = compress
+  force_rate_n_s: null        # setpoint change per second at full push (null until tuned)
 
 # key: "axis:sign" (axis in vx vy vz wx wy wz)
 motion:

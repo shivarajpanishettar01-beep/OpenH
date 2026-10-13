@@ -6,7 +6,7 @@ reaches USB 2.1 with the available cable/ports: see "P1b status" below).
 
 ## 1. System packages (sudo)
 ```bash
-sudo apt update && sudo apt install -y ros-humble-realsense2-camera ros-humble-rosbag2-storage-mcap ros-humble-plotjuggler-ros ros-humble-ur-client-library
+sudo apt update && sudo apt install -y ros-humble-realsense2-camera ros-humble-rosbag2-storage-mcap ros-humble-plotjuggler-ros ros-humble-ur-client-library ros-humble-spacenav spacenavd
 ```
 RealSense tools (`rs-enumerate-devices`, ...) live in `/opt/ros/humble/bin`: run
 `source /opt/ros/humble/setup.bash` (or `source scripts/env.sh`) before using them.

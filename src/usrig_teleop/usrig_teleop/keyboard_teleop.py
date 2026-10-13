@@ -72,6 +72,7 @@ class KeyboardTeleop(Node):
     def __init__(self):
         super().__init__('keyboard_teleop')
         self.declare_parameter('config_dir', '')
+        self.declare_parameter('publish_twist', True)     # launch sets false when the SpaceMouse drives
         cfg_dir = self.get_parameter('config_dir').value or None
         km = config.load_config('keymap', cfg_dir)
         rig = config.load_config('rig', cfg_dir)
@@ -91,12 +92,16 @@ class KeyboardTeleop(Node):
         self.commands = {k.upper(): v for k, v in km['commands'].items()}
         self.fine_keys = {k.upper() for k in km.get('fine_keys', ['LEFTSHIFT', 'RIGHTSHIFT'])}
         self.force_step = float(km['force_step_n']) if km.get('force_step_n') is not None else None
-        self.ramp = TwistRamp(self.motion_keys, speeds, km.get('fine_scale', 0.25), km.get('ramp_s', 0.25))
+        self.enable_keys = {k.upper() for k in km.get('enable_keys') or []}
+        self.publish_twist = bool(km.get('publish_twist', True)) and bool(self.get_parameter('publish_twist').value)
+        self.ramp = TwistRamp(self.motion_keys, speeds, km.get('fine_scale', 0.25), km.get('ramp_s', 0.25),
+                              enable_keys=self.enable_keys)
 
         self.keys = KeyState()
         self.lock = threading.Lock()
         self._zero_sent = False
-        self.pub_twist = self.create_publisher(TwistStamped, '/teleop/twist', 10)
+        # with the SpaceMouse driving, this node only sends commands (one twist publisher only)
+        self.pub_twist = self.create_publisher(TwistStamped, '/teleop/twist', 10) if self.publish_twist else None
         self.pub_cmd = self.create_publisher(String, '/operator/command', 50)
         self.rate = float(km.get('publish_rate_hz', 100.0))
         self.create_timer(1.0 / self.rate, self._publish)
@@ -174,6 +179,8 @@ class KeyboardTeleop(Node):
             self._send({'cmd': action})
 
     def _publish(self):
+        if self.pub_twist is None:
+            return
         with self.lock:
             held, lost = set(self.keys.held), self.keys.lost
         if lost:

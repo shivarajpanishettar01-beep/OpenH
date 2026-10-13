@@ -645,6 +645,11 @@ class RobotControlNode(Node):
         return res
 
     def _srv_teleop(self, req, res):
+        if req.data and self.count_publishers('/teleop/twist') > 1:
+            res.success = False
+            res.message = (f'{self.count_publishers("/teleop/twist")} nodes publish /teleop/twist: run one input '
+                           'device (SpaceMouse with keyboard publish_twist: false, or the keyboard alone)')
+            return res
         if req.data:
             self.hold = False
             m = self._set_motion(Teleop(self, self.in_contact))

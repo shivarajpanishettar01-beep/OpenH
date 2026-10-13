@@ -31,3 +31,10 @@ def test_diagonal_and_opposing_keys():
 def test_fine_mode():
     r = TwistRamp(KEYS, SPEEDS, 0.25, 0.25)
     assert run(r, {'W'}, True, 0.5)[0] == pytest.approx(0.0025)
+
+
+def test_enable_key_required():
+    r = TwistRamp(KEYS, SPEEDS, 0.25, 0.25, enable_keys=['LEFTCTRL'])
+    assert np.all(run(r, {'W'}, False, 0.5) == 0)
+    assert run(r, {'W', 'LEFTCTRL'}, False, 0.5)[0] == pytest.approx(0.01)
+    assert np.all(run(r, {'W'}, False, 0.5) == 0)      # enable released mid-motion: ramps back to zero

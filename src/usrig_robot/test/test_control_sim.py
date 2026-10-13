@@ -483,3 +483,21 @@ def test_registration_without_phantom_box_refuses_motion(sim, monkeypatch):
     m = node._set_motion(rc.Teleop(node, False))
     assert m.done.is_set() and 'phantom_box_m' in m.message
     node.destroy_node()
+
+
+def test_two_twist_publishers_refuse_teleop(sim):
+    from geometry_msgs.msg import TwistStamped
+    from std_srvs.srv import SetBool
+    node, robot = sim()
+    import rclpy
+    a, b = rclpy.create_node('kbd_fake'), rclpy.create_node('sm_fake')
+    a.create_publisher(TwistStamped, '/teleop/twist', 10)
+    b.create_publisher(TwistStamped, '/teleop/twist', 10)
+    t_end = time.monotonic() + 3
+    while node.count_publishers('/teleop/twist') < 2 and time.monotonic() < t_end:
+        time.sleep(0.05)
+    res = node._srv_teleop(SetBool.Request(data=True), SetBool.Response())
+    assert not res.success and 'publish /teleop/twist' in res.message
+    a.destroy_node()
+    b.destroy_node()
+    node.destroy_node()

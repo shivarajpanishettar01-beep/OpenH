@@ -9,16 +9,19 @@ class TwistRamp:
     linearly, reaching it in ``ramp_s``. Releasing all keys ramps to zero the same way.
     """
 
-    def __init__(self, motion_keys, speeds, fine_scale, ramp_s):
+    def __init__(self, motion_keys, speeds, fine_scale, ramp_s, enable_keys=None):
         # motion_keys: {key_name: (axis_index, sign)}; speeds: per-axis max (m/s or rad/s)
         self.motion_keys = motion_keys
         self.speeds = np.asarray(speeds, float)
         self.fine_scale = float(fine_scale)
         self.ramp_s = float(ramp_s)
         self.out = np.zeros(6)
+        self.enable_keys = set(enable_keys or [])     # D2: empty = no enable required
 
     def target(self, held, fine):
         t = np.zeros(6)
+        if self.enable_keys and not (set(held) & self.enable_keys):
+            return t                                  # enable not held: target zero (ramps down)
         for k in held:
             if k in self.motion_keys:
                 axis, sign = self.motion_keys[k]
