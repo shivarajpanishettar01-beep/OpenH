@@ -10,7 +10,9 @@ E-stop the whole time, says "stop" and presses it at any doubt). Anyone can stop
 Every terminal: `source ~/OpenH/scripts/env.sh`.
 
 ## A. Before powering the arm (all must be true)
-- [ ] URSim dry run passed with the same `rig.yaml` and `keymap.yaml` (all items of sections C-F in URSim).
+- [ ] Software checks pass on the capture PC: `bash scripts/test.sh` and `python export/pipeline_check.py run`.
+      (The URSim dry run was skipped by decision on 13 Oct 2026: sections C-D are the first motion of this
+      control code on any robot, so run them slowly, one item at a time.)
 - [ ] Every limit in `rig.yaml` is filled from your measurements and protocol (`docs/rig_limits.md`).
       For this first session use **low speed and acceleration caps** (your choice) and a small force band.
 - [ ] `keymap.yaml` speeds and `force_step_n` are set and below the `rig.yaml` caps (keyboard_teleop refuses otherwise).
@@ -54,6 +56,7 @@ Every terminal: `source ~/OpenH/scripts/env.sh`.
 Stop the launch (Ctrl+C) before section C.
 
 ## C. Start control in free air (arm well above the table)
+- [ ] Pendant **speed slider low** (e.g. 10-25 %) for every first try; raise it only after the item passed.
 - [ ] Start robot state + control and the teleop:
       ```bash
       ros2 launch usrig_bringup robot.launch.py control:=true
@@ -82,7 +85,7 @@ Stop the launch (Ctrl+C) before section C.
 ## D. Every safety layer trips (free air)
 After each FAULT: robot stopped, status shows FAULT, nothing moves until acknowledged with **K**.
 - [ ] **Keyboard unplugged**: hold a key, unplug the operator keyboard: motion stops within the deadman
-      timeout (keyboard_teleop stops publishing); plug it back in: no motion until a key is pressed.
+      timeout (keyboard_teleop stops publishing); plug it back in with no key held: no motion.
 - [ ] **Deadman**: hold a key, then stop keyboard_teleop (Ctrl+C in its terminal). Motion stops within
       `limits.deadman_timeout_s`; status shows flag `deadman`. Restart keyboard_teleop.
 - [ ] **Workspace box (soft)**: teleop slowly toward one face of the box: motion along that axis stops
@@ -93,6 +96,12 @@ After each FAULT: robot stopped, status shows FAULT, nothing moves until acknowl
       rotation about the probe axis (Z/C) still works.
 - [ ] **Speed cap**: hold a slide key without fine mode: measured TCP speed (pendant / `/robot/tcp_pose`)
       never exceeds `max_linear_speed_mm_s`.
+- [ ] **Pre-motion refusal**: ask for a target outside the box; it is refused at once and nothing moves
+      (copy the current pose from `rig_measure pose`, raise z above the box top):
+      ```bash
+      ros2 service call /robot/move_to_pose usrig_interfaces/srv/MoveToPose "{target: {header: {frame_id: base}, pose: {position: {x: <x>, y: <y>, z: <above box>}, orientation: {x: <qx>, y: <qy>, z: <qz>, w: <qw>}}}, speed_mm_s: 10.0}"
+      ```
+      Reply `success: false`, message `... refused before moving`.
 - [ ] **Protective stop from software**:
       ```bash
       ros2 service call /robot/protective_stop std_srvs/srv/Trigger
@@ -132,8 +141,9 @@ After each FAULT: robot stopped, status shows FAULT, nothing moves until acknowl
       ```
 
 ## F. Recording check (still no real session)
-- [ ] With micrus (real scanner), camera and robot running, record one Stage 0 test episode in a
-      throw-away session (`collect.launch.py ... episode_manager:=true control:=true teleop:=true`),
+- [ ] With micrus (real scanner), camera and robot running, run `presession_check --stage 0 --control`
+      for a throw-away session (episode_manager refuses a real session without a fresh PASS), then record
+      one Stage 0 test episode (`collect.launch.py ... episode_manager:=true control:=true teleop:=true`),
       press B to start and stop. Check its `qc.json`: `robot_sample_gaps` 0, `micrus_frame_gaps` 0,
       `wrist_rate` ok, events present.
 
@@ -153,5 +163,5 @@ After each FAULT: robot stopped, status shows FAULT, nothing moves until acknowl
 | E force ceiling FAULT | | | | |
 | F test episode QC | | | | |
 
-Any failure: stop, do not collect, write down what happened (time, command, status line) and fix it in
-URSim first.
+Any failure: stop, do not collect, write down what happened (time, command, status line), fix it with a
+test that reproduces it (`scripts/test.sh`), then repeat the section from its first item.

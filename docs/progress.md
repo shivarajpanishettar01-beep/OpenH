@@ -12,16 +12,18 @@ GR00T-H is out of scope for now (separate task).
 | P1 | micrus bringup (simulator) | **passed** | 27.35 Hz, 0 frame gaps in 5 min, clean power-down on Ctrl+C (`P1_results.md`) |
 | P1b | Wrist D415 bringup | **blocked on hardware** | dev PC only gives USB 2.1; runs on the capture PC (`capture_pc_setup.md`) |
 | P2 | robot_state | URSim done; real UR7e pending | pose matches pendant; URSim runs at 0.968x real time so its 500 Hz check is not meaningful (`P2_results.md`) |
-| P3 | Control + teleop | **code done, not run** | path B chosen; needs the 22 limits for the URSim dry run |
+| P3 | Control + teleop | **code done, mocked tests pass** | path B; URSim run skipped (decision 13 Oct); first motion on the real arm needs the 22 limits |
 | P4 | Episode recorder + manager | **passed in simulation** | 5 episodes incl. SIGKILL mid-recording; crash recovery verified (`P4_results.md`) |
-| P5 | Registration, waypoints, paths, plan | code done, not run | needs robot motion; plan needs failure mapping + magnitudes |
+| P5 | Registration, waypoints, paths, plan | code done, not run | waypoints executable only if verified with the current TCP / probe / payload; moves and paths pre-checked; needs robot motion |
 | P6 | QC + pre-session check | done, tested on bags | per-episode QC on real MCAP bags; checks every source for gaps |
 | P7 | Dashboard | done (demos only) | runs stably on PySide6 6.8.3; collection is headless |
-| P8 | Export (Open-H, LeRobot v3.0) | code done, not run end to end | needs real episodes and the LeRobot 0.6.0 env |
+| P8 | Export (Open-H, LeRobot v3.0) | **verified end to end on synthetic episodes** | `pipeline_check.py`, 3 export defects fixed; real episodes pending |
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
-**Code base** (9 ROS 2 packages, 83 unit tests, fresh clone builds and passes in a clean shell)
+**Code base** (9 ROS 2 packages, 104 tests, fresh clone builds and passes in a clean shell)
+- Audit against the master prompt (13 Oct): `IMPLEMENTATION_AUDIT.md`, evidence in `TEST_AND_VERIFICATION.md`;
+  guides `TELEOPERATION_GUIDE.md`, `WAYPOINT_COLLECTION_GUIDE.md`, `DATA_COLLECTION_GUIDE.md`.
 - micrus launch from config, SIGINT power-down; nothing in micrus modified.
 - `robot_state_cpp` (C++, ur_client_library 2.15, blocking reads): **0 robot samples lost** in every
   load test and episode; ~6 % CPU (the Python version lost 7-30 %).
@@ -67,7 +69,7 @@ Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) i
 - The micrus HDF5 keeps every ultrasound frame even when the bag misses one.
 
 **Decisions taken**
-- Control path B (13 Oct). URSim only for the control dry run and later for demos.
+- Control path B (13 Oct). URSim control dry run skipped (13 Oct): motion checks on the real arm in free air.
 - GUI for demos only; collection headless.
 - Action = incremental TCP pose (proposal); wrist depth exported losslessly.
 - Code licence MIT; repo public.
@@ -77,7 +79,7 @@ All code that can be written and tested without the rig is done: the control rev
 hardware (R2-R10, D1-D11) are implemented and tested. Everything left needs your values, the capture PC or the
 real robot. In order:
 
-**1. Your inputs (blocking the URSim dry run)**
+**1. Your inputs (blocking the first motion)**
 
 | Item | Where | Owner |
 |---|---|---|
@@ -85,10 +87,11 @@ real robot. In order:
 | Teleop speeds per axis, fine mode (D6) | `keymap.yaml` | you |
 | Failure-mode mapping to the four classes; staging methods and magnitudes | `failure_catalog.yaml` | you |
 | Gate values `gate01.*`, `gate12.*` | `session.yaml` | you |
-| Open decisions 1 (10 h: what counts), 4 (beamformed in bags), 5, 6, 9, 13-16 | `OPEN_DECISIONS.md` | you |
+| Open decisions 1 (10 h: what counts), 4 (beamformed in bags), 5, 6, 9, 13-17 | `OPEN_DECISIONS.md` | you |
+| micrus licence file path, USB ids for the pre-session check | `session.yaml` | you |
 
-**2. URSim control dry run** (needs 1): kinematics, envelope, deadman, controller watchdog, cancel / timeout,
-phantom-frame transit via the safe height. URSim cannot test force. Owner: me, with you.
+**2. ~~URSim control dry run~~** skipped by decision (13 Oct): its items are checked on the real arm in free
+air, at low speed, in `first_motion_checklist.md` C-D.
 
 **3. Capture PC**
 
@@ -119,8 +122,8 @@ registration (fiducial file per phantom), temporal offsets (ultrasound + ArUco),
 
 | Item | Owner |
 |---|---|
-| Stage 0 episode end to end through export (actions, stamps, frames, depth) | me |
-| Stages 1-2 collection (`collection_day.md`), hours per phantom vs 6 h / 4 h, failure / recovery share 20 % | you + me |
+| Stage 0 episode end to end through export on real data (the chain is verified on synthetic data) | me |
+| Stages 1-2 collection (`DATA_COLLECTION_GUIDE.md`), hours per phantom vs 6 h / 4 h, failure / recovery share 20 % | you + me |
 | Export on real episodes through LeRobot 0.6.0 + Open-H `validate_formatting.py` | me |
 | Release extras: robot description (URDF / USD / DH), vessel masks on a subset, model-assisted labelling | open |
 
@@ -129,4 +132,4 @@ Deadline from the proposal: **representative sample by 1 December 2026**, valida
 Control review before the teleoperation spec: `control_review.md` (10 findings, 11 decisions).
 
 See also: `NOT_VERIFIED.md` (everything not yet checked on hardware), `OPEN_DECISIONS.md`,
-`proposal_alignment.md`, `first_motion_checklist.md`, `collection_day.md`.
+`proposal_alignment.md`, `first_motion_checklist.md`, `DATA_COLLECTION_GUIDE.md`.

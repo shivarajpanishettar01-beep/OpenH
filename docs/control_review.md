@@ -80,7 +80,7 @@ capture PC (code ready, measurements need the hardware), SpaceMouse axis signs a
 hardware (NOT VERIFIED).
 
 ## 4. What to verify before capturing training data (order)
-1. URSim dry run with your limits: kinematics, envelope, deadman, watchdog, cancel / timeout (URSim cannot test force).
+1. ~~URSim dry run~~ skipped (13 Oct 2026): kinematics, envelope, deadman, watchdog, cancel / timeout are checked on the real arm in free air at low speed (`first_motion_checklist.md` C-D).
 2. Real arm, free air (`first_motion_checklist.md` C-D) plus **payload check and free-air force vs tilt** (R4).
 3. Measure control-loop tick jitter and teleop latency (key / button -> TCP motion) on the capture PC (R8).
 4. **Contact tests on the phantom at low force** (R1): force step response (setpoint T/G), force tracking during a slow slide, rock and tilt about the probe face, contact loss at the phantom edge (after R2 is fixed), phantom stiffness.

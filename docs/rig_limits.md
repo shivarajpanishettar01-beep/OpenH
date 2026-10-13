@@ -6,8 +6,8 @@ ones that can be measured. Units are in the key names.
 
 | Key | What it is | How to get it |
 |---|---|---|
-| `robot.ip` | UR7e controller IP (not needed for the URSim dry run) | pendant: Settings, System, Network |
-| `robot.tcp_setting` | active TCP offset `[x, y, z, rx, ry, rz]` (m, rotvec) | pendant: Installation, General, TCP. Set the same TCP in URSim for the dry run |
+| `robot.ip` | UR7e controller IP | pendant: Settings, System, Network |
+| `robot.tcp_setting` | active TCP offset `[x, y, z, rx, ry, rz]` (m, rotvec) | pendant: Installation, General, TCP |
 | `robot.payload_kg`, `robot.payload_cog_m` | payload mass and CoG `[cx, cy, cz]` (flange frame) as set on the controller | pendant: Installation, General, Payload (probe + holder + camera; the pendant's payload estimation can measure it). robot_control refuses to start if the controller differs (R4). Check with `rig_measure force-tilt` |
 | `probe.tcp_already_includes_probe` | is that TCP the probe face? | must be `true` (D4): rotations pivot about the TCP; robot_control refuses otherwise |
 | `limits.workspace_box_base_m.min/max` | box the probe tip must stay in, base frame | `rig_measure box --write`: touch the extremes of the allowed volume; add your own margin |
@@ -31,5 +31,5 @@ ones that can be measured. Units are in the key names.
 | `rtde.force_mode_limits` | 6 values for forceMode type 2: max speed along the compliant probe axis (m/s), allowed deviation on the other axes (m, rad) | protocol; check behaviour in the URSim dry run |
 | `rtde.force_mode_damping` | optional (0-1); null = controller default | |
 
-Before the URSim dry run: put URSim in **Remote Control** (pendant, top right), set the same TCP as
-the UR7e, power on and release brakes. robot_control checks Remote Control and the TCP itself.
+Before starting control: put the UR7e in **Remote Control** (pendant, top right), power on and release
+brakes. robot_control checks Remote Control, the TCP and the payload itself and refuses on any mismatch.

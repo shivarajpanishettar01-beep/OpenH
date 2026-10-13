@@ -95,17 +95,20 @@ ros2 run usrig_robot rig_measure pose
 **8. Safety limits:** every limit in `rig.yaml` is `null` until filled from your measurements and
 protocol (see [`docs/rig_limits.md`](docs/rig_limits.md); `rig_measure box`, `tilt-axis` and
 `force-noise` help). `robot_control` refuses to start while any is null and names each one.
-Run the control dry run in URSim, then [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md) on the real arm.
+Then [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md) on the real arm (no URSim step: decided 13 Oct 2026).
 
 **9. Before each session:**
 ```bash
 ros2 run usrig_qc presession_check --stage 0 --session ~/data/<SESSION_ID> --control
 ```
 Collection runs headless; the operator view is `ros2 run usrig_qc status_console`. The dashboard
-is for demos only. Day-to-day commands: [`docs/collection_day.md`](docs/collection_day.md).
+is for demos only. Guides: [`docs/DATA_COLLECTION_GUIDE.md`](docs/DATA_COLLECTION_GUIDE.md),
+[`docs/TELEOPERATION_GUIDE.md`](docs/TELEOPERATION_GUIDE.md), [`docs/WAYPOINT_COLLECTION_GUIDE.md`](docs/WAYPOINT_COLLECTION_GUIDE.md).
+`episode_manager` refuses a real session without a passing pre-session check for that stage.
 
 **Open-H export** (any PC with the recorded data): a second env with Python 3.12 and LeRobot 0.6.0,
 `scripts/setup_env.sh --with-export`, then `export/stage_bags.py` and `export/openh_export.py`.
+The whole export chain is checked on synthetic episodes with `python export/pipeline_check.py run`.
 
 ## Safety rules built into the code
 - `robot_control`, `keyboard_teleop` and `episode_manager` (stages 1-2) refuse to start while any
@@ -113,15 +116,19 @@ is for demos only. Day-to-day commands: [`docs/collection_day.md`](docs/collecti
 - Control is path B (ur_rtde `forceMode` + `speedL`) with a watchdog on the robot controller: if this
   PC stops sending, the UR7e stops by itself. `robot_control` also refuses to start if the robot is
   not in Remote Control or its active TCP differs from `rig.yaml robot.tcp_setting`.
-- Motion is tested in URSim first (`sim:=true`); the real robot moves only after the limits are
-  filled and the go is given. Simulated runs are stored separately and never exported.
+- Every move and path is checked against the box(es) and tilt cone before it starts; waypoints run only
+  if verified with the current TCP / probe / payload.
+- The real robot moves only after the limits are filled and the go is given. Simulated and synthetic
+  runs are stored separately and never exported with real data.
 - micrus is never modified; it is driven only through its CLI and ROS 2 interface.
 
 ## Status
-Built and unit-tested (46 tests). Verified so far: micrus simulator bringup (27.35 Hz, 0 frame gaps
-in 5 min, clean power-down), robot state on URSim, and data integrity under load on the development
-PC (C++ robot_state: 0 of ~31,000 samples lost per minute). Not yet run: the URSim control dry run
-(needs the limits), the D415 on USB 3, the real scanner, and the real UR7e. Full status: [`docs/progress.md`](docs/progress.md). Before the first real
+Builds from a fresh clone; 104 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
+(27.35 Hz, 0 frame gaps in 5 min, clean power-down), robot state on URSim, recording and crash recovery
+in simulation, data integrity under load on the development PC (C++ robot_state: 0 of ~31,000 samples
+lost per minute), and the export chain end to end on synthetic episodes. Not yet run: the D415 on USB 3,
+the real scanner, and the real UR7e. Audit and evidence: [`docs/IMPLEMENTATION_AUDIT.md`](docs/IMPLEMENTATION_AUDIT.md),
+[`docs/TEST_AND_VERIFICATION.md`](docs/TEST_AND_VERIFICATION.md). Full status: [`docs/progress.md`](docs/progress.md). Before the first real
 motion: [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md). See also
 [`docs/NOT_VERIFIED.md`](docs/NOT_VERIFIED.md) and [`docs/OPEN_DECISIONS.md`](docs/OPEN_DECISIONS.md).
 

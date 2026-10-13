@@ -3,8 +3,8 @@
 1. **10 h commitment**: 10 h of recorded episode data? Do autonomous rollouts count? 400 × 25 s
    ≈ 2.8 h; 10 h ≈ 1,440 episodes. Decides whether episodes are chained in contact.
 2. ~~Control path A or B~~: **decided 13 Oct 2026: path B** (ur_rtde forceMode + speedL, controller-side
-   watchdog). URSim is used for a one-time control dry run before the first real motion and later as a
-   GUI view only; it is never part of data collection.
+   watchdog). The URSim control dry run was **skipped** (13 Oct 2026): motion is checked on the real arm in
+   free air (`first_motion_checklist.md` C-D). URSim is never part of data collection.
 3. ~~Action form~~: proposal fixes it: incremental TCP pose [dx..drz] (rotation vector);
    base vs tool frame selectable at export (`--action-frame`, default base). Was: absolute or relative TCP. Bags hold both (TCP pose 500 Hz and the
    executed twist); `export/lerobot_rig.yaml` currently exports the executed probe-frame twist +
@@ -32,3 +32,7 @@
     motion back inside is allowed. Confirm this is what you want.
 16. **Late control ticks per episode** (`rig.yaml qc.max_late_tick_frac`, null): share of ticks later than the
     speedL lifetime that an episode may have before QC fails it. Choose after measuring jitter on the capture PC.
+17. **Depth encoding in LeRobot 0.6.0**: the export writes `observation.images.wrist_depth` as 16-bit PNG
+    images (mm), verified lossless through the v3.0 conversion and reload (`pipeline_check.py`). LeRobot 0.6.0
+    also has native depth options (`depth_encoder`, `depth_output_unit`) that may suit Open-H better; check
+    with the Open-H guide before the first release.

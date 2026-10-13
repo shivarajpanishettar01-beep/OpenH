@@ -1,7 +1,9 @@
 # NOT VERIFIED
 
-Everything below is written but has not been checked on this rig. Nothing in this repo has run
-against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic only.
+Everything below is written but has not been checked on this rig. Run so far: micrus simulator (P1),
+robot state on URSim (P2, read-only), recorder in simulation (P4), export end to end on synthetic
+episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or the D415. Test levels:
+`TEST_AND_VERIFICATION.md`.
 
 ## Robot
 - Lab URScript: orientation format (rotvec vs RPY), wrench frame, `fz` / `start`, `force_mode`,
@@ -14,13 +16,13 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
   heavily loaded PC a read can straddle two samples. Check repeated controller times and jitter (P2).
 - `actual_TCP_force` frame (base frame assumed, per UR docs) and the sign of `forceMode`'s wrench
   along tool +z (into tissue).
-- `forceMode` + `speedL` combined each cycle (path B): behaviour in URSim and on the robot.
-- Payload check (R4): RTDE output names `payload` / `payload_cog` via a second, short-lived
-  RTDEReceiveInterface (ur_rtde 1.6.5 has the getters; the controller's PolyScope version must provide the
-  outputs); `payload_cog` frame assumed to be the flange frame as on the pendant.
+- `forceMode` + `speedL` combined each cycle (path B): behaviour on the robot (URSim run skipped).
+- Payload check (R4): reading `payload` / `payload_cog` through a restricted RTDEReceiveInterface works on
+  URSim 5.26.1 (13 Oct 2026); on the UR7e's PolyScope version: NOT VERIFIED. `payload_cog` frame assumed to
+  be the flange frame as on the pendant.
 - Control-tick jitter on the capture PC (R8) and whether `speedl_time_ticks` > 1 is needed.
 - ur_rtde `setWatchdog(1/deadman)` + `kickWatchdog()` every tick: stop behaviour when the PC stalls
-  (URSim dry run). `getTCPOffset` vs `rig.yaml robot.tcp_setting` check.
+  (real arm, checklist D). `getTCPOffset` vs `rig.yaml robot.tcp_setting` check.
 - SCHED_FIFO for the RTDE reader / control loop: refused on the dev PC (`ulimit -r` = 0); fallback
   verified (warning, normal scheduling). With the rtprio limit set: NOT VERIFIED.
 - Path A: whether the lab URScript accepts absolute targets at 125 Hz; it has no watchdog unless added.
@@ -60,6 +62,11 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - rosbags reading Humble MCAP bags with the custom `usrig_interfaces` types.
 
 ## Export
+- Verified on synthetic episodes (`export/pipeline_check.py`, 13 Oct 2026): bag -> v2.1 -> Open-H fields ->
+  v3.0 -> `LeRobotDataset` reload, actions / frames / depth / labels against ground truth. Real bags: not yet.
+- `rosbags` (bag_to_lerobot, QC) rejects `sensor_msgs/JointState` with empty `velocity` / `effort` (CDR size
+  mismatch). robot_state_cpp fills them; check the first real bag with `bag_to_lerobot.py --list-topics` and
+  `--dry-run`.
 - `bag_to_lerobot` on these bags (`--list-topics`, `--dry-run`), bool field `action_is_expert`
   through `fields`, relative `custom_msgs` paths (resolved from the current directory: run from `export/`).
 - LeRobot 0.6.0: converter found at `lerobot.scripts.convert_dataset_v21_to_v30` (flags --repo-id, --root,
