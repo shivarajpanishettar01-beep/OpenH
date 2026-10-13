@@ -1,7 +1,7 @@
 # P2 results: robot_state on URSim (13 October 2026)
 
-Setup: URSim e-series 5.26.1 in Docker on the development PC; dashboard reports model `UR5`
-(the model actually loaded is to be confirmed: UR7e or UR5e). Robot POWER_OFF, stationary,
+Setup: URSim e-series 5.26.1 in Docker on the development PC, model **UR5e** (dashboard reports `UR5`).
+The rig robot is a **UR7e**: P2 on the real controller is still to do. Robot POWER_OFF, stationary,
 safety NORMAL, no program running. `ros2 launch usrig_bringup robot.launch.py sim:=true`
 (read-only RTDE receive at 127.0.0.1, 500 Hz requested).
 
@@ -16,7 +16,7 @@ safety NORMAL, no program running. `ros2 launch usrig_bringup robot.launch.py si
 | Our stamp interval | median 2.058 ms, p99 2.560 ms, max 10.8 ms | info |
 | stamp - controller time | drift 33.2 ms per controller second (URSim slower than real time); after removing the drift: abs p50 3.05 ms, p99 9.37 ms | info (sim) |
 | robot_state CPU | ~60 % of one core | info |
-| TCP pose vs teach pendant | read below; waiting for the pendant reading | pending |
+| TCP pose vs teach pendant | matches to display precision (confirmed by the user reading the URSim pendant) | yes |
 
 Pose at the time of reading (base frame, active TCP):
 X -143.97 mm, Y -435.62 mm, Z 202.03 mm; RX -0.0012, RY 3.1163, RZ 0.0389 rad (rotation vector);
