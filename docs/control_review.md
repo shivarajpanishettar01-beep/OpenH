@@ -72,8 +72,12 @@ kinematic simulator, `src/usrig_robot/test/test_control_sim.py`, 6 passing [Meas
 | D3, D5, D7 | already the design (probe frame, force-regulated axis, automatic approach + descend) | earlier tests |
 | D6 | your speeds in keymap.yaml (null) | - |
 
-Still open: R1 (contact behaviour only on the real arm), R4 (payload check), R8 (tick jitter), SpaceMouse axis
-signs and the spacenav Joy scaling on real hardware (NOT VERIFIED).
+| R4 payload | robot_control refuses on a controller payload / CoG differing from `robot.payload_kg` / `payload_cog_m` (0.01 kg / 1 mm); `rig_measure force-tilt` (read-only free-air force vs tilt) | `test_payload_match_accepted_and_read_once`, `test_payload_mismatch_refuses`, `test_force_tilt_table_spread` |
+| R8 tick jitter | tick intervals every 10 s: log (warn on late ticks), `control_timing` event in the bag while recording, episode QC `control_timing` vs `qc.max_late_tick_frac`; speedL lifetime `robot.speedl_time_ticks` (default 1) | `test_tick_stats_counts_late_ticks`, `test_control_timing_event_while_recording`, `test_speedl_lifetime_in_ticks` |
+
+Still open: R1 (contact behaviour only on the real arm), the R4 free-air tilt sweep and the R8 jitter numbers on the
+capture PC (code ready, measurements need the hardware), SpaceMouse axis signs and the spacenav Joy scaling on real
+hardware (NOT VERIFIED).
 
 ## 4. What to verify before capturing training data (order)
 1. URSim dry run with your limits: kinematics, envelope, deadman, watchdog, cancel / timeout (URSim cannot test force).

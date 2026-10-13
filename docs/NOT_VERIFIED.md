@@ -15,6 +15,10 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - `actual_TCP_force` frame (base frame assumed, per UR docs) and the sign of `forceMode`'s wrench
   along tool +z (into tissue).
 - `forceMode` + `speedL` combined each cycle (path B): behaviour in URSim and on the robot.
+- Payload check (R4): RTDE output names `payload` / `payload_cog` via a second, short-lived
+  RTDEReceiveInterface (ur_rtde 1.6.5 has the getters; the controller's PolyScope version must provide the
+  outputs); `payload_cog` frame assumed to be the flange frame as on the pendant.
+- Control-tick jitter on the capture PC (R8) and whether `speedl_time_ticks` > 1 is needed.
 - ur_rtde `setWatchdog(1/deadman)` + `kickWatchdog()` every tick: stop behaviour when the PC stalls
   (URSim dry run). `getTCPOffset` vs `rig.yaml robot.tcp_setting` check.
 - SCHED_FIFO for the RTDE reader / control loop: refused on the dev PC (`ulimit -r` = 0); fallback

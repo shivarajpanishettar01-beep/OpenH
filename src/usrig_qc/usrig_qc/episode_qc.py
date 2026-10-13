@@ -162,6 +162,21 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     need = {'start', 'end', 'outcome'}
     checks['events'] = _status(need <= kinds, missing=sorted(need - kinds))
 
+    # ---- control-loop timing (R8): robot_control reports tick intervals every 10 s while recording
+    timing = [v for s, k, v in events if k == 'control_timing' and in_win(s)]
+    max_late = config.get_path(rig, 'qc.max_late_tick_frac')
+    if not timing:
+        checks['control_timing'] = {'status': 'n/a', 'reason': 'no control_timing events (robot_control off or < 10 s)'}
+    else:
+        n = sum(v.get('ticks', 0) for v in timing)
+        late = sum(v.get('late', 0) for v in timing)
+        info = {'ticks': n, 'late': late, 'late_frac': late / n if n else 0.0,
+                'max_ms': max(v.get('max_ms', 0.0) for v in timing), 'p99_ms_worst': max(v.get('p99_ms', 0.0) for v in timing)}
+        if max_late is None:
+            checks['control_timing'] = {'status': 'unset', 'reason': 'rig.yaml qc.max_late_tick_frac is null', **info}
+        else:
+            checks['control_timing'] = _status(info['late_frac'] <= float(max_late), **info)
+
     # ---- failure labels (Stage 2 only)
     if stage != 2:
         checks['failure_labels'] = {'status': 'n/a', 'reason': f'stage {stage}'}

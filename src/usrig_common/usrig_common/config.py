@@ -27,6 +27,8 @@ MOTION_LIMITS = (
     'limits.max_angular_accel_deg_s2',
     'limits.stop_decel_mm_s2',
     'robot.tcp_setting',
+    'robot.payload_kg',
+    'robot.payload_cog_m',
     'limits.deadman_timeout_s',
     'limits.contact_detect_threshold_n',
     'limits.contact_lost_threshold_n',

@@ -30,3 +30,5 @@
 15. **Envelope behaviour**: commands that would leave the box / tilt cone are clipped (flag
     set, no FAULT); an actual violation is a FAULT that needs acknowledgement, after which only
     motion back inside is allowed. Confirm this is what you want.
+16. **Late control ticks per episode** (`rig.yaml qc.max_late_tick_frac`, null): share of ticks later than the
+    speedL lifetime that an episode may have before QC fails it. Choose after measuring jitter on the capture PC.

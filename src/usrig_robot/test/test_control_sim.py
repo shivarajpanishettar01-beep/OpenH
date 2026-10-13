@@ -20,7 +20,7 @@ from usrig_robot.rtde_reader import RobotSample
 S = 1e-9
 RIG = {
     'robot': {'ip': 'fake', 'control_backend': 'rtde', 'control_rate_hz': 125.0, 'tcp_setting': [0, 0, 0, 0, 0, 0],
-              'max_state_age_s': 0.05, 'rt_priority': 0},
+              'payload_kg': 0.5, 'payload_cog_m': [0, 0, 0.05], 'max_state_age_s': 0.05, 'rt_priority': 0},
     'probe': {'tcp_already_includes_probe': True},
     'limits': {'max_contact_force_n': 20.0, 'force_band_n': [2.0, 10.0], 'force_setpoint_default_n': 4.0,
                'tilt_cone_deg': 30.0, 'tilt_reference_axis_base': [0, 0, -1],
@@ -501,3 +501,23 @@ def test_two_twist_publishers_refuse_teleop(sim):
     a.destroy_node()
     b.destroy_node()
     node.destroy_node()
+
+
+def test_tick_stats_counts_late_ticks():
+    st = rc.TickStats(0.008, 0.008)
+    for t in (0.0, 0.008, 0.016, 0.040, 0.048):
+        st.add(t)
+    sm = st.summary()
+    assert sm['ticks'] == 4 and sm['late'] == 1 and abs(sm['max_ms'] - 24.0) < 1e-6
+    st.reset()
+    assert st.summary() is None
+
+
+def test_control_timing_event_while_recording(sim):
+    node, robot = sim()
+    node.timing_report_s = 0.3
+    node.episode_id = 'ep_test'
+    time.sleep(1.0)
+    ev = [v for k, v in node.events if k == 'control_timing']
+    assert ev and ev[-1]['ticks'] > 20 and abs(ev[-1]['period_ms'] - 8.0) < 1e-6
+    node._stop.set()

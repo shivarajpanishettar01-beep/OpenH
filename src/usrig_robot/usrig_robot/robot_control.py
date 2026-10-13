@@ -212,6 +212,37 @@ class Perturbation(Motion):
 
 
 # --------------------------------------------------------------------------------------------
+# Tick timing (R8)
+# --------------------------------------------------------------------------------------------
+
+class TickStats:
+    """Control-loop tick intervals over a reporting window. A tick later than the speedL command
+    lifetime lets the command expire and the arm decelerate until the next one."""
+
+    def __init__(self, period_s, late_s):
+        self.period_s, self.late_s = period_s, late_s
+        self.reset()
+
+    def reset(self):
+        self.dts = []
+        self.t_prev = None
+
+    def add(self, t_s):
+        if self.t_prev is not None:
+            self.dts.append(t_s - self.t_prev)
+        self.t_prev = t_s
+
+    def summary(self):
+        if not self.dts:
+            return None
+        d = np.asarray(self.dts) * 1000.0
+        return {'ticks': int(d.size), 'period_ms': round(self.period_s * 1000.0, 3),
+                'p50_ms': round(float(np.median(d)), 3), 'p99_ms': round(float(np.percentile(d, 99)), 3),
+                'max_ms': round(float(d.max()), 3), 'late': int(np.sum(d > self.late_s * 1000.0)),
+                'late_threshold_ms': round(self.late_s * 1000.0, 3)}
+
+
+# --------------------------------------------------------------------------------------------
 # Node
 # --------------------------------------------------------------------------------------------
 
@@ -234,6 +265,8 @@ class RobotControlNode(Node):
         self.path_rot_radius = float(g('motion.path_rotation_radius_mm') or 50.0) / 1000.0
         self.force_setpoint = float(g('limits.force_setpoint_default_n'))
         self.stale_state_s = float(g('robot.max_state_age_s') or 0.02)
+        self.timing_report_s = 10.0
+        self.ticks = TickStats(1.0 / self.rate, float(g('robot.speedl_time_ticks') or 1.0) / self.rate)
 
         # Same controller as robot_state (URSim in the dry run, the UR7e otherwise).
         self.backend = make_backend(rig, log=self.get_logger().info, ip=state_node.robot_ip)
@@ -495,8 +528,14 @@ class RobotControlNode(Node):
         (self.get_logger().info if ok else self.get_logger().warn)(f'control loop: {msg}')
         period = 1.0 / self.rate
         nxt = time.monotonic()
+        t_report = nxt + self.timing_report_s
         while not self._stop.is_set():
             nxt += period
+            t = time.monotonic()
+            self.ticks.add(t)
+            if t >= t_report:
+                self._report_timing()
+                t_report = t + self.timing_report_s
             try:
                 self._tick(period)
             except Exception as e:  # noqa: BLE001
@@ -506,6 +545,16 @@ class RobotControlNode(Node):
                 time.sleep(delay)
             else:
                 nxt = time.monotonic()
+
+    def _report_timing(self):
+        """R8: tick intervals of the last window to the log, and into the episode bag while recording."""
+        sm = self.ticks.summary()
+        self.ticks.reset()
+        if sm is None:
+            return
+        (self.get_logger().warn if sm['late'] else self.get_logger().debug)(f'control ticks: {sm}')
+        if self.episode_id:
+            self._event('control_timing', sm)
 
     def _tick(self, dt):
         # Controller-side deadman: kicked every tick while this loop is alive, whatever the mode.

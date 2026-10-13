@@ -5,6 +5,7 @@ You move the robot (freedrive or pendant); this tool records what the controller
   ros2 run usrig_robot rig_measure box   [--write]            # workspace box from touched corner points
   ros2 run usrig_robot rig_measure tilt-axis [--write]        # probe axis with the probe square to the phantom
   ros2 run usrig_robot rig_measure force-noise --seconds 10   # F/T noise in free air (contact threshold input)
+  ros2 run usrig_robot rig_measure force-tilt                 # R4: free-air force vs tilt (payload / CoG check)
   add --ip <controller>  (default: rig.yaml robot.ip; URSim: 127.0.0.1)
 
 --write puts the measured value into rig.yaml (same key, comments kept). Margins, padding and
@@ -107,9 +108,45 @@ def cmd_force_noise(r, a):
     print('Use this noise floor when choosing contact_detect_threshold_n (the choice is yours).')
 
 
+def tilt_deg(T, ref):
+    return float(np.degrees(np.arccos(np.clip(T[:3, 2] @ ref, -1.0, 1.0))))
+
+
+def force_tilt_table(rows, ref):
+    """rows: [(T, mean wrench [6])]. Free-air force should not depend on tilt if the controller's
+    payload and CoG are right; returns per-pose tilt, |F| and probe-axis force, and the spread."""
+    out = [{'tilt_deg': tilt_deg(T, ref), 'f_norm_n': float(np.linalg.norm(f[:3])), 'f_axis_n': float(T[:3, 2] @ f[:3])}
+           for T, f in rows]
+    fa = np.array([r['f_axis_n'] for r in out])
+    fn = np.array([r['f_norm_n'] for r in out])
+    return out, {'f_axis_spread_n': float(np.ptp(fa)) if len(fa) else 0.0, 'f_norm_max_n': float(fn.max()) if len(fn) else 0.0}
+
+
+def cmd_force_tilt(r, a):
+    rig = config.load_yaml(rig_path(a.config_dir))
+    ref = config.get_path(rig, 'limits.tilt_reference_axis_base') or [0.0, 0.0, -1.0]
+    ref = np.asarray(ref, float) / np.linalg.norm(ref)
+    print(f'controller payload: {r.getPayload():.3f} kg, CoG {np.round(r.getPayloadCog(), 4).tolist()} m '
+          f'(rig.yaml: {config.get_path(rig, "robot.payload_kg")} kg, {config.get_path(rig, "robot.payload_cog_m")})')
+    input('Probe in free air, straight (no tilt), robot still. Zero the F/T sensor on the pendant now, then press Enter... ')
+    rows = []
+    while True:
+        Ts, F = averaged(r, 1.0)
+        T = Ts[len(Ts) // 2]
+        rows.append((T, F.mean(0)))
+        print(f'  tilt {tilt_deg(T, ref):5.1f} deg  |F| {np.linalg.norm(F.mean(0)[:3]):.3f} N  '
+              f'probe-axis {T[:3, 2] @ F.mean(0)[:3]:+.3f} N')
+        s = input('Tilt the probe (freedrive), hold still, Enter = record, q = done: ').strip().lower()
+        if s == 'q':
+            break
+    _, sm = force_tilt_table(rows, ref)
+    print(f'{len(rows)} poses: probe-axis force spread {sm["f_axis_spread_n"]:.3f} N, max |F| {sm["f_norm_max_n"]:.3f} N')
+    print('A spread well above the force-noise floor means the payload / CoG on the controller is wrong.')
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('what', choices=['pose', 'box', 'tilt-axis', 'force-noise'])
+    ap.add_argument('what', choices=['pose', 'box', 'tilt-axis', 'force-noise', 'force-tilt'])
     ap.add_argument('--ip')
     ap.add_argument('--write', action='store_true')
     ap.add_argument('--seconds', type=float, default=10.0)
@@ -121,7 +158,8 @@ def main():
         raise SystemExit('give --ip (rig.yaml robot.ip is null)')
     r = connect(ip)
     try:
-        {'pose': cmd_pose, 'box': cmd_box, 'tilt-axis': cmd_tilt_axis, 'force-noise': cmd_force_noise}[a.what](r, a)
+        {'pose': cmd_pose, 'box': cmd_box, 'tilt-axis': cmd_tilt_axis, 'force-noise': cmd_force_noise,
+         'force-tilt': cmd_force_tilt}[a.what](r, a)
     finally:
         r.disconnect()
 

@@ -5,7 +5,8 @@ from usrig_common import config
 from usrig_robot import safety
 
 RIG = {
-    'robot': {'ip': '127.0.0.1', 'control_backend': 'rtde', 'tcp_setting': [0, 0, 0.2, 0, 0, 0]},
+    'robot': {'ip': '127.0.0.1', 'control_backend': 'rtde', 'tcp_setting': [0, 0, 0.2, 0, 0, 0],
+              'payload_kg': 0.5, 'payload_cog_m': [0, 0, 0.05]},
     'limits': {'max_contact_force_n': 20.0, 'force_band_n': [2.0, 10.0], 'tilt_cone_deg': 30.0,
                'tilt_reference_axis_base': [0, 0, -1],
                'workspace_box_base_m': {'min': [-0.5, -0.5, 0.0], 'max': [0.5, 0.5, 0.5]},

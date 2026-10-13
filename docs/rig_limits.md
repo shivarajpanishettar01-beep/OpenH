@@ -8,6 +8,7 @@ ones that can be measured. Units are in the key names.
 |---|---|---|
 | `robot.ip` | UR7e controller IP (not needed for the URSim dry run) | pendant: Settings, System, Network |
 | `robot.tcp_setting` | active TCP offset `[x, y, z, rx, ry, rz]` (m, rotvec) | pendant: Installation, General, TCP. Set the same TCP in URSim for the dry run |
+| `robot.payload_kg`, `robot.payload_cog_m` | payload mass and CoG `[cx, cy, cz]` (flange frame) as set on the controller | pendant: Installation, General, Payload (probe + holder + camera; the pendant's payload estimation can measure it). robot_control refuses to start if the controller differs (R4). Check with `rig_measure force-tilt` |
 | `probe.tcp_already_includes_probe` | is that TCP the probe face? | must be `true` (D4): rotations pivot about the TCP; robot_control refuses otherwise |
 | `limits.workspace_box_base_m.min/max` | box the probe tip must stay in, base frame | `rig_measure box --write`: touch the extremes of the allowed volume; add your own margin |
 | `limits.tilt_reference_axis_base` | axis the tilt cone is measured from | `rig_measure tilt-axis --write` with the probe square to the phantom |

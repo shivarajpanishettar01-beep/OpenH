@@ -13,6 +13,11 @@ robot:
                                     # limit (docs/capture_pc_setup.md); falls back to normal with a warning
   tcp_setting: null                 # controller TCP offset [x,y,z,rx,ry,rz] (getTCPOffset). robot_control
                                     # refuses to start if the controller's active TCP differs from this
+  payload_kg: null                  # R4: probe + holder + camera mass as set on the pendant (Installation > Payload)
+  payload_cog_m: null               # [cx, cy, cz] flange frame, as on the pendant. robot_control refuses to start
+                                    # if the controller's payload differs (a wrong payload makes |F| change with tilt)
+  speedl_time_ticks: 1.0            # R8: speedL command lifetime in control ticks (1 = 8 ms at 125 Hz). Raise to
+                                    # 2-3 only if the tick jitter measured on the capture PC makes the arm stutter
 
 pointer:                            # calibration pointer (PH_calibration_pointer), for phantom fiducials
   tip_offset_flange_m: null         # [x, y, z] tip in the flange frame, from `pivot_calib --tool pointer --write`
@@ -74,6 +79,7 @@ qc:
   min_valid_depth_frac: null        # set after P1b
   camera_stamp_offset_bound_ms: null  # set from the P1b measurement
   ultrasound_robot_max_gap_ms: 10
+  max_late_tick_frac: null          # R8: share of control ticks later than the speedL lifetime allowed per episode
 
 registration_max_residual_mm: null
 waypoint_verify_min_ncc: null

@@ -50,6 +50,15 @@ class TcpMismatchError(RuntimeError):
     pass
 
 
+class PayloadMismatchError(RuntimeError):
+    pass
+
+
+# Payload check tolerances: rig.yaml holds the values typed on the pendant, so they should match closely.
+PAYLOAD_TOL_KG = 0.01
+PAYLOAD_COG_TOL_M = 0.001
+
+
 class RtdeBackend(Backend):
     """Path B (chosen 13 Oct 2026): ur_rtde RTDEControlInterface, speedL + forceMode along the
     probe axis. Needs the robot in Remote Control; the lab URScript cannot run at the same time.
@@ -61,7 +70,8 @@ class RtdeBackend(Backend):
     name = 'rtde'
 
     def __init__(self, ip, frequency_hz, force_limits, force_damping=None, watchdog_min_hz=None,
-                 stop_decel=2.0, expected_tcp=None, rt_priority=0, log=print):
+                 stop_decel=2.0, expected_tcp=None, expected_payload=None, speedl_time_ticks=1.0,
+                 rt_priority=0, log=print):
         self.ip = ip
         self.freq = frequency_hz
         self.force_limits = list(force_limits)   # rig.yaml rtde.force_mode_limits [6]
@@ -69,11 +79,14 @@ class RtdeBackend(Backend):
         self.watchdog_min_hz = watchdog_min_hz
         self.stop_decel = float(stop_decel)
         self.expected_tcp = expected_tcp
+        self.expected_payload = expected_payload   # (mass_kg, [cx, cy, cz] m) or None
+        self.speedl_time_ticks = float(speedl_time_ticks or 1.0)
         self.rt_priority = int(rt_priority or 0)
         self.log = log
         self.c = None
         self.force_active = False
         self.tcp_offset = None
+        self.payload = None
 
     def connect(self):
         import rtde_control
@@ -88,18 +101,36 @@ class RtdeBackend(Backend):
         self.tcp_offset = [float(x) for x in self.c.getTCPOffset()]
         self.log(f'controller active TCP offset: {[round(x, 5) for x in self.tcp_offset]}')
         if self.expected_tcp is not None:
-            import numpy as np
             d = np.abs(np.asarray(self.tcp_offset) - np.asarray(self.expected_tcp, float))
             if d[:3].max() > 1e-4 or d[3:].max() > 1e-3:
                 self.close()
                 raise TcpMismatchError(f'controller TCP {self.tcp_offset} differs from rig.yaml robot.tcp_setting '
                                        f'{self.expected_tcp}: refusing (probe offset could be applied twice)')
+        self.payload = self._read_payload()
+        self.log(f'controller payload: {self.payload[0]:.3f} kg, CoG {[round(x, 4) for x in self.payload[1]]} m')
+        if self.expected_payload is not None:
+            m, cog = float(self.expected_payload[0]), np.asarray(self.expected_payload[1], float)
+            if abs(self.payload[0] - m) > PAYLOAD_TOL_KG or np.abs(np.asarray(self.payload[1]) - cog).max() > PAYLOAD_COG_TOL_M:
+                self.close()
+                raise PayloadMismatchError(f'controller payload {self.payload[0]:.3f} kg / CoG {self.payload[1]} differs '
+                                           f'from rig.yaml robot.payload_kg / payload_cog_m {m} / {cog.tolist()}: '
+                                           'refusing (force readings would change with tilt)')
         if self.force_damping is not None:
             self.c.forceModeSetDamping(float(self.force_damping))
         if self.watchdog_min_hz:
             if not self.c.setWatchdog(float(self.watchdog_min_hz)):
                 raise RuntimeError('setWatchdog failed')
             self.log(f'controller watchdog: min {self.watchdog_min_hz:.1f} Hz')
+
+    def _read_payload(self):
+        """(mass_kg, [cx, cy, cz]) as set on the controller. RTDEControlInterface cannot read it, so a
+        short-lived receive connection is used."""
+        import rtde_receive
+        r = rtde_receive.RTDEReceiveInterface(self.ip, -1.0, ['payload', 'payload_cog'])
+        try:
+            return float(r.getPayload()), [float(x) for x in r.getPayloadCog()]
+        finally:
+            r.disconnect()
 
     def close(self):
         if self.c is not None:
@@ -126,7 +157,9 @@ class RtdeBackend(Backend):
         elif self.force_active:
             self.c.forceModeStop()
             self.force_active = False
-        self.c.speedL([*map(float, v_base), *map(float, w_base)], float(accel), float(dt))
+        # R8: the command lives speedl_time_ticks x dt, so one late tick does not decelerate the arm;
+        # the controller watchdog still stops a dead loop.
+        self.c.speedL([*map(float, v_base), *map(float, w_base)], float(accel), float(dt) * self.speedl_time_ticks)
 
     def stop(self):
         if self.c is None:
@@ -228,6 +261,12 @@ class UrscriptBackend(Backend):
         raise NotImplementedError('zero_ft over the lab URScript protocol is not defined (P0)')
 
 
+def _payload(rig):
+    from usrig_common.config import get_path
+    m, cog = get_path(rig, 'robot.payload_kg'), get_path(rig, 'robot.payload_cog_m')
+    return None if m is None or cog is None else (float(m), [float(x) for x in cog])
+
+
 def make_backend(rig, log=print, ip=None):
     from usrig_common.config import get_path
     kind = get_path(rig, 'robot.control_backend')
@@ -239,6 +278,8 @@ def make_backend(rig, log=print, ip=None):
                            watchdog_min_hz=(1.0 / float(deadman)) if deadman else None,
                            stop_decel=float(get_path(rig, 'limits.stop_decel_mm_s2')) / 1000.0,
                            expected_tcp=get_path(rig, 'robot.tcp_setting'),
+                           expected_payload=_payload(rig),
+                           speedl_time_ticks=get_path(rig, 'robot.speedl_time_ticks') or 1.0,
                            rt_priority=get_path(rig, 'robot.rt_priority') or 0, log=log)
     if kind == 'urscript':
         return UrscriptBackend(get_path(rig, 'urscript.port'), get_path(rig, 'robot.control_rate_hz') or 125.0,

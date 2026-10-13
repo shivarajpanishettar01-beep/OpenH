@@ -44,6 +44,12 @@ Every terminal: `source ~/OpenH/scripts/env.sh`.
       ```bash
       ros2 run usrig_robot rig_measure force-noise --seconds 10
       ```
+- [ ] Payload on the pendant (Installation > Payload) equals `robot.payload_kg` / `payload_cog_m`, and the
+      free-air force does not change with tilt (R4): freedrive to 4-5 tilts across the cone, Enter at each:
+      ```bash
+      ros2 run usrig_robot rig_measure force-tilt
+      ```
+      Probe-axis force spread should be close to the force-noise peak-to-peak; much larger = payload / CoG wrong.
 
 Stop the launch (Ctrl+C) before section C.
 
@@ -58,7 +64,9 @@ Stop the launch (Ctrl+C) before section C.
       ```bash
       ros2 run usrig_qc status_console
       ```
-      robot_control must log the controller TCP offset, `controller watchdog: min ... Hz`, and no refusal.
+      robot_control must log the controller TCP offset, the controller payload, `controller watchdog: min ... Hz`,
+      and no refusal. Every 10 s it checks the control-tick intervals and warns `control ticks: {...}` if any
+      tick came later than the speedL lifetime (R8); note p99 / max / late for the capture PC.
 - [ ] Teleop on (holding still until enabled):
       ```bash
       ros2 service call /robot/set_teleop std_srvs/srv/SetBool "{data: true}"

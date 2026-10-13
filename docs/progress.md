@@ -12,7 +12,7 @@ GR00T-H is out of scope for now (separate task).
 | P1 | micrus bringup (simulator) | **passed** | 27.35 Hz, 0 frame gaps in 5 min, clean power-down on Ctrl+C (`P1_results.md`) |
 | P1b | Wrist D415 bringup | **blocked on hardware** | dev PC only gives USB 2.1; runs on the capture PC (`capture_pc_setup.md`) |
 | P2 | robot_state | URSim done; real UR7e pending | pose matches pendant; URSim runs at 0.968x real time so its 500 Hz check is not meaningful (`P2_results.md`) |
-| P3 | Control + teleop | **code done, not run** | path B chosen; needs the 20 limits for the URSim dry run |
+| P3 | Control + teleop | **code done, not run** | path B chosen; needs the 22 limits for the URSim dry run |
 | P4 | Episode recorder + manager | **passed in simulation** | 5 episodes incl. SIGKILL mid-recording; crash recovery verified (`P4_results.md`) |
 | P5 | Registration, waypoints, paths, plan | code done, not run | needs robot motion; plan needs failure mapping + magnitudes |
 | P6 | QC + pre-session check | done, tested on bags | per-episode QC on real MCAP bags; checks every source for gaps |
@@ -55,6 +55,10 @@ force-ceiling FAULT (acknowledge refused while violated), descend to contact, co
 - a retract that cancelled a path was itself cancelled by the path's cleanup (probe stayed in contact);
 - keyboard loss kept the last motion command publishing at 100 Hz, so the deadman never tripped.
 Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) into the episode bag.
+- R4: robot_control refuses to start if the controller payload / CoG differs from `robot.payload_kg` /
+  `payload_cog_m`; `rig_measure force-tilt` measures free-air force vs tilt (read-only).
+- R8: control-tick intervals reported every 10 s (log; `control_timing` event in the bag while recording;
+  per-episode QC check `control_timing`); speedL lifetime configurable (`robot.speedl_time_ticks`, default 1 tick).
 
 **Data integrity** (`data_integrity.md`)
 - Loss measured at every stage under load. Fixed: Python robot reader (replaced by C++), shallow
@@ -71,7 +75,7 @@ Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) i
 ## Not done / needed next
 | Item | Needs | Owner |
 |---|---|---|
-| Safety limits (20 values in `rig.yaml`) + keymap speeds | your measurements and safety protocol (`rig_limits.md`) | you |
+| Safety limits (22 values in `rig.yaml`, incl. payload) + keymap speeds, `qc.max_late_tick_frac` | your measurements and safety protocol (`rig_limits.md`) | you |
 | Failure-mode mapping to the four classes; staging magnitudes (`failure_catalog.yaml`) | your failure-mode work | you |
 | URSim control dry run | the limits | then me |
 | Capture PC setup, P1b camera on USB 3, micrus licence, rtprio, data disk (> 50 GB) | the capture PC | you + me |
