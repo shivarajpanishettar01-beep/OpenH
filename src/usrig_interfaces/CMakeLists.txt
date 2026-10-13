@@ -9,6 +9,7 @@ find_package(geometry_msgs REQUIRED)
 rosidl_generate_interfaces(${PROJECT_NAME}
   "msg/RobotState.msg"
   "msg/EpisodeEvent.msg"
+  "msg/ControlStatus.msg"
   "srv/MoveToPose.srv"
   "srv/DescendToContact.srv"
   "srv/InjectPerturbation.srv"

@@ -35,10 +35,27 @@ Caveats: the micrus simulator alone used 4.2-4.6 cores, URSim runs in Docker on 
   (it used to stay alive and pile up); runs at nice 10; nodes panel (running / MISSING / recording).
 - QC: robot controller-time gaps and RealSense frame-number gaps per episode.
 
+## C++ robot_state (usrig_robot_cpp, ur_client_library 2.15.2) - same load, 60 s runs
+| robot_state | GUI | Robot samples lost | US frames lost | robot_state CPU | GUI CPU |
+|---|---|---|---|---|---|
+| Python (2 runs) | no | 6.6 % / 11.3 % | 1 / 15 | ~65 % | - |
+| Python (2 runs) | yes | 25.5 % / 29.8 % | 33 / 73 | ~65 % | 82-94 % |
+| **C++ (2 runs)** | no | **0 / 0** of ~31,000 | 2 / 0 | **~6 %** | - |
+| **C++ (2 runs)** | yes | **0 / 0** of ~30,600 | 4 / 0 | ~6 % | 124-138 % |
+
+Key detail: in ur_client_library 2.15 the default background-read mode returns only the *latest*
+package (it would drop samples like the Python poller). robot_state_cpp uses `start(false)` +
+`getDataPackageBlocking()`, which reads every packet in order from the TCP stream.
+robot.launch.py uses the C++ node when built and falls back to Python with a warning.
+
+## GUI only for demos
+Collection runs headless: keyboard teleop (evdev), episode_manager, recorder, qc_monitor, and
+`ros2 run usrig_qc status_console` (terminal view: episode / recording state, robot mode and
+faults, QC and per-topic rates, recent events; low-rate topics only). The dashboard (1.2-1.4
+cores here) is started only for demos (`dashboard:=true`); the annotator runs offline.
+
 ## Still needed (recommendations, in order)
-1. **robot_state in C++.** Even without the GUI the Python reader loses 7-11 % of samples under load;
-   the recorder loses ~none. A C++ node on `ur_client_library` (blocking `getDataPackage`, no polling)
-   removes the main loss. Needs `sudo apt install ros-humble-ur-client-library`.
+1. ~~robot_state in C++~~: done (above).
 2. **CPU isolation on the capture PC**: rtprio limit (docs/capture_pc_setup.md); pin micrus,
    robot_state and the recorder to their own cores and the GUI to others (`taskset`); keep browsers /
    PDF viewers closed during sessions.

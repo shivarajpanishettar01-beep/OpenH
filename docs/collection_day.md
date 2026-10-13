@@ -39,7 +39,11 @@ ros2 run usrig_episode handeye_calib ~/data/<SESSION_ID>
 ```bash
 ros2 run usrig_episode episode_manager --ros-args -p session_id:=<SESSION_ID> -p robot_control:=true -p operator_id:=op1
 ```
-Optional dashboard:
+Operator status (headless, used for collection):
+```bash
+ros2 run usrig_qc status_console
+```
+Dashboard: demos only (it costs ~1.3 CPU cores):
 ```bash
 ros2 run usrig_dashboard dashboard --ros-args -p session_id:=<SESSION_ID>
 ```

@@ -30,7 +30,7 @@ from std_srvs.srv import SetBool, Trigger
 from usrig_common import config, geometry
 from usrig_common.session import read_json
 from usrig_common.timeutil import now_ns, ns_from_stamp, stamp_from_ns
-from usrig_interfaces.msg import EpisodeEvent, RobotState
+from usrig_interfaces.msg import ControlStatus, EpisodeEvent, RobotState
 from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPose, RunPath
 
 from . import safety
@@ -248,6 +248,8 @@ class RobotControlNode(Node):
 
         cb = ReentrantCallbackGroup()
         self.pub_cmd = self.create_publisher(TwistStamped, '/robot/cmd_executed', 10)
+        # mode / flags / source / expert for robot_state_cpp, which merges them into /robot/state
+        self.pub_status = self.create_publisher(ControlStatus, '/robot/control_status', 10)
         self.pub_evt = self.create_publisher(EpisodeEvent, '/episode/events', 50)
         self.create_subscription(TwistStamped, '/teleop/twist', self._on_twist, 10, callback_group=cb)
         self.create_subscription(String, '/operator/command', self._on_command, 50, callback_group=cb)
@@ -408,6 +410,7 @@ class RobotControlNode(Node):
             self._fault(hard, 'limit violated')
         if self.status.mode == ST.MODE_FAULT:
             self.v_prev, self.w_prev = np.zeros(3), np.zeros(3)
+            self._publish_status(s.stamp_ns)
             return
 
         with self.motion_lock:
@@ -431,6 +434,7 @@ class RobotControlNode(Node):
             self.status.action_is_expert = bool(m.expert)
             self.status.force_setpoint_n = self.force_setpoint if m.force_on else 0.0
 
+        self._publish_status(s.stamp_ns)
         msg = TwistStamped()
         msg.header.stamp = stamp_from_ns(s.stamp_ns)
         msg.header.frame_id = 'probe'
@@ -438,6 +442,14 @@ class RobotControlNode(Node):
         (msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z) = map(float, vp)
         (msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z) = map(float, wp)
         self.pub_cmd.publish(msg)
+
+    def _publish_status(self, stamp_ns=None):
+        fsp, mode, flags, src, expert = self.status.snapshot()
+        m = ControlStatus()
+        m.header.stamp = stamp_from_ns(stamp_ns or now_ns())
+        m.force_setpoint_n = float(fsp)
+        m.mode, m.safety_flags, m.action_source, m.action_is_expert = mode, flags, src, bool(expert)
+        self.pub_status.publish(m)
 
     # ---------------------------------------------------------------- services
     def _srv_zero_ft(self, req, res):
@@ -618,7 +630,10 @@ def main(args=None):
     state = control = None
     rc = 0
     try:
-        state = RobotStateNode(control_status=status)
+        # Embedded reader for control only (latest sample); the recorded /robot/state comes from
+        # robot_state_cpp. Without the C++ node (ur_client_library missing) it also publishes.
+        publish = not bool(int(__import__('os').environ.get('USRIG_STATE_FROM_CPP', '1')))
+        state = RobotStateNode(control_status=status, node_name='robot_control_state', publish_topics=publish)
         control = RobotControlNode(state, status, rig)
         ex = MultiThreadedExecutor(num_threads=6)
         ex.add_node(state)

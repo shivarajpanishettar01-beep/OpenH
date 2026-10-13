@@ -9,11 +9,12 @@ HDF5, and exports LeRobot v2.1 + `modality.json` (GR00T-H) and LeRobot v3.0 (Ope
 |---|---|
 | `src/usrig_interfaces` | `RobotState`, `EpisodeEvent` msgs; `MoveToPose`, `DescendToContact`, `InjectPerturbation`, `RunPath` srvs |
 | `src/usrig_common` | config + null-limit refusal, geometry (no FK), constant-speed paths, Kabsch, stage gates, legacy packet parser |
-| `src/usrig_robot` | `robot_state` (RTDE 500 Hz, read-only), `robot_control` (only node that moves the robot; safety envelope, deadman, FAULT/ack, services) |
+| `src/usrig_robot_cpp` | `robot_state_cpp`: lossless 500 Hz RTDE state (ur_client_library), the recorded robot data |
+| `src/usrig_robot` | `robot_control` (only node that moves the robot; safety envelope, controller watchdog, FAULT/ack, services), Python `robot_state` fallback, `rig_measure` |
 | `src/usrig_teleop` | `keyboard_teleop` (evdev, ramped probe-frame twist at 100 Hz) |
 | `src/usrig_episode` | `episode_manager` (stages 0/1/2, crash-safe recorder, resume), `plan_generator`, `register_phantom`, `waypoint_teach/verify`, `path_editor`, `handeye_calib`, `rig_static_tf` |
 | `src/usrig_qc` | `qc_monitor` (/qc/status), `episode_qc` (from bag stamps), `presession_check`, `stream_check` |
-| `src/usrig_dashboard` | PySide6 + pyqtgraph dashboard |
+| `src/usrig_dashboard` | dashboard (demos only), `annotator` (offline expert labelling) |
 | `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files |
 | `export/` | `lerobot_rig.yaml` (bag_to_lerobot config), `stage_bags.py`, `depth_export.py`, `openh_export.py` |
 | `tools/temporal_calib.py` | ultrasound / D415 latency from a sinusoidal compress test |

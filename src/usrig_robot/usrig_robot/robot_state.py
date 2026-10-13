@@ -45,8 +45,9 @@ class ControlStatus:
 
 class RobotStateNode(Node):
 
-    def __init__(self, control_status=None, **kwargs):
-        super().__init__('robot_state', **kwargs)
+    def __init__(self, control_status=None, node_name='robot_state', publish_topics=True, **kwargs):
+        super().__init__(node_name, **kwargs)
+        self.publish_topics = publish_topics
         self.declare_parameter('config_dir', '')
         self.declare_parameter('robot_ip', '')
         self.declare_parameter('frequency_hz', 500.0)
@@ -89,7 +90,8 @@ class RobotStateNode(Node):
         self.queue_overflows = 0
         self._pub_stop = threading.Event()
         self._pub_thread = threading.Thread(target=self._publish_loop, name='robot_state_pub', daemon=True)
-        self._pub_thread.start()
+        if self.publish_topics:
+            self._pub_thread.start()
         self.reader = RtdeReader(ip, self.get_parameter('frequency_hz').value, self._enqueue,
                                  rt_priority=config.get_path(rig, 'robot.rt_priority') or 0,
                                  log=self.get_logger().info)
@@ -102,6 +104,8 @@ class RobotStateNode(Node):
             self.latest = s
         for fn in self.listeners:
             fn(s)
+        if not self.publish_topics:
+            return
         try:
             self._q.put_nowait(s)
         except Exception:  # queue.Full
@@ -176,7 +180,8 @@ class RobotStateNode(Node):
     def destroy_node(self):
         self.reader.stop()
         self._pub_stop.set()
-        self._pub_thread.join(timeout=1.0)
+        if self._pub_thread.is_alive():
+            self._pub_thread.join(timeout=1.0)
         super().destroy_node()
 
 
