@@ -13,7 +13,7 @@ RealSense tools (`rs-enumerate-devices`, ...) live in `/opt/ros/humble/bin`: run
 
 ## 2. Repo and conda env
 ```bash
-git clone <this repo> ~/OpenH && cd ~/OpenH
+git clone https://github.com/shivarajpanishettar01-beep/OpenH.git ~/OpenH && cd ~/OpenH
 ```
 ```bash
 scripts/setup_env.sh
