@@ -278,9 +278,18 @@ def main():
     if a.skip_convert:
         print(f'v2.1 with Open-H fields in {work}; conversion skipped')
         return
-    mod = 'lerobot.datasets.v30.convert_dataset_v21_to_v30'
-    if importlib.util.find_spec(mod) is None:
-        sys.exit(f'{mod} not found in this LeRobot version: no official v2.1 -> v3.0 converter. '
+    # LeRobot 0.6.0: lerobot.scripts.convert_dataset_v21_to_v30 (needs lerobot[dataset]); earlier
+    # releases used lerobot.datasets.v30.*. Checked at run time, never assumed.
+    mod = None
+    for cand in ('lerobot.scripts.convert_dataset_v21_to_v30', 'lerobot.datasets.v30.convert_dataset_v21_to_v30'):
+        try:
+            if importlib.util.find_spec(cand) is not None:
+                mod = cand
+                break
+        except ModuleNotFoundError:
+            continue
+    if mod is None:
+        sys.exit('no official v2.1 -> v3.0 converter found in this LeRobot install (pip install "lerobot[dataset]"). '
                  f'The v2.1 dataset with Open-H fields is in {work}')
     h = subprocess.run([sys.executable, '-m', mod, '--help'], capture_output=True, text=True)
     print(h.stdout[-2000:])

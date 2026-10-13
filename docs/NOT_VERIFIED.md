@@ -58,7 +58,8 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 ## Export
 - `bag_to_lerobot` on these bags (`--list-topics`, `--dry-run`), bool field `action_is_expert`
   through `fields`, relative `custom_msgs` paths (resolved from the current directory: run from `export/`).
-- LeRobot 0.6.0: presence and flags of `lerobot.datasets.v30.convert_dataset_v21_to_v30`, and
+- LeRobot 0.6.0: converter found at `lerobot.scripts.convert_dataset_v21_to_v30` (flags --repo-id, --root,
+  --push-to-hub=false checked); still NOT VERIFIED on our data:
   whether it accepts the added string / bool columns.
 - Open-H field names and README template vs the current Open-H guide; `validate_formatting.py`
   is not in this repo.
