@@ -29,7 +29,7 @@ from std_srvs.srv import SetBool, Trigger
 
 from usrig_common import config, geometry
 from usrig_common.session import read_json
-from usrig_common.timeutil import now_ns, ns_from_stamp, stamp_from_ns
+from usrig_common.timeutil import now_ns, stamp_from_ns
 from usrig_interfaces.msg import ControlStatus as ControlStatusMsg  # not the shared-status class below
 from usrig_interfaces.msg import EpisodeEvent, RobotState
 from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPose, RunPath
@@ -668,6 +668,11 @@ class RobotControlNode(Node):
             return res
         speed = req.speed_mm_s / 1000.0 if req.speed_mm_s > 0 else self.transit_speed
         speed = min(speed, self.lim.v_max)
+        problem = self._check_legs(legs)
+        if problem:
+            self._event('motion', {'motion': 'LinearMove', 'ok': False, 'message': problem})
+            res.success, res.message = False, problem
+            return res
         self.in_contact = False
         self._event('phase', {'phase': 'approach', 'legs': len(legs)})
         for leg in legs:
@@ -676,6 +681,19 @@ class RobotControlNode(Node):
                 break
         res.success, res.message = m.ok, m.message
         return res
+
+    def _check_legs(self, legs):
+        """Whole planned move (every leg, sampled) inside the box(es) and the tilt cone before it starts."""
+        s = self.state_node.get_latest()
+        if s is None:
+            return 'no robot state'
+        T0 = geometry.pose_from_ur(s.tcp_pose)
+        start_flags = safety.pose_violations(self.lim, T0)
+        poses = []
+        for leg in legs:
+            poses += safety.interpolate_poses(T0, leg, 20)[1:]
+            T0 = leg
+        return safety.check_targets(self.lim, poses, allowed_flags=start_flags)
 
     def _srv_descend(self, req, res):
         if req.force_setpoint_n > 0:
@@ -751,6 +769,11 @@ class RobotControlNode(Node):
                 raise ValueError(f'speed must be in (0, {self.lim.v_max * 1000:.1f}] mm/s')
             path = geometry.ConstantSpeedPath(poses, speed, min(self.path_accel, self.lim.a_max),
                                              self.path_rot_radius)
+            # validate the whole path before starting (nominal poses; the probe axis is force-regulated)
+            ts = np.arange(0.0, path.duration, 0.05).tolist() + [path.duration]
+            problem = safety.check_targets(self.lim, [path.sample(t)[0] for t in ts])
+            if problem:
+                raise ValueError(problem)
         except (RuntimeError, ValueError) as e:
             res.success, res.message = False, str(e)
             return res

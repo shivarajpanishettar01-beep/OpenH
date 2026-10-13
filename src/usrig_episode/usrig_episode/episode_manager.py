@@ -47,6 +47,7 @@ from . import provenance
 from .path_editor import resolve as resolve_path
 from .plan_generator import read_csv, sha256
 from .recorder import EpisodeRecorder, RecorderError
+from .waypoints import executable_problem
 
 
 class Abort(Exception):
@@ -420,6 +421,9 @@ class EpisodeManager(Node):
         names = st1.get('paths') or list(paths)
         for name in names:
             spec = paths[name]
+            for e in spec['waypoints']:
+                if isinstance(e, str):
+                    self._waypoint(e)          # named waypoints must be verified for this rig configuration
             wps = resolve_path(spec['waypoints'], config.load_yaml(self._waypoint_file())['waypoints'])
             ep = self._new_episode(type='scripted', target=name, instruction=spec.get('instruction'),
                                    path_waypoints=[w if isinstance(w, str) else w['name'] for w in spec['waypoints']], speed_mm_s=st1['speed_mm_s'])
@@ -552,6 +556,9 @@ class EpisodeManager(Node):
         wps = config.load_yaml(self._waypoint_file())['waypoints']
         for w in wps:
             if w['name'] == name:
+                problem = executable_problem(w, self.rig)
+                if problem:
+                    raise Abort(problem)
                 w['T'] = geometry.pose_from_pq(w['position_m'], w['quaternion_xyzw'])
                 return w
         raise Abort(f'waypoint {name} not found in {self._waypoint_file()}')

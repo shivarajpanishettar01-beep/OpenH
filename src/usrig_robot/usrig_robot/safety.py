@@ -82,8 +82,8 @@ def probe_axis_force(T_base_probe, wrench_base):
     return float(T_base_probe[:3, 2] @ f)
 
 
-def hard_violations(lim: Limits, T, wrench_base, tcp_speed):
-    """Flags for limits that are actually violated by the measured state."""
+def pose_violations(lim: Limits, T):
+    """Flags for a pose outside the workspace box(es) or the global tilt cone."""
     flags = 0
     p = T[:3, 3]
     if np.any(p < lim.box_min) or np.any(p > lim.box_max):
@@ -94,6 +94,43 @@ def hard_violations(lim: Limits, T, wrench_base, tcp_speed):
             flags |= FLAG_ENVELOPE
     if geometry.tilt_deg(T, lim.tilt_ref_axis) > lim.tilt_cone_deg:
         flags |= FLAG_TILT_CONE
+    return flags
+
+
+def interpolate_poses(T0, T1, n):
+    """n poses from T0 to T1 (both included): position linear, orientation slerp, as LinearMove moves."""
+    from scipy.spatial.transform import Rotation, Slerp
+    sl = Slerp([0.0, 1.0], Rotation.from_matrix([T0[:3, :3], T1[:3, :3]]))
+    out = []
+    for u in np.linspace(0.0, 1.0, max(int(n), 2)):
+        T = np.eye(4)
+        T[:3, :3] = sl([u]).as_matrix()[0]
+        T[:3, 3] = (1.0 - u) * T0[:3, 3] + u * T1[:3, 3]
+        out.append(T)
+    return out
+
+
+def check_targets(lim: Limits, poses, allowed_flags=0):
+    """Check planned poses before any motion starts. ``allowed_flags``: violations the robot already
+    has at the start (a recovery move back inside), tolerated on the way but never at the last pose.
+    Returns None if fine, else a message naming the first bad pose."""
+    poses = list(poses)
+    for i, T in enumerate(poses):
+        f = pose_violations(lim, T)
+        if i == len(poses) - 1:
+            bad = f
+        else:
+            bad = f & ~allowed_flags
+        if bad:
+            p = np.round(T[:3, 3] * 1000.0, 1).tolist()
+            return (f'planned pose {i + 1}/{len(poses)} at {p} mm (base) is outside the limits '
+                    f'{flag_names(bad)}: refused before moving')
+    return None
+
+
+def hard_violations(lim: Limits, T, wrench_base, tcp_speed):
+    """Flags for limits that are actually violated by the measured state."""
+    flags = pose_violations(lim, T)
     if np.linalg.norm(np.asarray(wrench_base[:3], float)) > lim.max_force_n:
         flags |= FLAG_FORCE_MAX
     v = np.linalg.norm(tcp_speed[:3])

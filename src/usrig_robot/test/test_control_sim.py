@@ -11,6 +11,7 @@ import time
 
 import numpy as np
 import pytest
+from geometry_msgs.msg import PoseStamped
 from scipy.spatial.transform import Rotation
 
 import usrig_robot.robot_control as rc
@@ -180,22 +181,63 @@ def test_move_to_pose_reaches_target_and_reports(sim):
     node.destroy_node()
 
 
-def test_unreachable_target_times_out_instead_of_hanging(sim):
+def test_target_outside_envelope_refused_before_moving(sim):
     from usrig_interfaces.srv import MoveToPose
     node, robot = sim()
+    p0 = robot.T[:3, 3].copy()
     req = MoveToPose.Request()
     req.target.header.frame_id = 'base'
     T = robot.T.copy()
-    T[:3, 3] = [0.45, 0.0, 0.48]          # above the box top (0.4): the envelope blocks it
+    T[:3, 3] = [0.45, 0.0, 0.48]          # above the box top (0.4)
     geometry.fill_pose_msg(req.target.pose, T)
     req.speed_mm_s = 40.0
-    node._move_timeout = lambda T, speed: 3.0       # keep the test short
     t0 = time.monotonic()
     res = node._srv_move(req, MoveToPose.Response())
-    assert not res.success and res.message == 'timeout' and time.monotonic() - t0 < 4.0
-    assert robot.T[2, 3] <= 0.4 + 0.004                # stopped at the box face (lookahead)
+    assert not res.success and 'refused before moving' in res.message and 'envelope' in res.message
+    assert time.monotonic() - t0 < 0.5
+    time.sleep(0.2)
+    assert np.linalg.norm(robot.T[:3, 3] - p0) < 1e-4
+    T[:3, 3] = [0.45, 0.0, 0.2]
+    T[:3, :3] = Rotation.from_euler('x', 45, degrees=True).as_matrix() @ DOWN    # outside the 30 deg cone
+    geometry.fill_pose_msg(req.target.pose, T)
+    res = node._srv_move(req, MoveToPose.Response())
+    assert not res.success and 'tilt_cone' in res.message
+    node.destroy_node()
+
+
+def test_stalled_move_times_out_instead_of_hanging(sim):
+    from usrig_interfaces.srv import MoveToPose
+    node, robot = sim()
+    robot.command = lambda *a, **k: None            # the arm does not follow (e.g. a stuck controller)
+    req = MoveToPose.Request()
+    req.target.header.frame_id = 'base'
+    T = robot.T.copy()
+    T[:3, 3] = [0.45, 0.0, 0.25]
+    geometry.fill_pose_msg(req.target.pose, T)
+    req.speed_mm_s = 40.0
+    node._move_timeout = lambda T, speed: 1.0       # keep the test short
+    t0 = time.monotonic()
+    res = node._srv_move(req, MoveToPose.Response())
+    assert not res.success and res.message == 'timeout' and time.monotonic() - t0 < 2.0
     assert motion_events(node)[-1] == {'motion': 'LinearMove', 'ok': False, 'message': 'timeout',
                                        'duration_s': motion_events(node)[-1]['duration_s']}
+    node.destroy_node()
+
+
+def test_run_path_outside_envelope_refused_before_moving(sim, monkeypatch):
+    from usrig_interfaces.srv import RunPath
+    node, robot = sim(surface_z=0.19)
+    monkeypatch.setattr(rc.RobotControlNode, '_phantom_T', lambda self: np.eye(4))
+    node.in_contact = True
+    req = RunPath.Request()
+    for x in (0.4, 0.5, 0.7):                       # last waypoint beyond the box (x max 0.6)
+        T = robot.T.copy()
+        T[:3, 3] = [x, 0.0, 0.19]
+        req.waypoints.append(geometry.fill_pose_msg(PoseStamped().pose, T))
+    req.speed_mm_s = 10.0
+    res = node._srv_run_path(req, RunPath.Response())
+    assert not res.success and 'refused before moving' in res.message
+    assert not any(k == 'phase' and v.get('phase') == 'search' for k, v in node.events)
     node.destroy_node()
 
 
@@ -299,7 +341,7 @@ def test_descend_then_path_then_cancel(sim):
 # fixed these start passing, the suite fails, and the marker must be removed.
 
 def test_lift_perturbation_stays_in_force_band(sim):
-    from usrig_interfaces.srv import DescendToContact, InjectPerturbation
+    from usrig_interfaces.srv import DescendToContact
     node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
     assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
     seen = []
@@ -417,7 +459,7 @@ def test_phantom_moves_go_via_safe_height(sim):
     req = MoveToPose.Request()
     req.target.header.frame_id = 'phantom'
     geometry.fill_pose_msg(req.target.pose, T)
-    zs, xs = [], []
+    zs = []
     th = threading.Thread(target=lambda: zs.append(node._srv_move(req, MoveToPose.Response())))
     th.start()
     traj = []
@@ -520,4 +562,4 @@ def test_control_timing_event_while_recording(sim):
     time.sleep(1.0)
     ev = [v for k, v in node.events if k == 'control_timing']
     assert ev and ev[-1]['ticks'] > 20 and abs(ev[-1]['period_ms'] - 8.0) < 1e-6
-    node._stop.set()
+    node.destroy_node()

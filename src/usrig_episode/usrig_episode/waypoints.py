@@ -11,6 +11,11 @@ The approach pose is approach_offset_mm (5 cm) back along the probe axis.
 Verify (needs robot_control): retract, return to the approach pose, zero F/T, descend to contact,
 take a snapshot and compare it with the reference by normalized cross-correlation. A waypoint is
 kept (verified: true) only if NCC >= rig.yaml waypoint_verify_min_ncc.
+
+Each waypoint records the rig configuration it was taught and verified with (controller TCP, probe
+type, payload). episode_manager runs a waypoint only if it is verified AND verified with the current
+configuration: after a probe remount or a TCP / payload change it must be verified again.
+Poses are stored in the phantom frame, so a new phantom registration does not invalidate them.
 """
 import argparse
 import json
@@ -29,6 +34,41 @@ from usrig_common.timeutil import now_ns
 from usrig_interfaces.srv import DescendToContact, MoveToPose
 
 from .tool_node import run_tool
+
+
+CONFIG_KEYS = (('tcp_setting', 'robot.tcp_setting'), ('probe_type', 'probe.type'),
+               ('payload_kg', 'robot.payload_kg'), ('payload_cog_m', 'robot.payload_cog_m'))
+
+
+def rig_fingerprint(rig):
+    """The parts of rig.yaml a stored probe-tip pose depends on."""
+    return {k: config.get_path(rig, path) for k, path in CONFIG_KEYS}
+
+
+def _same(a, b, tol=1e-6):
+    if isinstance(a, (list, tuple)) or isinstance(b, (list, tuple)):
+        try:
+            return len(a) == len(b) and all(_same(x, y, tol) for x, y in zip(a, b))
+        except TypeError:
+            return False
+    if isinstance(a, (int, float)) and isinstance(b, (int, float)):
+        return abs(float(a) - float(b)) <= tol
+    return a == b
+
+
+def executable_problem(wp, rig):
+    """None if the waypoint may be executed with this rig configuration, else the reason."""
+    if not wp.get('verified'):
+        return f'waypoint {wp.get("name")} is not verified (run waypoint_verify)'
+    vc = wp.get('verified_config')
+    if not isinstance(vc, dict):
+        return f'waypoint {wp.get("name")} has no verified_config (verify it again)'
+    cur = rig_fingerprint(rig)
+    diff = [k for k, _ in CONFIG_KEYS if not _same(vc.get(k), cur[k])]
+    if diff:
+        return (f'waypoint {wp.get("name")} was verified with a different {", ".join(diff)}: '
+                'verify it again with the current probe / TCP / payload')
+    return None
 
 
 def snapshot_png(msg):
@@ -111,7 +151,8 @@ def _teach(node, a):
               'approach_position_m': pa.tolist(), 'approach_quaternion_xyzw': qa.tolist(),
               'force_n': f_axis, 'preset': fi.get('settings'),
               'reference_snapshot': str(snapshot_png(r.message)) if r.success else None,
-              'instructions': instr, 'verified': False, 'taught_ns': now_ns()}
+              'instructions': instr, 'verified': False, 'taught_ns': now_ns(),
+              'taught_config': rig_fingerprint(node.rig)}
         data['waypoints'] = [w for w in data['waypoints'] if w['name'] != name] + [wp]
         _save(f, data)
         print(f'  saved {name} to {f}')
@@ -155,11 +196,16 @@ def _verify(node, a):
         if ref is None or cur is None:
             print('  could not read snapshot images')
             wp['verified'] = False
+            wp.pop('verified_config', None)
             continue
         score = ncc(ref, cur)
         T_ph = geometry.inv(T_bp) @ node.tip_pose_base()
         dp = np.linalg.norm(T_ph[:3, 3] - np.array(wp['position_m'])) * 1000
         wp['verified'] = score >= min_ncc
+        if wp['verified']:
+            wp['verified_config'] = rig_fingerprint(node.rig)
+        else:
+            wp.pop('verified_config', None)
         wp['verify'] = {'ncc': score, 'position_error_mm': float(dp), 'snapshot': str(snapshot_png(r.message)),
                         'stamp_ns': now_ns()}
         print(f'  NCC {score:.3f} (min {min_ncc}), tip position error {dp:.1f} mm -> '

@@ -12,7 +12,6 @@ You move the robot (freedrive or pendant); this tool records what the controller
 every force limit stay your decision: this tool reports measurements, it does not choose limits.
 """
 import argparse
-import re
 import time
 from pathlib import Path
 

@@ -80,3 +80,25 @@ def test_filter_blocks_tilt_increase_but_allows_probe_axis_rotation():
     v, w, f = safety.filter_command(L, T, np.zeros(3), w_in, np.zeros(3), w_in, 0.008)
     assert f & safety.FLAG_TILT_CONE
     assert abs(np.cross(w, T[:3, 2])).max() < 1e-12   # only rotation about the probe axis remains
+
+
+def test_check_targets_and_recovery_tolerance():
+    L = lim()
+    inside, outside = probe_down((0.1, 0, 0.2)), probe_down((0.1, 0, 0.6))     # box top 0.5
+    assert safety.check_targets(L, [inside]) is None
+    assert 'envelope' in safety.check_targets(L, [inside, outside])
+    # a move that starts outside (recovery) may pass outside on the way, never end there
+    path = safety.interpolate_poses(outside, inside, 10)
+    assert safety.check_targets(L, path[1:], allowed_flags=safety.FLAG_ENVELOPE) is None
+    assert safety.check_targets(L, path[::-1][1:], allowed_flags=safety.FLAG_ENVELOPE) is not None
+
+
+def test_interpolate_poses_endpoints_and_midpoint():
+    from scipy.spatial.transform import Rotation
+    T0 = probe_down((0, 0, 0.2))
+    T1 = probe_down((0.1, 0, 0.3))
+    T1[:3, :3] = Rotation.from_euler('x', 20, degrees=True).as_matrix() @ T0[:3, :3]
+    poses = safety.interpolate_poses(T0, T1, 5)
+    assert np.allclose(poses[0], T0) and np.allclose(poses[-1], T1)
+    assert np.allclose(poses[2][:3, 3], [0.05, 0, 0.25])
+    assert abs(safety.geometry.tilt_deg(poses[2], [0, 0, -1]) - 10.0) < 1e-6
