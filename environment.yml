@@ -16,7 +16,7 @@ dependencies:
       - colcon-common-extensions
       - ur_rtde              # RTDE receive (robot_state) and control (path B)
       - evdev                # keyboard_teleop
-      - PySide6
+      - PySide6-Essentials==6.8.3   # 6.12 + pyqtgraph 0.14 crashes (none_dealloc in AxisItem paint), reproduced 13 Oct 2026
       - pyqtgraph
       - opencv-python-headless  # aruco (hand-eye), NCC; headless avoids Qt plugin clashes with PySide6
       - rosbags              # QC and export read MCAP bags without ROS

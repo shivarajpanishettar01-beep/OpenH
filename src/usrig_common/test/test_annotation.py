@@ -47,3 +47,32 @@ def test_validate_rejects_bad_labels():
         A.validate(ann)
     with pytest.raises(ValueError):
         A.label('x', 'robot')
+
+
+def test_editor_rules(tmp_path):
+    ann = A.new_annotation({'episode_id': 'e', 'instruction': 'x'})
+    ann['gestures'] = [{'gesture': 'slide', 't0_ns': 0, 't1_ns': 5, 'provenance': 'automated',
+                        'qa_status': 'unreviewed'}]
+    with pytest.raises(ValueError):
+        A.AnnotationEditor(ann, 'dr_x', 'automated')
+    ed = A.AnnotationEditor(ann, 'dr_x', 'expert')
+    with pytest.raises(ValueError, match='automated'):
+        ed.delete_segment('gestures', 0)
+    ed.set_qa('gestures', 0, 'rejected')
+    ed.add_segment('gestures', 'rock', 1, 4)
+    with pytest.raises(ValueError):
+        ed.add_segment('phases', 'not_a_phase', 0, 1)
+    with pytest.raises(ValueError, match='after'):
+        ed.add_segment('status_intervals', 'failure', 5, 5)
+    ed.set_label('failure_class', 'target_view_loss')
+    ed.set_label('motion_quality', 4)
+    ed.add_narration(2, 'target near centre; slide left to reacquire')
+    ed.save(tmp_path / 'annotation.json', 123)
+    import json
+    saved = json.loads((tmp_path / 'annotation.json').read_text())
+    assert saved['gestures'][0]['qa_status'] == 'rejected' and saved['gestures'][1]['provenance'] == 'expert'
+    assert saved['motion_quality'] == {'value': 4, 'provenance': 'expert', 'qa_status': 'unreviewed',
+                                       'annotator': 'dr_x', 'tier': 'expert'}
+    assert saved['history'] == [{'annotator': 'dr_x', 'role': 'expert', 'saved_ns': 123}]
+    ed.delete_segment('gestures', 1)
+    assert len(ann['gestures']) == 1

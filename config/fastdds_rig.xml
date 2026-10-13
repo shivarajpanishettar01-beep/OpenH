@@ -1,0 +1,32 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- Fast DDS profile for the capture PC (exported by scripts/env.sh as FASTRTPS_DEFAULT_PROFILES_FILE).
+     Everything runs on one machine: large messages (B-mode ~170 KB, D415 colour ~920 KB, depth ~610 KB)
+     go through shared memory with a segment big enough to hold several of them, instead of falling
+     back to fragmented UDP, where a lost fragment silently drops a whole image.
+     UDP stays enabled (with large socket buffers) for discovery and any second machine.
+     NOT VERIFIED until measured: see docs/data_integrity.md. -->
+<profiles xmlns="http://www.eprosima.com/XMLSchemas/fastRTPS_Profiles">
+  <transport_descriptors>
+    <transport_descriptor>
+      <transport_id>usrig_shm</transport_id>
+      <type>SHM</type>
+      <segment_size>33554432</segment_size>
+      <port_queue_capacity>512</port_queue_capacity>
+    </transport_descriptor>
+    <transport_descriptor>
+      <transport_id>usrig_udp</transport_id>
+      <type>UDPv4</type>
+      <sendBufferSize>16777216</sendBufferSize>
+      <receiveBufferSize>16777216</receiveBufferSize>
+    </transport_descriptor>
+  </transport_descriptors>
+  <participant profile_name="usrig_participant" is_default_profile="true">
+    <rtps>
+      <userTransports>
+        <transport_id>usrig_shm</transport_id>
+        <transport_id>usrig_udp</transport_id>
+      </userTransports>
+      <useBuiltinTransports>false</useBuiltinTransports>
+    </rtps>
+  </participant>
+</profiles>

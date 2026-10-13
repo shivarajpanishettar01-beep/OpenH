@@ -3,7 +3,10 @@
 Per topic: rate over the last window, age of the newest header stamp vs system clock, gaps.
 Plus micrus frame_index gaps, coupling (mean B-mode intensity), probe-axis force vs band,
 free disk, and the wrist camera's USB speed and reconnect count (sysfs).
-All subscriptions are best effort: QC can never slow down a publisher.
+All subscriptions are best effort: QC can never slow down a publisher. Messages arrive raw
+(serialized): rates and stamps come from the CDR header without decoding, and only a subsample is
+decoded for content checks (robot 1 in 25, B-mode 1 in 3, depth 1 in 10), which keeps this node's
+CPU use low on a loaded capture PC (it used ~50 % of a core decoding every robot sample).
 """
 import json
 import shutil
@@ -24,7 +27,10 @@ from usrig_common import config
 from usrig_common.timeutil import now_ns, ns_from_stamp
 from usrig_interfaces.msg import RobotState
 
+from .stream_check import stamp_from_cdr
 from .usb import realsense_usb
+
+DECODE_EVERY = {'/robot/state': 25, '/micrus/bmode': 3, 'depth': 10}
 
 WINDOW_S = 2.0
 
@@ -81,13 +87,15 @@ class QcMonitor(Node):
         self.valid_depth = None
         self._depth_n = 0
 
-        self._sub(Image, '/micrus/bmode', self._on_bmode, qos)
-        self._sub(String, '/micrus/frame_info', self._on_frame_info, qos)
-        self._sub(RobotState, '/robot/state', self._on_robot, qos)
-        if self.cam_on:
-            self._sub(Image, cam['topics']['color'], lambda m: self._stamp(cam['topics']['color'], m), qos)
-            self._sub(Image, cam['topics']['depth'], self._on_depth, qos)
         self.depth_topic = cam['topics']['depth']
+        self._n = {}
+        self._raw(Image, '/micrus/bmode', self._on_bmode, DECODE_EVERY['/micrus/bmode'], qos)
+        self.stats['/micrus/frame_info'] = TopicStats()
+        self.create_subscription(String, '/micrus/frame_info', self._on_frame_info, qos)
+        self._raw(RobotState, '/robot/state', self._on_robot, DECODE_EVERY['/robot/state'], qos)
+        if self.cam_on:
+            self._raw(Image, cam['topics']['color'], None, 0, qos)
+            self._raw(Image, self.depth_topic, self._on_depth, DECODE_EVERY['depth'], qos)
 
         self.usb_speed = None
         self.usb_reconnects = 0
@@ -96,21 +104,28 @@ class QcMonitor(Node):
         self.create_timer(0.5, self._publish)
         self.create_timer(1.0, self._poll_usb)
 
-    def _sub(self, typ, topic, cb, qos):
+    def _raw(self, typ, topic, cb, every, qos):
+        """Raw subscription: stamp from the CDR header for every message, decode 1 in `every`."""
+        from rclpy.serialization import deserialize_message
         self.stats[topic] = TopicStats()
-        self.create_subscription(typ, topic, cb, qos)
+        self._n[topic] = 0
 
-    def _stamp(self, topic, m):
-        with self.lock:
-            self.stats[topic].add(ns_from_stamp(m.header.stamp))
+        def f(b, topic=topic):
+            with self.lock:
+                self.stats[topic].add(stamp_from_cdr(b))
+            self._n[topic] += 1
+            if cb is not None and every and self._n[topic] % every == 0:
+                cb(deserialize_message(b, typ))
+        self.create_subscription(typ, topic, f, qos, raw=True)
 
     def _on_bmode(self, m):
-        self._stamp('/micrus/bmode', m)
         mean = float(np.frombuffer(bytes(m.data), np.uint8).mean())
         with self.lock:
             self.coupling.append(mean)
 
     def _on_frame_info(self, m):
+        with self.lock:
+            self.stats['/micrus/frame_info'].add(now_ns())
         try:
             fi = json.loads(m.data)
         except ValueError:
@@ -122,7 +137,6 @@ class QcMonitor(Node):
             self.last_frame_index = idx
 
     def _on_robot(self, m):
-        self._stamp('/robot/state', m)
         o = m.tcp_base.orientation
         x, y, z, w = o.x, o.y, o.z, o.w
         zaxis = np.array([2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)])
@@ -132,12 +146,9 @@ class QcMonitor(Node):
             self.flags = int(m.safety_flags)
 
     def _on_depth(self, m):
-        self._stamp(self.depth_topic, m)
-        self._depth_n += 1
-        if self._depth_n % 10 == 0:
-            frac = float(np.mean(np.frombuffer(bytes(m.data), np.uint16) > 0))
-            with self.lock:
-                self.valid_depth = frac
+        frac = float(np.mean(np.frombuffer(bytes(m.data), np.uint16) > 0))
+        with self.lock:
+            self.valid_depth = frac
 
     def _poll_usb(self):
         if not self.cam_on:

@@ -70,7 +70,8 @@ class RobotStateNode(Node):
             if 'T_base_phantom' in reg:
                 self.T_phantom_base = geometry.inv(np.array(reg['T_base_phantom']))
 
-        qos = QoSProfile(depth=10, reliability=ReliabilityPolicy.RELIABLE,
+        # Depth 500 = 1 s at 500 Hz: a briefly busy subscriber (the bag recorder) does not lose samples.
+        qos = QoSProfile(depth=500, reliability=ReliabilityPolicy.RELIABLE,
                          history=HistoryPolicy.KEEP_LAST)
         self.pub_state = self.create_publisher(RobotState, '/robot/state', qos)
         self.pub_js = self.create_publisher(JointState, '/joint_states', qos)
@@ -81,16 +82,41 @@ class RobotStateNode(Node):
         self.latest_lock = threading.Lock()
         self.listeners = []          # callables(sample) run in the RTDE thread (robot_control)
 
-        self.reader = RtdeReader(ip, self.get_parameter('frequency_hz').value, self._on_sample,
+        # The RTDE thread only stamps and queues samples; a separate thread builds and publishes the
+        # messages, so publishing load cannot make the reader miss controller samples.
+        import queue
+        self._q = queue.Queue(maxsize=5000)
+        self.queue_overflows = 0
+        self._pub_stop = threading.Event()
+        self._pub_thread = threading.Thread(target=self._publish_loop, name='robot_state_pub', daemon=True)
+        self._pub_thread.start()
+        self.reader = RtdeReader(ip, self.get_parameter('frequency_hz').value, self._enqueue,
                                  rt_priority=config.get_path(rig, 'robot.rt_priority') or 0,
                                  log=self.get_logger().info)
         self.reader.start()
         self.create_timer(1.0, self._log_stats)
         self.get_logger().info(f'RTDE receive connected to {ip}')
 
-    def _on_sample(self, s):
+    def _enqueue(self, s):
         with self.latest_lock:
             self.latest = s
+        for fn in self.listeners:
+            fn(s)
+        try:
+            self._q.put_nowait(s)
+        except Exception:  # queue.Full
+            self.queue_overflows += 1
+
+    def _publish_loop(self):
+        import queue
+        while not self._pub_stop.is_set():
+            try:
+                s = self._q.get(timeout=0.1)
+            except queue.Empty:
+                continue
+            self._publish(s)
+
+    def _publish(self, s):
         stamp = stamp_from_ns(s.stamp_ns)
         T = geometry.pose_from_ur(s.tcp_pose)
         fsp, mode, flags, src, expert = self.status.snapshot()
@@ -130,9 +156,6 @@ class RobotStateNode(Node):
          w.wrench.torque.x, w.wrench.torque.y, w.wrench.torque.z) = map(float, s.wrench)
         self.pub_wrench.publish(w)
 
-        for fn in self.listeners:
-            fn(s)
-
     def get_latest(self):
         with self.latest_lock:
             return self.latest
@@ -147,10 +170,13 @@ class RobotStateNode(Node):
             jit = 'no samples'
         self.get_logger().info(
             f'RTDE {st.samples} Hz, repeated ctrl time {st.repeated_controller_time}, '
-            f'gaps {st.controller_gaps}, {jit}')
+            f'gaps {st.controller_gaps}, {jit}, publish queue {self._q.qsize()} '
+            f'(overflows {self.queue_overflows})')
 
     def destroy_node(self):
         self.reader.stop()
+        self._pub_stop.set()
+        self._pub_thread.join(timeout=1.0)
         super().destroy_node()
 
 

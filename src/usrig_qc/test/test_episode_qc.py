@@ -14,7 +14,7 @@ RIG = yaml.safe_load((REPO / 'src/usrig_bringup/config/rig.yaml').read_text())
 T0 = 1_760_000_000_000_000_000
 
 
-def write_bag(path, drop_frame=None, duration_s=4.0):
+def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=()):
     from rosbags.rosbag2 import StoragePlugin, Writer
     ts = _typestore()
     Image = ts.types['sensor_msgs/msg/Image']
@@ -44,6 +44,8 @@ def write_bag(path, drop_frame=None, duration_s=4.0):
     # robot 500 Hz, probe pointing down, 4 N into the phantom
     q_down = Quat(x=1.0, y=0.0, z=0.0, w=0.0)
     for k in range(int(duration_s * 500)):
+        if k in drop_robot:
+            continue
         ns = T0 + k * 2_000_000
         m = RS(header=hdr(ns), controller_time_s=k * 0.002, q=np.zeros(6), qd=np.zeros(6),
                tcp_base=Pose(position=Point(x=0.0, y=0.0, z=0.2), orientation=q_down),
@@ -136,3 +138,10 @@ def test_auto_annotate_from_bag(tmp_path):
     assert [p['phase'] for p in ann['phases']] == ['approach_and_contact', 'target_localisation',
                                                    'reacquisition_recovery', 'view_acquisition']
     assert ann['outcome']['value'] == 'success' and ann['task']['value'] == 'centre the vessel'
+
+
+def test_lost_robot_samples_fail(tmp_path):
+    write_bag(tmp_path / 'ep_0005', drop_robot=(800, 801, 802, 1500))
+    r = run_episode_qc(tmp_path / 'ep_0005', EP, *config())
+    c = r['checks']['robot_sample_gaps']
+    assert c['status'] == 'fail' and c['gaps'] == 2 and c['samples_lost'] == 4

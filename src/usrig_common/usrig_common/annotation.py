@@ -180,3 +180,87 @@ def validate(ann):
 
 def dumps(ann):
     return json.dumps(ann, indent=2)
+
+
+LAYERS = {'phases': ('phase', PHASES), 'gestures': ('gesture', GESTURES), 'status_intervals': ('status', STATUS)}
+
+
+class AnnotationEditor:
+    """Edits one annotation.json on behalf of one annotator (role = provenance).
+
+    Segments are [t0_ns, t1_ns) with absolute stamps. Automated entries are never modified by
+    an annotator: corrections are added as new entries with the annotator's provenance, and the
+    automated entry can be marked rejected (QA). Every save appends to `history`.
+    """
+
+    def __init__(self, ann, annotator_id, role):
+        if role not in PROVENANCE or role == 'automated':
+            raise ValueError(f'role must be one of {[p for p in PROVENANCE if p != "automated"]}')
+        if not annotator_id:
+            raise ValueError('annotator_id required')
+        self.ann = ann
+        self.who, self.role = annotator_id, role
+        for layer in LAYERS:
+            ann.setdefault(layer, [])
+        ann.setdefault('narration', [])
+        ann.setdefault('history', [])
+        self.dirty = False
+
+    def add_segment(self, layer, value, t0_ns, t1_ns):
+        key, vocab = LAYERS[layer]
+        if value not in vocab:
+            raise ValueError(f'{value!r} not in {vocab}')
+        if t1_ns is not None and t1_ns <= t0_ns:
+            raise ValueError('segment end must be after its start')
+        seg = {key: value, 't0_ns': int(t0_ns), 't1_ns': None if t1_ns is None else int(t1_ns),
+               'provenance': self.role, 'qa_status': 'unreviewed', 'annotator': self.who}
+        self.ann[layer].append(seg)
+        self.ann[layer].sort(key=lambda s: s['t0_ns'])
+        self.dirty = True
+        return seg
+
+    def delete_segment(self, layer, index):
+        seg = self.ann[layer][index]
+        if seg.get('provenance') == 'automated':
+            raise ValueError('automated entries are not deleted: set their QA status to rejected')
+        del self.ann[layer][index]
+        self.dirty = True
+
+    def set_qa(self, layer, index, qa_status):
+        if qa_status not in QA_STATUS:
+            raise ValueError(f'qa_status must be one of {QA_STATUS}')
+        entry = self.ann[layer][index]
+        entry['qa_status'] = qa_status
+        entry['qa_by'] = self.who
+        self.dirty = True
+
+    def set_label(self, name, value):
+        """Episode-level label: failure_class, motion_quality, intent, outcome, task."""
+        if value in (None, ''):
+            self.ann[name] = None
+        else:
+            extra = {'tier': QUALITY_TIERS[int(value)]} if name == 'motion_quality' else {}
+            if name == 'motion_quality':
+                value = int(value)
+            self.ann[name] = label(value, self.role, annotator=self.who, **extra)
+        self.dirty = True
+
+    def add_narration(self, t_ns, text):
+        if not text.strip():
+            raise ValueError('empty narration')
+        n = {'t_ns': int(t_ns), 'text': text.strip(), 'provenance': self.role,
+             'qa_status': 'unreviewed', 'annotator': self.who}
+        self.ann['narration'].append(n)
+        self.ann['narration'].sort(key=lambda x: x['t_ns'])
+        self.dirty = True
+        return n
+
+    def save(self, path, now_ns):
+        validate(self.ann)
+        self.ann['history'].append({'annotator': self.who, 'role': self.role, 'saved_ns': int(now_ns)})
+        from pathlib import Path
+        p = Path(path)
+        tmp = p.with_suffix('.tmp')
+        tmp.write_text(dumps(self.ann) + '\n')
+        tmp.replace(p)
+        self.dirty = False

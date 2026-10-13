@@ -130,7 +130,7 @@ def rate(dq):
 
 
 def main(args=None):
-    from PySide6 import QtCore, QtWidgets
+    from PySide6 import QtCore, QtGui, QtWidgets
     import pyqtgraph as pg
 
     rclpy.init(args=args)
@@ -145,6 +145,9 @@ def main(args=None):
     except Exception:
         lay_file = Path(__file__).resolve().parents[1] / 'config' / 'dashboard_layout.yaml'
     layout = yaml.safe_load(lay_file.read_text())
+    if layout.get('gui_nice'):
+        import os
+        os.nice(int(layout['gui_nice']))      # recording and control keep priority over the GUI
     from usrig_common.session import data_root
     root = data_root(ros.scfg, ros.sim)
     sdir = session_dir(root, ros.session_id) if ros.session_id else None
@@ -262,6 +265,13 @@ def main(args=None):
     lay.addWidget(health, 1)
     lay.addWidget(lbl_qc)
     panels['health'] = g
+
+    g, lay = box('Nodes')
+    node_table = QtWidgets.QTableWidget(0, 2)
+    node_table.setHorizontalHeaderLabels(['node', 'state'])
+    node_table.horizontalHeader().setStretchLastSection(True)
+    lay.addWidget(node_table)
+    panels['nodes'] = g
 
     g, lay = box('Session progress')
     lbl_prog = QtWidgets.QLabel()
@@ -432,6 +442,22 @@ def main(args=None):
                            f'force in band {q.get("force_in_band")}   disk {q.get("free_disk_gb")} GB   '
                            f'USB {q.get("wrist_usb")}')
 
+        if time.monotonic() - gate_cache.get('nodes_t', 0) > 2:
+            gate_cache['nodes_t'] = time.monotonic()
+            running = {n for n, _ in ros.get_node_names_and_namespaces()}
+            names = list(layout.get('expected_nodes', [])) + [layout.get('recording_node', 'rosbag2_recorder')]
+            node_table.setRowCount(len(names))
+            for i, n in enumerate(names):
+                up = n in running
+                if n == layout.get('recording_node'):
+                    txt = 'recording' if up else 'not recording'
+                else:
+                    txt = 'running' if up else 'MISSING'
+                node_table.setItem(i, 0, QtWidgets.QTableWidgetItem(n))
+                it = QtWidgets.QTableWidgetItem(txt)
+                it.setForeground(QtGui.QColor('#2e7d32' if up else ('#757575' if n == layout.get('recording_node') else '#c62828')))
+                node_table.setItem(i, 1, it)
+
         if sdir and time.monotonic() - gate_cache['t'] > 5:
             gate_cache['t'] = time.monotonic()
             st = int(ros.scfg['session']['stage'])
@@ -450,6 +476,14 @@ def main(args=None):
                              f'plan rows done {done}, redo queue {redo[:20]}<br>'
                              f'episodes by type {by_type}<br>outcomes: {strip}')
             lbl_sess.setText(json.dumps(read_json(sdir / 'session.json'), indent=1)[:4000])
+
+    # Ctrl+C / SIGTERM shut rclpy down; the Qt loop must then quit too (otherwise the window lives on).
+    import signal
+    for sig in (signal.SIGINT, signal.SIGTERM):
+        signal.signal(sig, lambda *_: app.quit())
+    alive = QtCore.QTimer()
+    alive.timeout.connect(lambda: None if rclpy.ok() else app.quit())   # also lets Python run signal handlers
+    alive.start(200)
 
     timer = QtCore.QTimer()
     timer.timeout.connect(refresh)

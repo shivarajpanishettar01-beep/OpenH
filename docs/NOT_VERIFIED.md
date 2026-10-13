@@ -43,6 +43,8 @@ against micrus, URSim, the UR7e or the D415 yet. Unit tests cover pure logic onl
 - `easy_handeye2` on Humble: not checked; `handeye_calib` uses OpenCV directly.
 
 ## Recording
+- Loss budget on the capture PC (docs/data_integrity.md): dev-PC numbers are with the micrus
+  simulator using ~4 cores; real scanner, D415 and UR7e not measured together yet.
 - `rosbag2_storage_mcap` writer options keys (`compression: Zstd`, `compressionLevel`, `chunkSize`)
   in the Humble plugin; plugin not installed yet.
 - Bag recorder node name `rosbag2_recorder` (readiness gate looks for it).

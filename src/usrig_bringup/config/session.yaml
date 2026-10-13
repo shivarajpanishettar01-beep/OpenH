@@ -104,6 +104,7 @@ wrist_camera:
 
 recording:
   storage: mcap
+  rt_priority: 70                               # chrt -f for ros2 bag record (needs the rtprio limit); 0 = off
   # rosbag2_storage_mcap writer options (zstd chunk compression, lossless). NOT VERIFIED on Humble.
   mcap_storage_config:
     compression: Zstd

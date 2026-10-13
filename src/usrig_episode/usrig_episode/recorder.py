@@ -148,7 +148,7 @@ class EpisodeRecorder:
         for t in self.ready_topics:
             if not self._watch(t):
                 raise RecorderError(f'ready topic {t} is not being published')
-        cmd = ['ros2', 'bag', 'record', '-s', self.cfg['recording'].get('storage', 'mcap'),
+        cmd = self._rt_prefix() + ['ros2', 'bag', 'record', '-s', self.cfg['recording'].get('storage', 'mcap'),
                '--storage-config-file', str(self._cfg_files['storage']),
                '--qos-profile-overrides-path', str(self._cfg_files['qos']),
                '-o', str(bag_dir), *self.topics]
@@ -165,6 +165,19 @@ class EpisodeRecorder:
             self._stop_bag()
             raise
         return t_ready
+
+    def _rt_prefix(self):
+        """`chrt -f N` for the recorder when recording.rt_priority is set and allowed on this PC."""
+        prio = int(self.cfg['recording'].get('rt_priority') or 0)
+        if not prio:
+            return []
+        ok = subprocess.run(['chrt', '-f', str(prio), 'true'], capture_output=True).returncode == 0
+        if not ok:
+            self.node.get_logger().warn(
+                f'recorder: SCHED_FIFO {prio} not permitted (rtprio limit); recording at normal priority. '
+                'See docs/capture_pc_setup.md')
+            return []
+        return ['chrt', '-f', str(prio)]
 
     def _bag_subscribed(self, topic):
         for info in self.node.get_subscriptions_info_by_topic(topic):

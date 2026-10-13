@@ -31,6 +31,8 @@ def _typestore():
     add = {}
     for f in share.glob('*.msg'):
         add.update(get_types_from_msg(f.read_text(), f'usrig_interfaces/msg/{f.stem}'))
+    # realsense2_camera_msgs/Metadata (frame metadata as JSON, used for frame-number gaps)
+    add.update(get_types_from_msg('std_msgs/Header header\nstring json_data', 'realsense2_camera_msgs/msg/Metadata'))
     ts.register(add)
     return ts
 
@@ -67,7 +69,7 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     topics = ['/micrus/bmode', '/micrus/frame_info', '/robot/state', '/episode/events', '/qc/status']
     use_cam = bool(scfg['recording'].get('include_wrist_camera') and cam.get('enabled'))
     if use_cam:
-        topics += [ct['color'], ct['depth']]
+        topics += [ct['color'], ct['depth']] + ([ct['metadata']] if ct.get('metadata') else [])
     data, counts = read_bag(ep_dir, topics, decode_every={ct.get('depth'): 5} if use_cam else None)
     checks = {}
     t0, t1 = ep.get('t_start_ns'), ep.get('t_end_ns')
@@ -94,6 +96,16 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     r_win = r_st[[in_win(s) for s in r_st]] if len(r_st) else r_st
     r_hz = (len(r_win) - 1) / ((r_win[-1] - r_win[0]) * 1e-9) if len(r_win) > 1 else 0.0
     checks['robot_rate'] = _status(r_hz >= 490.0, hz=r_hz)
+    # Samples lost anywhere between the controller and the bag: controller time steps > 1.5 periods.
+    period = 1.0 / float(config.get_path(rig, 'robot.state_rate_hz') or 500.0)
+    ctrl = np.array([m.controller_time_s for _, m in rs if in_win(stamp_ns(m))])
+    if len(ctrl) > 1:
+        dc = np.diff(ctrl)
+        lost = int(np.sum(np.round(dc[dc > 1.5 * period] / period) - 1))
+        checks['robot_sample_gaps'] = _status(lost == 0, gaps=int(np.sum(dc > 1.5 * period)), samples_lost=lost,
+                                              repeated=int(np.sum(dc <= 0)))
+    else:
+        checks['robot_sample_gaps'] = _status(False, reason='no robot samples in window')
     max_gap_ms = float(config.get_path(rig, 'qc.ultrasound_robot_max_gap_ms') or 10)
     if len(bm_win) and len(r_st):
         r_sorted = np.sort(r_st)
@@ -185,8 +197,20 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
                 hz = (len(st) - 1) / ((st[-1] - st[0]) * 1e-9) if len(st) > 1 else 0.0
             res[name] = hz
         ok = all(abs(h - fps_cfg) <= 0.05 * fps_cfg for h in res.values())
-        checks['wrist_rate'] = _status(ok, hz=res, configured=fps_cfg,
-                                       frame_number_gaps='n/a (metadata not decoded)')
+        fn_gaps = None
+        if ct.get('metadata') and data.get(ct['metadata']):
+            fns = []
+            for _, m in data[ct['metadata']]:
+                try:
+                    fns.append(int(json.loads(m.json_data).get('frame_number')))
+                except (ValueError, TypeError):
+                    pass
+            if len(fns) > 1:
+                d = np.diff(np.array(fns))
+                fn_gaps = int(np.sum(d[d > 1] - 1))
+        checks['wrist_rate'] = _status(ok and (fn_gaps in (None, 0)), hz=res, configured=fps_cfg,
+                                       frames_lost_by_frame_number=fn_gaps if fn_gaps is not None
+                                       else 'n/a (no metadata in bag)')
         off = np.array([(t - stamp_ns(m)) * 1e-6 for t, m in data[ct['color']]])
         bound = config.get_path(rig, 'qc.camera_stamp_offset_bound_ms')
         if bound is None:

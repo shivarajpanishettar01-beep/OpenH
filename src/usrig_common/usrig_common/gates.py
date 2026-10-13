@@ -56,7 +56,7 @@ def gate12(session_cfg, episodes):
         if tr.get('max_error_pct') is not None and tr['max_error_pct'] <= max_err:
             good += 1
         checks = (e.get('qc') or {}).get('checks', {})
-        for name in ('micrus_frame_gaps', 'wrist_rate_gaps', 'robot_rate'):
+        for name in ('micrus_frame_gaps', 'wrist_rate', 'robot_rate', 'robot_sample_gaps'):
             if checks.get(name, {}).get('status') == 'fail':
                 gaps_ok = False
     durations = [e.get('duration_s') or 0 for e in st1]
