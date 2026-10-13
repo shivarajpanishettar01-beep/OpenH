@@ -21,7 +21,7 @@ GR00T-H is out of scope for now (separate task).
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
-**Code base** (9 ROS 2 packages, 46 unit tests, fresh clone builds and passes in a clean shell)
+**Code base** (9 ROS 2 packages, 83 unit tests, fresh clone builds and passes in a clean shell)
 - micrus launch from config, SIGINT power-down; nothing in micrus modified.
 - `robot_state_cpp` (C++, ur_client_library 2.15, blocking reads): **0 robot samples lost** in every
   load test and episode; ~6 % CPU (the Python version lost 7-30 %).
@@ -72,19 +72,57 @@ Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) i
 - Action = incremental TCP pose (proposal); wrist depth exported losslessly.
 - Code licence MIT; repo public.
 
-## Not done / needed next
-| Item | Needs | Owner |
+## What's left (as of 13 October 2026)
+All code that can be written and tested without the rig is done: the control review items that need no
+hardware (R2-R10, D1-D11) are implemented and tested. Everything left needs your values, the capture PC or the
+real robot. In order:
+
+**1. Your inputs (blocking the URSim dry run)**
+
+| Item | Where | Owner |
 |---|---|---|
-| Safety limits (22 values in `rig.yaml`, incl. payload) + keymap speeds, `qc.max_late_tick_frac` | your measurements and safety protocol (`rig_limits.md`) | you |
-| Failure-mode mapping to the four classes; staging magnitudes (`failure_catalog.yaml`) | your failure-mode work | you |
-| URSim control dry run | the limits | then me |
-| Capture PC setup, P1b camera on USB 3, micrus licence, rtprio, data disk (> 50 GB) | the capture PC | you + me |
-| Real UR7e: read-only P2, then `first_motion_checklist.md` | capture PC + limits + your go-ahead | you + me |
-| Ultrasound image-to-probe calibration `prob_cali_mtx` | the lab's calibration file (pending) | you, then me |
-| Calibrations on the rig: pointer pivot, hand-eye, phantom registration (fiducial files per phantom), temporal offsets (tools ready, `calibration.md`) | real hardware | you + me |
-| Waypoints, paths and a locked plan per phantom (P5) | robot motion | you + me |
-| Export end to end on real episodes + Open-H `validate_formatting.py` | recorded episodes, LeRobot 0.6.0 env | me |
-| Release extras: robot description (URDF / USD / DH), vessel masks on a subset, model-assisted labelling | later | open |
+| Safety limits: 22 values incl. payload mass / CoG (`rig_limits.md`) | `rig.yaml` | you |
+| Teleop speeds per axis, fine mode (D6) | `keymap.yaml` | you |
+| Failure-mode mapping to the four classes; staging methods and magnitudes | `failure_catalog.yaml` | you |
+| Gate values `gate01.*`, `gate12.*` | `session.yaml` | you |
+| Open decisions 1 (10 h: what counts), 4 (beamformed in bags), 5, 6, 9, 13-16 | `OPEN_DECISIONS.md` | you |
+
+**2. URSim control dry run** (needs 1): kinematics, envelope, deadman, controller watchdog, cancel / timeout,
+phantom-frame transit via the safe height. URSim cannot test force. Owner: me, with you.
+
+**3. Capture PC**
+
+| Item | Owner |
+|---|---|
+| Setup per `capture_pc_setup.md`: rtprio limit, data disk > 50 GB, micrus licence | you + me |
+| P1b: wrist D415 on USB 3 (rates, stamps, depth at contact distance; decision 9 on the mount) | me |
+| P1 on the real scanner (rate, SIGINT power-down) | me |
+| Loss budget with the scanner, D415 and UR7e together (`data_integrity.md`) | me |
+
+**4. Real UR7e** (needs 1-3 and your go-ahead), `first_motion_checklist.md`
+
+| Item | Control review ref. |
+|---|---|
+| Read-only P2 on the controller: 500 Hz, 0 samples lost, TCP vs pendant | - |
+| Payload on the pendant + `rig_measure force-tilt` free-air sweep; `rig_measure force-noise` | R4 |
+| Free-air control: each teleop axis, hold-to-move, deadman, FAULT / acknowledge; SpaceMouse axis signs and scaling | D1, D2 |
+| Control-tick jitter and teleop latency on the capture PC; choose `speedl_time_ticks` and `qc.max_late_tick_frac` | R8 |
+| Contact tests at low force on the phantom: force step, slide, rock / tilt about the probe face, contact loss at the edge, forceMode sign | R1, R2 |
+
+**5. Calibration on the rig** (`calibration.md`, tools ready): pointer pivot, wrist-camera hand-eye, phantom
+registration (fiducial file per phantom), temporal offsets (ultrasound + ArUco), image-to-probe `prob_cali_mtx`
+(needs the lab's calibration file). Owner: you + me.
+
+**6. Plan per phantom (P5)**: teach and verify waypoints, paths, generate and lock the plan. Owner: you + me.
+
+**7. Collection and release**
+
+| Item | Owner |
+|---|---|
+| Stage 0 episode end to end through export (actions, stamps, frames, depth) | me |
+| Stages 1-2 collection (`collection_day.md`), hours per phantom vs 6 h / 4 h, failure / recovery share 20 % | you + me |
+| Export on real episodes through LeRobot 0.6.0 + Open-H `validate_formatting.py` | me |
+| Release extras: robot description (URDF / USD / DH), vessel masks on a subset, model-assisted labelling | open |
 
 Deadline from the proposal: **representative sample by 1 December 2026**, validated data by 31 January 2027.
 
