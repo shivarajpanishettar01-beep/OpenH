@@ -563,3 +563,84 @@ def test_control_timing_event_while_recording(sim):
     ev = [v for k, v in node.events if k == 'control_timing']
     assert ev and ev[-1]['ticks'] > 20 and abs(ev[-1]['period_ms'] - 8.0) < 1e-6
     node.destroy_node()
+
+
+# ---- Stage D (teleoperation) acceptance tests
+
+def test_stale_robot_state_faults_teleop_and_ack_does_not_resume(sim):
+    node, robot = sim()
+    node._set_motion(rc.Teleop(node, False))
+    node.hold = False
+    drive(node, 0.3, v=(0.02, 0, 0))
+    fresh = robot.get_latest
+    import dataclasses
+    robot.get_latest = lambda: dataclasses.replace(fresh(), stamp_ns=time.time_ns() - 10**9)   # 1 s old
+    time.sleep(0.1)
+    assert node.status.mode == rc.ST.MODE_FAULT
+    assert any(k == 'phase' and v.get('reason') == 'robot state stale' for k, v in node.events)
+    robot.get_latest = fresh
+    p = robot.T[:3, 3].copy()
+    drive(node, 0.3, v=(0.02, 0, 0))                 # input keeps arriving: nothing moves in FAULT
+    assert np.linalg.norm(robot.T[:3, 3] - p) < 1e-4
+    cmd(node, {'cmd': 'ack_fault'})
+    assert node.status.mode != rc.ST.MODE_FAULT
+    assert isinstance(node.motion, rc.Idle)          # the previous teleop motion is not restarted
+    drive(node, 0.3, v=(0.02, 0, 0))
+    assert np.linalg.norm(robot.T[:3, 3] - p) < 1e-4
+    node.destroy_node()
+
+
+def test_over_limit_request_is_clamped_and_executed_differs_from_requested(sim):
+    node, robot = sim()
+    node._set_motion(rc.Teleop(node, False))
+    node.hold = False
+    executed = []
+    node.pub_cmd.publish = lambda m: executed.append(m.twist.linear.x)
+    drive(node, 0.6, v=(0.2, 0, 0))                  # requested 200 mm/s, limit 50 mm/s
+    assert max(executed) <= 0.050 + 1e-9 and max(executed) > 0.045
+    assert node.status.safety_flags & rc.safety.FLAG_SPEED
+    assert np.linalg.norm(robot.v) <= 0.050 + 1e-9
+    node.destroy_node()
+
+
+def test_teleop_twists_ignored_while_a_path_runs_and_set_teleop_takes_over(sim):
+    from geometry_msgs.msg import Pose
+    from std_srvs.srv import SetBool
+    from usrig_interfaces.srv import DescendToContact, RunPath
+    node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+    assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+    node._phantom_T = lambda: np.eye(4)
+    req = RunPath.Request()
+    for x in (0.40, 0.44):
+        T = robot.T.copy()
+        T[:3, 3] = [x, 0.0, robot.T[2, 3]]
+        req.waypoints.append(geometry.fill_pose_msg(Pose(), T))
+    req.speed_mm_s = 10.0
+    out = {}
+    th = threading.Thread(target=lambda: out.update(r=node._srv_run_path(req, RunPath.Response())))
+    th.start()
+    drive(node, 1.0, v=(0, 0.03, 0))                 # sideways keyboard input during the path
+    assert abs(robot.T[1, 3]) < 0.002                # ignored: one motion authority at a time
+    r = node._srv_teleop(SetBool.Request(data=True), SetBool.Response())   # explicit operator takeover
+    th.join(10)
+    assert r.success and not out['r'].success and out['r'].message == 'preempted'
+    assert isinstance(node.motion, rc.Teleop)
+    node.destroy_node()
+
+
+def test_motion_services_refused_while_faulted(sim):
+    from std_srvs.srv import SetBool
+    from usrig_interfaces.srv import MoveToPose
+    node, robot = sim(p0=(0.65, 0.0, 0.2))           # outside the box -> FAULT
+    time.sleep(0.1)
+    assert node.status.mode == rc.ST.MODE_FAULT
+    req = MoveToPose.Request()
+    req.target.header.frame_id = 'base'
+    T = robot.T.copy()
+    T[:3, 3] = [0.5, 0.0, 0.2]
+    geometry.fill_pose_msg(req.target.pose, T)
+    res = node._srv_move(req, MoveToPose.Response())
+    assert not res.success and 'FAULT' in res.message
+    r = node._srv_teleop(SetBool.Request(data=True), SetBool.Response())
+    assert not r.success and 'FAULT' in r.message
+    node.destroy_node()

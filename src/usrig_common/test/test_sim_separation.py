@@ -39,3 +39,22 @@ def test_rt_priority_never_raises():
     assert not ok
     ok, msg = set_thread_rt_priority(1)   # may or may not be permitted on this machine
     assert isinstance(ok, bool) and msg
+
+
+def _session(tmp_path, name, synthetic):
+    s = tmp_path / name
+    (s / 'ep_0001').mkdir(parents=True)
+    (s / 'session.json').write_text(json.dumps({'sim': False}))
+    (s / 'ep_0001' / 'episode.json').write_text(json.dumps({
+        'episode_id': 'ep_0001', 'session_id': name, 'stage': 2, 'type': 'success', 'outcome': 'success',
+        'qc': {'pass': True}, 'synthetic_pipeline_check': synthetic}))
+    return s
+
+
+@pytest.mark.parametrize('synthetic,flag,ok', [(True, False, False), (False, True, False), (True, True, True),
+                                               (False, False, True)])
+def test_synthetic_pipeline_check_episodes_never_mix(tmp_path, synthetic, flag, ok):
+    s = _session(tmp_path, 'S1', synthetic)
+    cmd = [sys.executable, str(REPO / 'export/stage_bags.py'), '--sessions', str(s), '-o', str(tmp_path / 'st')]
+    r = subprocess.run(cmd + (['--pipeline-check'] if flag else []), capture_output=True, text=True)
+    assert (r.returncode == 0) == ok, r.stderr
