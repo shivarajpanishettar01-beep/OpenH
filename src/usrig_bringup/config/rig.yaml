@@ -50,6 +50,7 @@ motion:
   descent_max_travel_mm: null
   retract_distance_mm: null
   approach_offset_mm: 50            # approach pose: 5 cm back along the probe axis
+  transit_safe_height_mm: null      # phantom frame z (up out of the phantom): moves to phantom targets go up, across, down
   path_accel_mm_s2: null            # Stage 1 start/end ramps (null = max_linear_accel)
   path_rotation_radius_mm: 50       # rotation counts as motion of a point this far from the tip (fans)
   position_gain_per_s: 2.0

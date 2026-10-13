@@ -29,7 +29,7 @@ RIG = {
                'deadman_timeout_s': 0.2, 'contact_detect_threshold_n': 1.0,
                'contact_lost_threshold_n': 0.5, 'contact_lost_time_s': 0.1},
     'motion': {'transit_speed_mm_s': 40.0, 'descent_speed_mm_s': 10.0, 'descent_max_travel_mm': 60.0,
-               'retract_distance_mm': 30.0, 'approach_offset_mm': 50, 'position_gain_per_s': 4.0,
+               'retract_distance_mm': 30.0, 'approach_offset_mm': 50, 'transit_safe_height_mm': 80.0, 'position_gain_per_s': 4.0,
                'rotation_gain_per_s': 4.0},
     'rtde': {'force_mode_limits': [0.1] * 6},
 }
@@ -381,3 +381,64 @@ def test_design_requires_tcp_at_probe_face():
     bad = json.loads(json.dumps(RIG))
     bad['probe']['tcp_already_includes_probe'] = False
     assert 'probe face' in rc.design_requirements(bad)[0]
+
+
+def test_coordinated_move_finishes_position_and_rotation_together(sim):
+    from usrig_interfaces.srv import MoveToPose
+    node, robot = sim()
+    T = robot.T.copy()
+    T[:3, 3] += [0.06, 0.0, 0.0]
+    T[:3, :3] = Rotation.from_euler('z', 40, degrees=True).as_matrix() @ T[:3, :3]
+    fr = []
+    p0, R0 = robot.T[:3, 3].copy(), robot.T[:3, :3].copy()
+    req = MoveToPose.Request()
+    req.target.header.frame_id = 'base'
+    geometry.fill_pose_msg(req.target.pose, T)
+    th = threading.Thread(target=lambda: node._srv_move(req, MoveToPose.Response()))
+    th.start()
+    while th.is_alive():
+        pos = np.linalg.norm(robot.T[:3, 3] - p0) / 0.06
+        rot = np.degrees(Rotation.from_matrix(robot.T[:3, :3] @ R0.T).magnitude()) / 40
+        fr.append((pos, rot))
+        time.sleep(0.05)
+    mid = [abs(p - r) for p, r in fr if 0.2 < p < 0.8]
+    assert mid and max(mid) < 0.15, f'position and rotation progress diverge by {max(mid):.2f}'
+    node.destroy_node()
+
+
+def test_phantom_moves_go_via_safe_height(sim):
+    from usrig_interfaces.srv import MoveToPose
+    node, robot = sim(p0=(0.30, 0.0, 0.03))            # near the phantom surface (phantom frame = base)
+    node._phantom_T = lambda: np.eye(4)
+    T = robot.T.copy()
+    T[:3, 3] = [0.45, 0.10, 0.04]                      # another target near the surface
+    req = MoveToPose.Request()
+    req.target.header.frame_id = 'phantom'
+    geometry.fill_pose_msg(req.target.pose, T)
+    zs, xs = [], []
+    th = threading.Thread(target=lambda: zs.append(node._srv_move(req, MoveToPose.Response())))
+    th.start()
+    traj = []
+    while th.is_alive():
+        traj.append(robot.T[:3, 3].copy())
+        time.sleep(0.03)
+    assert zs[0].success, zs[0].message
+    traj = np.array(traj)
+    crossing = traj[(traj[:, 0] > 0.33) & (traj[:, 0] < 0.42)]   # the lateral part of the move
+    assert len(crossing) and crossing[:, 2].min() > 0.08 - 0.003, crossing[:, 2].min()
+    assert np.linalg.norm(robot.T[:3, 3] - [0.45, 0.10, 0.04]) < 0.001
+    node.destroy_node()
+
+
+def test_phantom_move_refuses_without_safe_height(sim):
+    from usrig_interfaces.srv import MoveToPose
+    node, robot = sim()
+    node._phantom_T = lambda: np.eye(4)
+    node.rig = json.loads(json.dumps(RIG))
+    node.rig['motion']['transit_safe_height_mm'] = None
+    req = MoveToPose.Request()
+    req.target.header.frame_id = 'phantom'
+    geometry.fill_pose_msg(req.target.pose, robot.T)
+    res = node._srv_move(req, MoveToPose.Response())
+    assert not res.success and 'transit_safe_height_mm' in res.message
+    node.destroy_node()

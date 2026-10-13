@@ -106,11 +106,14 @@ class LinearMove(Motion):
 
     def step(self, ctx):
         dp, dr = geometry.pose_error(ctx['T'], self.T_target)
-        if np.linalg.norm(dp) < self.tol_m and np.linalg.norm(dr) < self.tol_rad:
+        ep, er = np.linalg.norm(dp), np.linalg.norm(dr)
+        if ep < self.tol_m and er < self.tol_rad:
             self.finish(True, 'reached')
             return np.zeros(3), np.zeros(3)
-        v = safety._clamp_norm(self.ctl.kp * dp, self.speed)
-        w = safety._clamp_norm(self.ctl.kr * dr, self.ctl.lim.w_max)
+        # R7: coordinated move: scale both speed caps so position and orientation finish together
+        t_need = max(ep / self.speed, er / self.ctl.lim.w_max, 1e-3)
+        v = safety._clamp_norm(self.ctl.kp * dp, ep / t_need)
+        w = safety._clamp_norm(self.ctl.kr * dr, er / t_need)
         return v, w
 
 
@@ -546,19 +549,49 @@ class RobotControlNode(Node):
             res.success, res.message = False, str(e)
         return res
 
+    def transit_via_points(self, T_now, T_target, T_base_phantom, safe_h):
+        """D11: base-frame poses up (to safe_h in the phantom frame, current orientation), across
+        (at safe_h, target orientation), then down to the target. Steps already above safe_h are skipped."""
+        inv = geometry.inv(T_base_phantom)
+        P_now, P_tgt = inv @ T_now, inv @ T_target
+        out = []
+        if P_now[2, 3] < safe_h - 1e-4:
+            up = P_now.copy()
+            up[2, 3] = safe_h
+            out.append(T_base_phantom @ up)
+        if P_tgt[2, 3] < safe_h - 1e-4:
+            across = P_tgt.copy()
+            across[2, 3] = safe_h
+            out.append(T_base_phantom @ across)
+        out.append(T_target)
+        return out
+
     def _srv_move(self, req, res):
         try:
             T = geometry.pose_from_msg(req.target.pose)
+            legs = [T]
             if req.target.header.frame_id == 'phantom':
-                T = self._phantom_T() @ T
+                T_bp = self._phantom_T()
+                safe_mm = config.get_path(self.rig, 'motion.transit_safe_height_mm')
+                if safe_mm is None:
+                    raise RuntimeError('motion.transit_safe_height_mm is null: phantom-frame moves go via a safe '
+                                       'height (D11); set it in rig.yaml')
+                T = T_bp @ T
+                s = self.state_node.get_latest()
+                if s is None:
+                    raise RuntimeError('no robot state')
+                legs = self.transit_via_points(geometry.pose_from_ur(s.tcp_pose), T, T_bp, float(safe_mm) / 1000.0)
         except RuntimeError as e:
             res.success, res.message = False, str(e)
             return res
         speed = req.speed_mm_s / 1000.0 if req.speed_mm_s > 0 else self.transit_speed
         speed = min(speed, self.lim.v_max)
         self.in_contact = False
-        self._event('phase', {'phase': 'approach'})
-        m = self._run(LinearMove(self, T, speed), timeout=self._move_timeout(T, speed))
+        self._event('phase', {'phase': 'approach', 'legs': len(legs)})
+        for leg in legs:
+            m = self._run(LinearMove(self, leg, speed), timeout=self._move_timeout(leg, speed))
+            if not m.ok:
+                break
         res.success, res.message = m.ok, m.message
         return res
 
