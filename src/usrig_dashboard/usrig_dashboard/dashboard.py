@@ -51,6 +51,7 @@ class RosSide(Node):
         qos = QoSProfile(depth=1, reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST)
         self.lock = threading.Lock()
         self.latest = {}
+        self.t_last = {}          # monotonic arrival time per stream: stale / absent streams are shown as such
         self.fps = {k: deque(maxlen=60) for k in ('bmode', 'color', 'depth')}
         self.force = deque(maxlen=5000)
         self.events = deque(maxlen=200)
@@ -72,15 +73,18 @@ class RosSide(Node):
     def _set(self, k, v):
         with self.lock:
             self.latest[k] = v
+            self.t_last[k] = time.monotonic()
 
     def _img(self, k, m):
         with self.lock:
             self.latest[k] = m
-            self.fps[k].append(time.monotonic())
+            self.t_last[k] = time.monotonic()
+            self.fps[k].append(self.t_last[k])
 
     def _robot(self, m):
         with self.lock:
             self.latest['robot'] = m
+            self.t_last['robot'] = time.monotonic()
             o = m.tcp_base.orientation
             x, y, z, w = o.x, o.y, o.z, o.w
             zaxis = np.array([2 * (x * z + w * y), 2 * (y * z - w * x), 1 - 2 * (x * x + y * y)])
@@ -123,9 +127,24 @@ def to_array(m):
     return None
 
 
-def rate(dq):
+STALE_S = {'robot': 0.5, 'bmode': 1.0, 'frame_info': 1.0, 'color': 1.0, 'depth': 1.0, 'qc': 2.0}
+# Buttons that make episode_manager move the robot (approach, descend): asked to confirm first.
+MOTION_BUTTONS = {'start_stop', 'next'}
+
+
+def stream_state(t_last, now, timeout_s):
+    """'live', 'STALE n.n s' or 'NO DATA': a display never shows an old value as current."""
+    if t_last is None:
+        return 'NO DATA'
+    age = now - t_last
+    return 'live' if age <= timeout_s else f'STALE {age:.1f} s'
+
+
+def rate(dq, now=None, timeout_s=1.0):
     if len(dq) < 2:
         return 0.0
+    if now is not None and now - dq[-1] > timeout_s:
+        return 0.0                     # stream stopped: do not keep showing its last rate
     return (len(dq) - 1) / max(dq[-1] - dq[0], 1e-6)
 
 
@@ -217,6 +236,15 @@ def main(args=None):
     lay.addWidget(lbl_wrist)
     panels['wrist'] = g
 
+    def send_checked(p):
+        if p['cmd'] in MOTION_BUTTONS:
+            r = QtWidgets.QMessageBox.question(
+                win, 'Robot may move', f'"{p["cmd"]}" lets episode_manager move the robot (approach, descend) '
+                'when robot_control is running. Area clear and e-stop at hand?')
+            if r != QtWidgets.QMessageBox.StandardButton.Yes:
+                return
+        ros.send(p)
+
     g, lay = box('Episode')
     lbl_ep = QtWidgets.QLabel()
     lbl_ep.setWordWrap(True)
@@ -229,7 +257,7 @@ def main(args=None):
                           ('Onset', {'cmd': 'onset'}), ('Recovery start', {'cmd': 'recovery_start'}),
                           ('Recovery end', {'cmd': 'recovery_end'})):
         b = QtWidgets.QPushButton(text)
-        b.clicked.connect(lambda _=False, p=payload: ros.send(p))
+        b.clicked.connect(lambda _=False, p=payload: send_checked(p))
         row.addWidget(b)
     lay.addLayout(row)
     note = QtWidgets.QLineEdit()
@@ -361,7 +389,9 @@ def main(args=None):
     def refresh():
         with ros.lock:
             L = dict(ros.latest)
-            fps = {k: rate(v) for k, v in ros.fps.items()}
+            now = time.monotonic()
+            fps = {k: rate(v, now) for k, v in ros.fps.items()}
+            live = {k: stream_state(ros.t_last.get(k), now, t) for k, t in STALE_S.items()}
             force = list(ros.force)
             events = list(ros.events)
             keys = sorted(ros.keys_held)
@@ -374,10 +404,13 @@ def main(args=None):
             elif kind == 'end':
                 rec = 'IDLE'
         mode = MODES[robot.mode] if robot is not None and robot.mode < len(MODES) else '—'
+        if live['robot'] != 'live':
+            mode = f'state {live["robot"]}'
         lbl_top.setText(f'session {ros.session_id}   stage {ros.scfg["session"]["stage"]}   '
                         f'phantom {ros.scfg["session"].get("phantom_id")}   robot {mode}   {rec}')
         lbl_top.setStyleSheet('font-weight: bold; font-size: 14px; color: %s' %
-                              ('#c62828' if mode == 'FAULT' else ('#2e7d32' if rec == 'REC' else 'black')))
+                              ('#c62828' if mode == 'FAULT' or mode.startswith('state ') else
+                               ('#2e7d32' if rec == 'REC' else 'black')))
 
         fi = json.loads(L['frame_info']) if 'frame_info' in L else {}
         if 'bmode' in L:
@@ -390,7 +423,7 @@ def main(args=None):
                 if ps:
                     sx, sy = (ps if isinstance(ps, (list, tuple)) else (ps, ps))[:2]
                     bmode_img.setRect(QtCore.QRectF(org[0], org[1], a.shape[1] * sx, a.shape[0] * sy))
-        lbl_bmode.setText(f'frame {fi.get("frame_index")}   {fps["bmode"]:.1f} fps   '
+        lbl_bmode.setText(f'[{live["bmode"]}]  frame {fi.get("frame_index")}   {fps["bmode"]:.1f} fps   '
                           f'stage {ros.scfg["session"]["stage"]}')
         if 'color' in L:
             a = to_array(L['color'])
@@ -402,7 +435,7 @@ def main(args=None):
             if d is not None:
                 vfrac = float(np.mean(d > 0))
                 depth_view.setImage(d.astype(np.float32), autoLevels=True, autoRange=False)
-        lbl_wrist.setText(f'colour {fps["color"]:.1f} fps   depth {fps["depth"]:.1f} fps   '
+        lbl_wrist.setText(f'colour [{live["color"]}] {fps["color"]:.1f} fps   depth [{live["depth"]}] {fps["depth"]:.1f} fps   '
                           f'valid depth {vfrac if vfrac is None else f"{vfrac:.0%}"}')
 
         if force:
@@ -438,7 +471,7 @@ def main(args=None):
             for i, (tn, s) in enumerate(sorted(topics.items())):
                 for j, v in enumerate([tn, s.get('hz'), s.get('stamp_age_ms'), s.get('max_gap_ms')]):
                     health.setItem(i, j, QtWidgets.QTableWidgetItem(str(v)))
-            lbl_qc.setText(f'micrus gaps {q.get("micrus_frame_gaps")}   coupling {q.get("coupling_ok")}   '
+            lbl_qc.setText(f'QC [{live["qc"]}]   micrus gaps {q.get("micrus_frame_gaps")}   coupling {q.get("coupling_ok")}   '
                            f'force in band {q.get("force_in_band")}   disk {q.get("free_disk_gb")} GB   '
                            f'USB {q.get("wrist_usb")}')
 

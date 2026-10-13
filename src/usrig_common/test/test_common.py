@@ -49,3 +49,19 @@ def test_packet_parser_handles_split_and_garbage():
     out = p.feed(vals[10:].encode() + b'][1,2]')
     assert len(out) == 1 and out[0][17] == 17.0 and p.bad == 1
     assert format_command(0, 0, 0, 0, 0, 0, 1, 1).startswith(b'(')
+
+
+def test_presession_result_required_for_collection():
+    from usrig_common.gates import presession_ok
+    H = int(3.6e12)
+    good = {'presession': {'stage2': {'pass': True, 'control': True, 'checked_ns': 100 * H, 'rows': []}}}
+    assert presession_ok(good, 2, True, 101 * H, 12)[0]
+    assert 'no pre-session' in presession_ok({}, 2, True, 101 * H, 12)[1]
+    assert 'stage 1' in presession_ok(good, 1, True, 101 * H, 12)[1]
+    assert 'old' in presession_ok(good, 2, True, 113 * H, 12)[1]
+    no_ctl = {'presession': {'stage2': {**good['presession']['stage2'], 'control': False}}}
+    assert '--control' in presession_ok(no_ctl, 2, True, 101 * H, 12)[1]
+    assert presession_ok(no_ctl, 2, False, 101 * H, 12)[0]
+    failed = {'presession': {'stage2': {'pass': False, 'checked_ns': 100 * H,
+                                        'rows': [{'check': 'free disk', 'result': 'FAIL'}, {'check': 'x', 'result': 'PASS'}]}}}
+    assert "['free disk']" in presession_ok(failed, 2, False, 101 * H, 12)[1]

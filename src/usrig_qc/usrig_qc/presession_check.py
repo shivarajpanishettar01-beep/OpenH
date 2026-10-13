@@ -5,6 +5,10 @@
 
 --mb-per-s: measured rate of one test episode (bag + HDF5); without it the most recent episode
 under the session root is used, or the disk check reports "unset".
+
+The result (every row, PASS / FAIL, with or without --control) is written to <session>/session.json
+under presession.stage<N>. episode_manager refuses to start a real (non-sim) session without a
+PASS for that stage and control mode younger than session.presession_max_age_h.
 """
 import argparse
 import json
@@ -21,7 +25,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 from rosidl_runtime_py.utilities import get_message
 
 from usrig_common import config, gates
-from usrig_common.session import read_json
+from usrig_common.session import read_json, update_session_json
 from usrig_common.timeutil import now_ns, ns_from_stamp
 
 from .usb import realsense_usb
@@ -227,7 +231,12 @@ def main():
                 f'{free_gb:.0f} GB free, need {need:.0f} GB ({mbps:.1f} MB/s x {a.planned_hours} h + reserve)')
     p.destroy_node()
     rclpy.shutdown()
-    raise SystemExit(0 if tab.print() else 1)
+    ok = tab.print()
+    Path(a.session).mkdir(parents=True, exist_ok=True)
+    update_session_json(a.session, presession={f'stage{a.stage}': {
+        'pass': ok, 'control': bool(a.control), 'sim': bool(a.sim), 'checked_ns': now_ns(),
+        'rows': [{'check': n, 'result': s, 'detail': d} for n, s, d in tab.rows]}})
+    raise SystemExit(0 if ok else 1)
 
 
 if __name__ == '__main__':

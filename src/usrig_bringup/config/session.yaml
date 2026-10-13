@@ -4,6 +4,7 @@
 session:
   root: ~/data                                  # [SESSION_ROOT] real collection only
   sim_root: ~/data_sim                          # sim:=true runs (micrus --simulate / URSim); never exported
+  presession_max_age_h: 12                      # real sessions need a passing presession_check younger than this
   id_pattern: "{date}_{phantom_id}_{operator_id}_s{n:02d}"
   operators: [op1, op2]                         # [OPERATORS]
   phantom_id: null                              # one of the keys under phantoms: below

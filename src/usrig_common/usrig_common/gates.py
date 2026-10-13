@@ -66,6 +66,23 @@ def gate12(session_cfg, episodes):
             'episodes_per_recorded_hour': eph}
 
 
+def presession_ok(session_json, stage, control, now_ns, max_age_h):
+    """(ok, reason): a passing pre-session check for this stage, run with --control if the robot will
+    be commanded, younger than max_age_h. Written by presession_check into session.json."""
+    r = (session_json.get('presession') or {}).get(f'stage{stage}')
+    if not r:
+        return False, f'no pre-session check for stage {stage} in session.json (run presession_check)'
+    if not r.get('pass'):
+        failed = [x['check'] for x in r.get('rows', []) if x.get('result') not in ('PASS', 'N/A')]
+        return False, f'pre-session check for stage {stage} did not pass: {failed}'
+    if control and not r.get('control'):
+        return False, 'pre-session check was run without --control but robot_control will command the robot'
+    age_h = (now_ns - int(r.get('checked_ns', 0))) / 3.6e12
+    if age_h > float(max_age_h):
+        return False, f'pre-session check is {age_h:.1f} h old (max {max_age_h} h): run it again'
+    return True, 'ok'
+
+
 def check_stage(stage, session_cfg, session_root):
     eps = load_episodes(session_root)
     if stage == 0:

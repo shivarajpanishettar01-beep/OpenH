@@ -119,6 +119,11 @@ class EpisodeManager(Node):
             raise RuntimeError(f'stage {self.stage} gate has not passed: {json.dumps(g)}')
         if self.control and self.stage > 0:
             config.require_limits(self.rig)
+        if not self.sim:
+            ok, why = gates.presession_ok(read_json(self.sdir / 'session.json'), self.stage, self.control, now_ns(),
+                                          self.scfg['session'].get('presession_max_age_h', 12))
+            if not ok:
+                raise RuntimeError(f'refusing to collect: {why}')
 
         self.worker = threading.Thread(target=self._run_stage, name='stage', daemon=True)
         self.worker.start()

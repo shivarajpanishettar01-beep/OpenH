@@ -10,4 +10,4 @@ for _p in src/usrig_common src/usrig_robot src/usrig_teleop src/usrig_episode sr
   PYTHONPATH="$PWD/$_p:$PYTHONPATH"
 done
 export PYTHONPATH
-python -m pytest -q src/usrig_common/test src/usrig_robot/test src/usrig_teleop/test src/usrig_episode/test src/usrig_qc/test export/test_export_fields.py "$@"
+python -m pytest -q src/usrig_common/test src/usrig_robot/test src/usrig_teleop/test src/usrig_episode/test src/usrig_qc/test src/usrig_dashboard/test export/test_export_fields.py "$@"
