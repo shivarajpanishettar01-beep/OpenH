@@ -21,6 +21,7 @@ setup(
         'console_scripts': [
             'robot_state = usrig_robot.robot_state:main',
             'robot_control = usrig_robot.robot_control:main',
+            'rig_measure = usrig_robot.rig_measure:main',
         ],
     },
 )

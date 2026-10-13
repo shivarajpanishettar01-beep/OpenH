@@ -570,24 +570,49 @@ class RobotControlNode(Node):
         super().destroy_node()
 
 
+def remote_control_enabled(ip, timeout=3.0):
+    """Ask the dashboard server (read-only query). Returns True / False, or None if unreachable."""
+    import socket
+    try:
+        with socket.create_connection((ip, 29999), timeout=timeout) as s:
+            s.recv(1024)
+            s.sendall(b'is in remote control\n')
+            reply = s.recv(1024).decode().strip().lower()
+        return reply.startswith('true')
+    except OSError:
+        return None
+
+
 def main(args=None):
     rclpy.init(args=args)
     # Load and check limits before connecting to anything.
     probe = rclpy.create_node('robot_control_cfg')
     probe.declare_parameter('config_dir', '')
+    probe.declare_parameter('robot_ip', '')
     cfg_dir = probe.get_parameter('config_dir').value or None
+    ip_override = probe.get_parameter('robot_ip').value
     probe.destroy_node()
     rig = config.load_config('rig', cfg_dir)
+
+    def refuse(msg):
+        print(f'[robot_control] {msg}', file=sys.stderr)
+        rclpy.shutdown()
+        sys.exit(2)
+
+    # With robot_ip given (sim:=true -> URSim), the real robot.ip is not needed.
+    keys = [k for k in config.MOTION_LIMITS if not (ip_override and k == 'robot.ip')]
     try:
-        config.require_limits(rig)
+        config.require_limits(rig, keys)
     except config.UnsetLimitError as e:
-        print(f'[robot_control] {e}', file=sys.stderr)
-        rclpy.shutdown()
-        sys.exit(2)
+        refuse(str(e))
     if config.get_path(rig, 'robot.control_backend') != 'rtde':
-        print('[robot_control] robot.control_backend must be rtde (path B, decided at P3)', file=sys.stderr)
-        rclpy.shutdown()
-        sys.exit(2)
+        refuse('robot.control_backend must be rtde (path B, decided at P3)')
+    ip = ip_override or config.get_path(rig, 'robot.ip')
+    rc_on = remote_control_enabled(ip)
+    if rc_on is None:
+        refuse(f'dashboard server {ip}:29999 not reachable; cannot confirm Remote Control')
+    if not rc_on:
+        refuse(f'{ip} is not in Remote Control: switch it on the pendant (ur_rtde must upload its control script)')
 
     status = ControlStatus()
     state = control = None
