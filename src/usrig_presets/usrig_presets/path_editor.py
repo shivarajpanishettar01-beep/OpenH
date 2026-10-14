@@ -8,6 +8,8 @@
 
 Paths are stored in <root>/paths/<phantom_id>.yaml (--sim: <sim_root>/paths). Waypoints in a path are names of taught waypoints
 or inline poses generated here (fan / sweep). Speed is session.yaml stage1.speed_mm_s.
+Fan and sweep paths also store `center: WP` (the --at waypoint): the local tilt cone is centred on its axis, so a
+fan of +-deg needs limits.local_tilt_cone_deg >= deg (robot_control refuses the path otherwise).
 """
 import argparse
 import time
@@ -94,6 +96,10 @@ def main(argv=None):
                 T[:3, 3] = T0[:3, 3] + T0[:3, col] * d / 1000.0
                 entries.append(_pose_entry(f'{a.at}_sweep{k}', T))
     paths['paths'][a.name] = {'waypoints': entries, 'instruction': a.instruction}
+    if a.cmd in ('fan', 'sweep'):
+        # the taught waypoint the path is built around: Stage 1 centres the local tilt cone (D10) on its axis
+        # and descends with its taught force (the first fan pose is already tilted by -deg)
+        paths['paths'][a.name]['center'] = a.at
     pfile.parent.mkdir(parents=True, exist_ok=True)
     pfile.write_text(yaml.safe_dump(paths, sort_keys=False))
     print(f'saved path {a.name} ({len(entries)} waypoints) to {pfile}')

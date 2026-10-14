@@ -49,6 +49,24 @@ def find_keyboard(evdev, path=None):
     raise RuntimeError('no keyboard found in /dev/input (is the user in the input group?)')
 
 
+def check_device(km, publish_twist):
+    """Refuse to drive the robot from 'whatever keyboard is found' (keymap device: null).
+
+    evdev ignores window focus, and the hold-to-move enable is Ctrl, so everyday shortcuts typed into any
+    window on the PC are motion keys: Ctrl+C / Ctrl+Z rotate, Ctrl+S / Ctrl+W / Ctrl+A / Ctrl+D slide,
+    Ctrl+R / Ctrl+F / Ctrl+Q / Ctrl+E tilt and rock. Returns a warning (str) for the commands-only mode
+    (no motion), raises ValueError when this node would publish /teleop/twist."""
+    if km.get('device'):
+        return None
+    why = ('keymap.yaml device is null: evdev reads every keyboard regardless of window focus, so shortcuts '
+           'typed in a terminal (Ctrl+C, Ctrl+Z, Ctrl+S, ...) are Ctrl + motion keys and outcome / ack keys '
+           'act on the episode')
+    if publish_twist and not km.get('allow_any_keyboard', False):
+        raise ValueError(f'{why}. Set device: to the operator keyboard\'s /dev/input/by-id/...-event-kbd path '
+                         '(or allow_any_keyboard: true for a bench test without the arm in reach)')
+    return why
+
+
 def check_speeds(km, rig):
     """keymap speeds must stay inside rig.yaml limits; returns per-axis max list."""
     sp = km['speeds']
@@ -80,6 +98,7 @@ class KeyboardTeleop(Node):
         publish_twist = bool(km.get('publish_twist', True)) and bool(self.get_parameter('publish_twist').value)
         # commands only (SpaceMouse drives, or freedrive collection): no motion, so no speeds needed
         speeds = check_speeds(km, rig) if publish_twist else [0.0] * 6
+        device_warning = check_device(km, publish_twist)
 
         import evdev
         self.evdev = evdev
@@ -87,6 +106,8 @@ class KeyboardTeleop(Node):
         self.dev = find_keyboard(evdev, self.device_path)
         self.device_path = self.device_path or self.dev.path
         self.get_logger().info(f'reading keys from {self.dev.path} ({self.dev.name})')
+        if device_warning:
+            self.get_logger().warn(device_warning)
 
         self.motion_keys = {}
         for key, spec in km['motion'].items():

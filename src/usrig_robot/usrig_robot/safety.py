@@ -110,13 +110,25 @@ def interpolate_poses(T0, T1, n):
     return out
 
 
-def check_targets(lim: Limits, poses, allowed_flags=0):
+def local_cone_violated(lim: Limits, T, tol_deg=0.05):
+    """True if T is outside the local tilt cone (D10) around the current waypoint axis, when one is set.
+    Not a hard limit (the command filter enforces it), so it is checked only for planned motion."""
+    if lim.local_axis is None or lim.local_cone_deg is None:
+        return False
+    return geometry.tilt_deg(T, lim.local_axis) > lim.local_cone_deg + tol_deg
+
+
+def check_targets(lim: Limits, poses, allowed_flags=0, local_cone=False):
     """Check planned poses before any motion starts. ``allowed_flags``: violations the robot already
     has at the start (a recovery move back inside), tolerated on the way but never at the last pose.
+    ``local_cone``: also refuse poses outside the local tilt cone (D10), which the command filter would
+    otherwise clip silently during the motion (a scripted fan that never reaches its end angles).
     Returns None if fine, else a message naming the first bad pose."""
     poses = list(poses)
     for i, T in enumerate(poses):
         f = pose_violations(lim, T)
+        if local_cone and local_cone_violated(lim, T):
+            f |= FLAG_TILT_CONE
         if i == len(poses) - 1:
             bad = f
         else:
@@ -145,6 +157,37 @@ def _clamp_norm(x, n):
     return x if m <= n or m == 0 else x * (n / m)
 
 
+def _clip_in_frame(p, v, bmin, bmax, lookahead_s):
+    """Zero the components of v (in the box's frame) that would carry p out of [bmin, bmax]."""
+    v = v.copy()
+    clipped = False
+    nxt = p + v * lookahead_s
+    for i in range(3):
+        if (nxt[i] < bmin[i] and v[i] < 0) or (nxt[i] > bmax[i] and v[i] > 0):
+            v[i] = 0.0
+            clipped = True
+    return v, clipped
+
+
+def _clip_boxes(lim: Limits, T, v, max_passes=4):
+    """(v, flags): v with every outward component removed for the base box and all extra boxes."""
+    p = T[:3, 3]
+    frames = [(np.eye(4), lim.box_min, lim.box_max)] + list(lim.extra_boxes or [])
+    flags = 0
+    for _ in range(max_passes):
+        any_clip = False
+        for T_bf, bmin, bmax in frames:
+            R = T_bf[:3, :3]
+            vf, clipped = _clip_in_frame(R.T @ (p - T_bf[:3, 3]), R.T @ v, bmin, bmax, lim.lookahead_s)
+            if clipped:
+                v = R @ vf
+                any_clip = True
+                flags |= FLAG_ENVELOPE
+        if not any_clip:
+            return v, flags
+    return np.zeros(3), flags | FLAG_ENVELOPE     # the boxes keep re-clipping each other: do not move
+
+
 def filter_command(lim: Limits, T, v, w, v_prev, w_prev, dt):
     """Clamp a base-frame twist to the speed, acceleration, envelope and tilt limits.
 
@@ -165,24 +208,11 @@ def filter_command(lim: Limits, T, v, w, v_prev, w_prev, dt):
     v = v_prev + _clamp_norm(v_c - v_prev, lim.a_max * dt)
     w = w_prev + _clamp_norm(w_c - w_prev, lim.alpha_max * dt)
 
-    # Workspace box: drop velocity components that would cross a face within the lookahead.
-    p_next = T[:3, 3] + v * lim.lookahead_s
-    for i in range(3):
-        if (p_next[i] < lim.box_min[i] and v[i] < 0) or (p_next[i] > lim.box_max[i] and v[i] > 0):
-            v[i] = 0.0
-            flags |= FLAG_ENVELOPE
-
-    # Extra boxes (D9, e.g. phantom frame): same rule, in that frame.
-    for T_bf, bmin, bmax in lim.extra_boxes or []:
-        Rfb = T_bf[:3, :3].T
-        pf = Rfb @ (T[:3, 3] - T_bf[:3, 3])
-        vf = Rfb @ v
-        nf = pf + vf * lim.lookahead_s
-        for i in range(3):
-            if (nf[i] < bmin[i] and vf[i] < 0) or (nf[i] > bmax[i] and vf[i] > 0):
-                vf[i] = 0.0
-                flags |= FLAG_ENVELOPE
-        v = T_bf[:3, :3] @ vf
+    # Workspace box and extra boxes (D9, e.g. the phantom box, rotated relative to base): drop velocity
+    # components that would cross a face within the lookahead. Clipping in a rotated frame can put back a
+    # component the base box had removed, so repeat until no box clips; if they still disagree, stop.
+    v, box_flags = _clip_boxes(lim, T, v)
+    flags |= box_flags
 
     # Tilt cones: refuse rotation that increases tilt beyond the global cone, or beyond the local
     # cone around the current waypoint axis (D10) when one is set.

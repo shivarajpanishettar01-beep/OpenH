@@ -22,6 +22,14 @@ GR00T-H is out of scope for now (separate task).
 
 ## Done
 **Code base** (11 ROS 2 packages, 153 tests, fresh clone builds and passes in a clean shell)
+- Review of the three modes (14 Oct): the lift perturbation left its force setpoint behind when cut short
+  (preempt / FAULT / contact loss), down to 0 N for the next hold or recontact; a rotated phantom box could
+  re-introduce motion out through the base box (found by random search: +11.6 mm/s outward for 4.4 mm/s asked);
+  held teleop (in-contact hold, success hold, P) was labelled TELEOP / expert (now source none, not expert);
+  fault acknowledgement accepted a stale state sample; the local tilt cone (D10) was centred on the offset start
+  (Stage 2) or the first fan pose (Stage 1) instead of the waypoint axis, and a fan wider than the cone was
+  clipped silently (now refused before moving); taught `force_n` was used by verify but not by Stages 0-2;
+  `keyboard_teleop` with `device: null` let Ctrl+C / Ctrl+Z / Ctrl+S in any terminal move the arm (now refused).
 - Release and QA tools (15 Oct): `export/release_card.py` (dataset card from the data + SHA-256 manifest;
   in the pipeline check), `collection_plan` (remaining hours -> collection days to a deadline),
   `label_agreement` (Cohen / Fleiss kappa of the expert labels; episode labels now keep every annotator's value).

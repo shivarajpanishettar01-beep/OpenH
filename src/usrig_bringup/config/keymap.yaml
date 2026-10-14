@@ -2,7 +2,10 @@
 # (keyboard_teleop refuses to start otherwise). Probe frame: x along the array,
 # y across it, z along the beam into tissue.
 
-device: null            # /dev/input/by-id/...-event-kbd; null = first keyboard found
+device: null            # /dev/input/by-id/...-event-kbd of the dedicated operator keyboard. Required for
+                        # motion: null = any keyboard, and Ctrl+C / Ctrl+Z / Ctrl+S typed in a terminal
+                        # would move the arm (keyboard_teleop refuses to publish twists with null)
+allow_any_keyboard: false   # true only for a bench test with device: null and the arm out of reach
 publish_rate_hz: 100
 ramp_s: 0.25
 fine_scale: 0.25

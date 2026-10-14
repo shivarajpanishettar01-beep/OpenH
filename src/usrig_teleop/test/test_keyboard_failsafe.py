@@ -130,3 +130,13 @@ def test_keystate_resync_and_loss():
     assert k.held == set() and k.lost
     k.device_back([])
     assert not k.lost
+
+
+def test_motion_needs_a_dedicated_keyboard_device():
+    """device: null + Ctrl hold-to-move: Ctrl+C / Ctrl+Z / Ctrl+S typed in any terminal would move the arm."""
+    from usrig_teleop.keyboard_teleop import check_device
+    with pytest.raises(ValueError, match='device is null'):
+        check_device({'device': None}, publish_twist=True)
+    assert check_device({'device': None, 'allow_any_keyboard': True}, publish_twist=True)      # warns
+    assert check_device({'device': None}, publish_twist=False)       # commands only: warning, no refusal
+    assert check_device({'device': '/dev/input/by-id/usb-op-event-kbd'}, publish_twist=True) is None

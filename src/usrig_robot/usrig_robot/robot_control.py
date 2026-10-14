@@ -72,14 +72,27 @@ class Idle(Motion):
 
 
 class Teleop(Motion):
+    """Operator teleoperation; also the in-contact hold after a descent or a path (force mode, held).
+
+    Labels: the operator's samples are TELEOP / expert. While the motion is held (by the episode flow,
+    e.g. waiting after a descent, the success hold, or by the operator's P), twists are ignored and the
+    robot only holds still in force mode: those samples are not the operator's action, so they are
+    labelled source NONE, not expert. The mode stays TELEOP so a stale robot state still FAULTs.
+    """
     mode = ST.MODE_TELEOP
-    source = ST.SOURCE_TELEOP
-    expert = True
 
     def __init__(self, ctl, in_contact):
         super().__init__()
         self.ctl = ctl
         self.force_on = in_contact
+
+    @property
+    def source(self):
+        return ST.SOURCE_NONE if self.ctl.held() else ST.SOURCE_TELEOP
+
+    @property
+    def expert(self):
+        return not self.ctl.held()
 
     def step(self, ctx):
         tw, t_ns = self.ctl.latest_twist()
@@ -192,12 +205,20 @@ class Perturbation(Motion):
         self.ctl, self.kind, self.delta, self.duration = ctl, kind, np.asarray(delta, float), duration
         self.base_fsp = base_fsp
         self.t = 0.0
+        self._fsp_lock = threading.Lock()     # step (control thread) vs finish (any thread)
+
+    def finish(self, ok, message=''):
+        # A lift changes the shared force setpoint. Restore it however the perturbation ends (complete,
+        # preempted, timeout, FAULT, contact lost): otherwise the next hold / recontact keeps the lifted
+        # value, down to 0 N, and the probe floats off the phantom.
+        with self._fsp_lock:
+            if self.kind == 'lift' and not self.done.is_set():
+                self.ctl.force_setpoint = self.base_fsp
+            super().finish(ok, message)
 
     def step(self, ctx):
         self.t += ctx['dt']
         if self.t >= self.duration:
-            if self.kind == 'lift':
-                self.ctl.force_setpoint = self.base_fsp
             self.finish(True, 'perturbation complete')
             return np.zeros(3), np.zeros(3)
         rate = self.delta / self.duration
@@ -207,8 +228,10 @@ class Perturbation(Motion):
             return geometry.twist_probe_to_base(ctx['T'], np.zeros(3), rate)
         if self.kind == 'lift':
             # bounded: never above the band, never negative (a negative force pulls the probe away)
-            self.ctl.force_setpoint = float(np.clip(self.base_fsp + float(self.delta[0]), 0.0,
-                                                    self.ctl.lim.force_band_n[1]))
+            with self._fsp_lock:
+                if not self.done.is_set():        # never re-apply the lift after it was ended elsewhere
+                    self.ctl.force_setpoint = float(np.clip(self.base_fsp + float(self.delta[0]), 0.0,
+                                                            self.ctl.lim.force_band_n[1]))
         return np.zeros(3), np.zeros(3)
 
 
@@ -460,7 +483,9 @@ class RobotControlNode(Node):
 
     def _ack_fault(self):
         s = self.state_node.get_latest()
-        if s is None:
+        if s is None or (now_ns() - s.stamp_ns) * 1e-9 > self.stale_state_s:
+            # the limit checks below would run on an old sample: refuse until the state is live again
+            self.get_logger().warn('cannot acknowledge: robot state missing or stale')
             return
         T = geometry.pose_from_ur(s.tcp_pose)
         still = safety.hard_violations(self.lim, T, s.wrench, s.tcp_speed)
@@ -529,14 +554,14 @@ class RobotControlNode(Node):
         (self.get_logger().info if ok else self.get_logger().warn)(f'control loop: {msg}')
         period = 1.0 / self.rate
         nxt = time.monotonic()
-        t_report = nxt + self.timing_report_s
+        t_last_report = nxt
         while not self._stop.is_set():
             nxt += period
             t = time.monotonic()
             self.ticks.add(t)
-            if t >= t_report:
+            if t - t_last_report >= self.timing_report_s:     # read each tick: a changed interval applies now
                 self._report_timing()
-                t_report = t + self.timing_report_s
+                t_last_report = t
             try:
                 self._tick(period)
             except Exception as e:  # noqa: BLE001
@@ -678,6 +703,9 @@ class RobotControlNode(Node):
             res.success, res.message = False, problem
             return res
         self.in_contact = False
+        # leaving the current waypoint: its local tilt cone (D10) must not clip this transit's rotations
+        # (episode_manager sets the next one after the move, as retract clears it)
+        self.lim.local_axis = None
         self._event('phase', {'phase': 'approach', 'legs': len(legs)})
         for leg in legs:
             m = self._run(LinearMove(self, leg, speed), timeout=self._move_timeout(leg, speed))
@@ -775,7 +803,7 @@ class RobotControlNode(Node):
                                              self.path_rot_radius)
             # validate the whole path before starting (nominal poses; the probe axis is force-regulated)
             ts = np.arange(0.0, path.duration, 0.05).tolist() + [path.duration]
-            problem = safety.check_targets(self.lim, [path.sample(t)[0] for t in ts])
+            problem = safety.check_targets(self.lim, [path.sample(t)[0] for t in ts], local_cone=True)
             if problem:
                 raise ValueError(problem)
         except (RuntimeError, ValueError) as e:

@@ -43,7 +43,7 @@ For each waypoint: name, Enter to capture, organ, view name, 3-5 paraphrased ins
 | `name` | stable identifier (re-teaching the same name replaces it) |
 | `position_m`, `quaternion_xyzw` | probe-tip pose in the phantom frame |
 | `approach_position_m`, `approach_quaternion_xyzw` | `approach_offset_mm` back along the probe axis |
-| `force_n` | probe-axis force at capture (descent setpoint at execution) |
+| `force_n` | probe-axis force at capture; its magnitude is the descent setpoint at execution (verify and Stages 0-2, clamped to the force band). Zero the F/T in free air before teaching: the capture reads the raw sensor |
 | `preset` | micrus settings at capture |
 | `reference_snapshot` | ultrasound image used by verification |
 | `instructions`, `organ`, `view` | language labels |
@@ -75,7 +75,11 @@ ros2 run usrig_presets path_editor list
 ros2 run usrig_presets path_editor show  NAME     # nav_msgs/Path on /usrig/path_preview (RViz, frame phantom)
 ```
 Review the ordered poses in RViz before use. Named entries must be executable waypoints; fan / sweep
-entries are poses derived from one.
+entries are poses derived from one, stored with `center: WP`. Stage 1 centres the local tilt cone (D10) on
+that waypoint's axis and descends with its `force_n`. A fan of `--deg D` needs `limits.local_tilt_cone_deg >= D`:
+`run_path` refuses a path outside the local cone before moving (it used to be clipped silently, so the fan
+never reached its end angles). Paths saved before 14 Oct 2026 have no `center`: the cone falls back to the
+first named waypoint, or the first pose; re-save fan / sweep paths.
 
 ## 5. Plans (Stage 2)
 ```bash
@@ -102,7 +106,10 @@ tick during execution.
 Stage 1 per path: approach → recording → free-air hold → zero F/T → descend (force-regulated contact) →
 `run_path` (force along the probe axis, constant speed tangentially) → end → retract → QC.
 Stage 2 per plan row: approach + start offset → recording → contact → teleop (+ planned perturbation) →
-outcome key → retract → QC (pass: next row, fail: redo).
+outcome key → retract → QC (pass: next row, fail: redo). The local tilt cone is centred on the target
+waypoint's axis (the surface normal, D10), not on the offset start pose, and the descent uses the target's
+`force_n`. With rock / tilt start offsets larger than `limits.local_tilt_cone_deg` the probe starts outside
+the cone: it may only rotate back towards the waypoint axis.
 
 Free-space motion (approach, transit, retract) and force-regulated contact (descend, path, teleop in
 contact) are separate motions; a path needs contact first and refuses otherwise.

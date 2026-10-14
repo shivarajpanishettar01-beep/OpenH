@@ -387,14 +387,25 @@ class EpisodeManager(Node):
         req.force_setpoint_n = float(fsp or 0.0)
         self.call('descend', req)
 
-    def _move(self, T, frame='phantom'):
+    def _move(self, T, frame='phantom', cone_T=None):
+        """Move to T. Phantom frame: then set the local tilt cone (D10) around the waypoint's probe axis,
+        ``cone_T`` (the taught waypoint), not around a deliberately offset start pose or the first pose of
+        a fan; without ``cone_T`` the target T itself."""
         req = MoveToPose.Request()
         req.target = PoseStamped()
         req.target.header.frame_id = frame
         geometry.fill_pose_msg(req.target.pose, T)
         self.call('move', req)
         if frame == 'phantom':
-            self._set_local_tilt(T)
+            self._set_local_tilt(T if cone_T is None else cone_T)
+
+    @staticmethod
+    def _taught_force(wp):
+        """Descent setpoint for a waypoint: the probe-axis force taught with it (force_n), as a magnitude
+        (the wrench sign convention is not verified yet); robot_control clamps it to the force band.
+        None (not taught, or no waypoint) -> robot_control's default setpoint."""
+        f = (wp or {}).get('force_n')
+        return abs(float(f)) if f else None
 
     def _set_local_tilt(self, T_phantom):
         """D10: tilt cone around this waypoint's probe axis, sent to robot_control (base frame)."""
@@ -427,11 +438,12 @@ class EpisodeManager(Node):
             ep = self._new_episode(type='shakedown')
             try:
                 wp_name = self.scfg['stage0'].get('approach_waypoint')
-                if wp_name and self.control:
-                    self._move(self._approach_pose(self._waypoint(wp_name)['T']))
+                wp = self._waypoint(wp_name) if wp_name and self.control else None
+                if wp is not None:
+                    self._move(self._approach_pose(wp['T']), cone_T=wp['T'])
                 self._begin_recording(ep)
                 if self.control:
-                    self._zero_and_descend()
+                    self._zero_and_descend(self._taught_force(wp))
                     self.call('teleop', SetBool.Request(data=True))
                 self._start_event(ep)
                 c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=cap)
@@ -499,16 +511,17 @@ class EpisodeManager(Node):
         names = st1.get('paths') or list(paths)
         for name in names:
             spec = paths[name]
-            for e in spec['waypoints']:
-                if isinstance(e, str):
-                    self._waypoint(e)          # named waypoints must be verified for this rig configuration
+            named = [self._waypoint(e) for e in spec['waypoints'] if isinstance(e, str)]   # must be verified
+            # fan / sweep paths are built around one taught waypoint (path_editor writes it as 'center'):
+            # its axis centres the local tilt cone and its taught force is the descent setpoint
+            center = self._waypoint(spec['center']) if spec.get('center') else (named[0] if named else None)
             wps = resolve_path(spec['waypoints'], config.load_yaml(self._waypoint_file())['waypoints'])
             ep = self._new_episode(type='scripted', target=name, instruction=spec.get('instruction'),
                                    path_waypoints=[w if isinstance(w, str) else w['name'] for w in spec['waypoints']], speed_mm_s=st1['speed_mm_s'])
             try:
-                self._move(self._approach_pose(wps[0]))
+                self._move(self._approach_pose(wps[0]), cone_T=center['T'] if center else None)
                 self._begin_recording(ep)
-                self._zero_and_descend()
+                self._zero_and_descend(self._taught_force(center))
                 self._start_event(ep)
                 req = RunPath.Request()
                 for T in wps:
@@ -573,10 +586,11 @@ class EpisodeManager(Node):
             self.get_logger().info(f'row {row["row"]}: {row["type"]} {row["target"]} '
                                    f'"{row["instruction"]}" operator {row["operator_id"]}')
             try:
-                T_start = self._waypoint_T(row['target']) @ self._offset_T(off)
-                self._move(self._approach_pose(T_start))
+                target = self._waypoint(row['target'])
+                T_start = target['T'] @ self._offset_T(off)
+                self._move(self._approach_pose(T_start), cone_T=target['T'])
                 self._begin_recording(ep)
-                self._zero_and_descend()
+                self._zero_and_descend(self._taught_force(target))
                 self._start_event(ep)
                 self.event('phase', {'phase': 'search'})
                 self._drain()
@@ -647,9 +661,6 @@ class EpisodeManager(Node):
                 w['T'] = geometry.pose_from_pq(w['position_m'], w['quaternion_xyzw'])
                 return w
         raise Abort(f'waypoint {name} not found in {self._waypoint_file()}')
-
-    def _waypoint_T(self, name):
-        return self._waypoint(name)['T']
 
     def _approach_pose(self, T):
         back = float(self.rig['motion']['approach_offset_mm']) / 1000.0

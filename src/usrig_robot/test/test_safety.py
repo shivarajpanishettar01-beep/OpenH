@@ -103,3 +103,35 @@ def test_interpolate_poses_endpoints_and_midpoint():
     assert np.allclose(poses[0], T0) and np.allclose(poses[-1], T1)
     assert np.allclose(poses[2][:3, 3], [0.05, 0, 0.25])
     assert abs(safety.geometry.tilt_deg(poses[2], [0, 0, -1]) - 10.0) < 1e-6
+
+
+def test_rotated_phantom_box_never_reintroduces_motion_out_of_the_base_box():
+    """Clipping in the (rotated) phantom box frame must not put back a component the base box removed.
+    Case found by a random search against the 13 Oct filter: it commanded +11.6 mm/s through base x max
+    (more than the 4.4 mm/s requested); the fixed filter stops."""
+    from scipy.spatial.transform import Rotation
+    L = lim()
+    T_bp = np.eye(4)
+    T_bp[:3, :3] = Rotation.from_euler('z', 73.89, degrees=True).as_matrix()
+    L.extra_boxes = [(T_bp, np.array([0.07967, -0.56844, 0.1]), np.array([0.27967, -0.46744, 0.3]))]
+    T = probe_down((0.4999, 0.0427, 0.2))            # at the base box x max (0.5), at a phantom box face
+    v_cmd = np.array([0.0044, 0.0435, 0.0])
+    v, _, flags = safety.filter_command(L, T, v_cmd, np.zeros(3), v_cmd, np.zeros(3), 0.008)
+    assert v[0] <= 1e-12, v                           # never further out through base x max
+    assert flags & safety.FLAG_ENVELOPE
+    R = T_bp[:3, :3]
+    pf, vf = R.T @ T[:3, 3], R.T @ v
+    nf = pf + vf * L.lookahead_s
+    for k in range(3):                                # nor out of the phantom box
+        assert not (nf[k] > L.extra_boxes[0][2][k] and vf[k] > 0) and not (nf[k] < L.extra_boxes[0][1][k] and vf[k] < 0)
+
+
+def test_check_targets_local_cone_only_when_asked():
+    from scipy.spatial.transform import Rotation
+    L = lim()
+    L.local_axis = np.array([0.0, 0.0, -1.0])
+    T = probe_down()
+    T[:3, :3] = Rotation.from_euler('x', 15, degrees=True).as_matrix() @ T[:3, :3]   # 15 deg > 10 local
+    assert safety.check_targets(L, [T]) is None                   # transit moves: global cone only (30)
+    msg = safety.check_targets(L, [T], local_cone=True)
+    assert msg and 'tilt_cone' in msg

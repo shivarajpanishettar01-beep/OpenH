@@ -365,6 +365,9 @@ def print_review(rig, km, noise=None):
           + (f': {", ".join(miss)}' if miss else ''))
     print(f'keyboard teleop needs keymap.yaml speeds + force_step_n: {len(kmiss)} still null'
           + (f': {", ".join(kmiss)}' if kmiss else ''))
+    if not km.get('device') and not km.get('allow_any_keyboard'):
+        print('keyboard teleop also needs keymap.yaml device: the operator keyboard '
+              '(ls /dev/input/by-id/ | grep event-kbd); with null it refuses to move the arm')
     issues = validate(rig, km, noise)
     for lvl, m in issues:
         print(f'  {lvl:5s} {m}')

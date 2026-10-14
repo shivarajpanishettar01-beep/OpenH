@@ -657,3 +657,105 @@ def test_status_keeps_publishing_while_state_is_stale(sim):
     time.sleep(0.2)
     assert len(published) > 10 and set(published) == {rc.ST.MODE_IDLE}
     node.destroy_node()
+
+
+# ---- 14 Oct 2026 review fixes
+
+def test_lift_setpoint_restored_when_perturbation_is_cut_short(sim):
+    """A lift that ends early (preempted, FAULT) must not leave the lifted setpoint behind: the next
+    in-contact hold or recontact would otherwise press at 0 N."""
+    from usrig_interfaces.srv import DescendToContact
+    node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+    assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+    base = node.force_setpoint
+    # preempted by another motion
+    m = node._set_motion(rc.Perturbation(node, 'lift', [-10.0, 0, 0], 5.0, base))
+    time.sleep(0.05)
+    assert node.force_setpoint == 0.0
+    node._set_motion(rc.Teleop(node, True))
+    assert m.done.is_set() and m.message == 'preempted'
+    assert node.force_setpoint == base
+    # ended by a FAULT
+    m = node._set_motion(rc.Perturbation(node, 'lift', [-3.0, 0, 0], 5.0, base))
+    time.sleep(0.05)
+    assert node.force_setpoint == pytest.approx(base - 3.0)
+    node._fault(0, 'test fault')
+    time.sleep(0.05)
+    assert m.done.is_set() and node.force_setpoint == base
+    node.destroy_node()
+
+
+def test_held_teleop_is_not_labelled_expert(sim):
+    """In-contact hold after a descent (episode flow) and the operator's pause are not expert actions."""
+    from std_srvs.srv import SetBool
+    from usrig_interfaces.srv import DescendToContact
+    node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+    assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+    twist(node)
+    time.sleep(0.05)
+    snap = node.status.snapshot()                  # (fsp, mode, flags, source, expert)
+    assert snap[1] == rc.ST.MODE_TELEOP and snap[3] == rc.ST.SOURCE_NONE and snap[4] is False
+    assert node._srv_teleop(SetBool.Request(data=True), SetBool.Response()).success
+    for _ in range(5):
+        twist(node)
+        time.sleep(0.01)
+    snap = node.status.snapshot()
+    assert snap[3] == rc.ST.SOURCE_TELEOP and snap[4] is True
+    cmd(node, {'cmd': 'hold'})                     # operator P
+    time.sleep(0.05)
+    assert node.status.snapshot()[4] is False
+    cmd(node, {'cmd': 'hold'})
+    node._srv_teleop(SetBool.Request(data=False), SetBool.Response())   # success hold
+    time.sleep(0.05)
+    snap = node.status.snapshot()
+    assert snap[1] == rc.ST.MODE_TELEOP and snap[3] == rc.ST.SOURCE_NONE and snap[4] is False
+    node.destroy_node()
+
+
+def test_ack_refused_while_state_is_stale(sim):
+    import dataclasses
+    node, robot = sim(p0=(0.65, 0.0, 0.2))           # outside the box -> FAULT
+    time.sleep(0.1)
+    assert node.status.mode == rc.ST.MODE_FAULT
+    robot.T[0, 3] = 0.5                              # back inside, but the state stream is stale
+    fresh = robot.get_latest
+    robot.get_latest = lambda: dataclasses.replace(fresh(), stamp_ns=time.time_ns() - 10**9)
+    cmd(node, {'cmd': 'ack_fault'})
+    assert node.status.mode == rc.ST.MODE_FAULT
+    robot.get_latest = fresh
+    cmd(node, {'cmd': 'ack_fault'})
+    assert node.status.mode != rc.ST.MODE_FAULT
+    node.destroy_node()
+
+
+def test_run_path_outside_local_tilt_cone_refused_before_moving(sim, monkeypatch):
+    """A fan wider than the local cone (D10) is refused, not silently clipped to the cone."""
+    from usrig_interfaces.srv import RunPath
+    node, robot = sim(surface_z=0.19)
+    monkeypatch.setattr(rc.RobotControlNode, '_phantom_T', lambda self: np.eye(4))
+    node.in_contact = True
+    cmd(node, {'cmd': 'set_local_tilt_axis', 'axis_base': [0, 0, -1]})   # cone 10 deg around straight down
+    req = RunPath.Request()
+    for ang in (-15.0, 0.0, 15.0):                   # fan +-15 deg about probe x
+        T = robot.T.copy()
+        T[:3, :3] = robot.T[:3, :3] @ Rotation.from_euler('x', ang, degrees=True).as_matrix()
+        req.waypoints.append(geometry.fill_pose_msg(PoseStamped().pose, T))
+    req.speed_mm_s = 10.0
+    res = node._srv_run_path(req, RunPath.Response())
+    assert not res.success and 'refused before moving' in res.message and 'tilt_cone' in res.message
+    node.destroy_node()
+
+
+def test_move_clears_previous_local_tilt_cone(sim):
+    from usrig_interfaces.srv import MoveToPose
+    node, robot = sim()
+    cmd(node, {'cmd': 'set_local_tilt_axis', 'axis_base': [0, 0, -1]})
+    T = robot.T.copy()
+    T[:3, :3] = Rotation.from_euler('x', 20, degrees=True).as_matrix() @ T[:3, :3]   # 20 deg: outside 10
+    req = MoveToPose.Request()
+    req.target.header.frame_id = 'base'
+    geometry.fill_pose_msg(req.target.pose, T)
+    res = node._srv_move(req, MoveToPose.Response())
+    assert res.success, res.message
+    assert node.lim.local_axis is None
+    node.destroy_node()

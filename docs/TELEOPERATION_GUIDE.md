@@ -23,8 +23,10 @@ Requested (`/teleop/twist`), executed (`/robot/cmd_executed`, after the filter) 
 2. `keymap.yaml`: `speeds.*` and `force_step_n` (your values, below the `rig.yaml` caps; checked at start).
    Both with `ros2 run usrig_robot rig_setup` (sections `speeds`, `force`, `motion`, `keyboard`).
 3. `keymap.yaml device:` = the `/dev/input/by-id/...-event-kbd` path of a **dedicated operator keyboard**.
-   evdev reads the device regardless of window focus: with `null` the first keyboard found is used, and keys
-   typed into any window would reach the robot.
+   evdev reads the device regardless of window focus, and Ctrl is the hold-to-move enable, so with `null`
+   shortcuts typed in any terminal (Ctrl+C, Ctrl+Z, Ctrl+S, ...) would move the arm. `keyboard_teleop`
+   therefore **refuses to publish twists with `device: null`** (14 Oct 2026); `allow_any_keyboard: true` is
+   for a bench test with the arm out of reach only. Find the path with `ls /dev/input/by-id/ | grep event-kbd`.
 4. User in the `input` group (evdev access).
 5. Controller in **Remote Control**, TCP = probe face (`probe.tcp_already_includes_probe: true`), payload set.
 
@@ -94,7 +96,8 @@ motion is **never** restarted: teleop must be enabled again.
 
 ## Status indicators
 `status_console` (refreshed once per second; a status not updated for 0.5 s (control) or 2 s (QC) is marked NO UPDATE): robot mode (IDLE MOVING DESCENT TELEOP PERTURB RETRACT FAULT),
-safety flags (envelope, tilt, force_max, deadman, speed), action source and expert flag, force setpoint,
+safety flags (envelope, tilt, force_max, deadman, speed), action source and expert flag (while teleop is held,
+by the episode flow or by P, the robot only holds in force mode: source `none`, not expert), force setpoint,
 episode / recording state, QC summary. A flag shown during teleop means your command was **limited**:
 - `speed` / accel: you asked for more than the cap; the executed command is clamped;
 - `envelope` / `tilt`: that direction is blocked at the limit, others still move;
