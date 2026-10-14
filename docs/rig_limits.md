@@ -1,6 +1,11 @@
 # Filling rig.yaml (safety limits and robot setup)
 
-`robot_control` refuses to start while any of these is null and names each one. `ros2 run usrig_qc rig_status` lists the ones still null (26 of 27 today). Values come from
+`robot_control` refuses to start while any of these is null and names each one. Enter them with the guided tool (meaning, unit and source of each value; `m` measures what the robot can
+measure; consistency checks before writing; the old files and a change record are kept in `~/data/calibration/`):
+```bash
+ros2 run usrig_robot rig_setup
+```
+`--section robot|workspace|speeds|force|motion|keyboard` for one part, `--review` to only check. Values come from
 your measurements and judgement; `rig_measure` (read-only, never moves the robot) helps with the
 ones that can be measured. Units are in the key names.
 
@@ -28,7 +33,7 @@ ones that can be measured. Units are in the key names.
 | `motion.transit_speed_mm_s`, `descent_speed_mm_s` | approach / descent speeds | below the speed cap; descent slow enough to stop on contact |
 | `motion.descent_max_travel_mm` | give up descending after this travel | from the approach offset (50 mm) plus tolerance |
 | `motion.retract_distance_mm` | retract along the probe axis | clears the phantom |
-| `rtde.force_mode_limits` | 6 values for forceMode type 2: max speed along the compliant probe axis (m/s), allowed deviation on the other axes (m, rad) | protocol; check behaviour in the URSim dry run |
+| `rtde.force_mode_limits` (required) | 6 values for forceMode type 2: max speed along the compliant probe axis (m/s), allowed deviation on the other axes (m, rad) | protocol; check behaviour in the URSim dry run |
 | `rtde.force_mode_damping` | optional (0-1); null = controller default | |
 
 Before starting control: put the UR7e in **Remote Control** (pendant, top right), power on and release

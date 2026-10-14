@@ -53,10 +53,12 @@ already running from an earlier launch. The last lines say which tests can start
 
 **Before**
 - PC on the robot's LAN; `rig.yaml robot.ip` set. Check `ping <robot ip>` answers.
-- On the pendant: robot powered on, brakes released. Read the active TCP (Installation > General > TCP) and
-  payload (Installation > General > Payload) and write them into `rig.yaml`: `robot.tcp_setting`,
-  `robot.payload_kg`, `robot.payload_cog_m`, plus `probe.type`. Saved poses store these values, so set them
-  **before** saving poses.
+- On the pendant: robot powered on, brakes released. Enter the robot values (IP, TCP from Installation >
+  General > TCP, probe type; the payload is read from the controller with `m`):
+  ```bash
+  ros2 run usrig_robot rig_setup --section robot
+  ```
+  Saved poses store the TCP / payload / probe type, so set them **before** saving poses.
 - Nothing is commanded in this test; the limits can still be null.
 
 **1.1 Start the robot (terminal 1)**
@@ -122,7 +124,15 @@ ros2 run usrig_qc bag_check ~/data/checks/test1_robot_<date_time> --expect robot
 **Pass**: rate 500 Hz (controller clock), 0 samples lost, `/joint_states`, `/robot/tcp_pose`, `/robot/wrench`
 with the same count as `/robot/state`, and "TCP moved ... mm" matching what you did.
 
-**1.6 Optional: freedrive check** (pedal set up)
+**1.6 Measure the workspace while you are here** (read-only; the robot connected, you move it by pendant or
+freedrive). `m` measures the box from corners you touch with the probe tip, the tilt axis with the probe square to
+the phantom, and the free-air F/T noise for the contact thresholds; the other values you type:
+```bash
+ros2 run usrig_robot rig_setup --section workspace force
+```
+`ros2 run usrig_robot rig_setup --review` shows what is still null and checks the values against each other.
+
+**1.7 Optional: freedrive check** (pedal set up)
 ```bash
 ros2 run usrig_freedrive freedrive_check
 ```
@@ -266,7 +276,7 @@ ros2 run usrig_qc bag_check ~/data/checks/test3_camera_robot_<date_time> --expec
 
 ## Test 4: everything together (final check)
 
-**Before**: tests 1-3 passed, calibrations stored. For motion with robot_control: all `rig.yaml` values robot_control needs (26 null today; `ros2 run usrig_qc rig_status` lists them)
+**Before**: tests 1-3 passed, calibrations stored. For motion with robot_control: all `rig.yaml` values robot_control needs (27 null today) and the keymap speeds, entered with `ros2 run usrig_robot rig_setup`
 and the keymap speeds filled (`rig_limits.md`), and `first_motion_checklist.md` sections B-D done. Without
 them, run test 4 with `control:=false` and freedrive or the pendant.
 

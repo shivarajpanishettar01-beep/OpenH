@@ -13,7 +13,8 @@ Every terminal: `source ~/OpenH/scripts/env.sh`.
 - [ ] Software checks pass on the capture PC: `bash scripts/test.sh` and `python export/pipeline_check.py run`.
       (The URSim dry run was skipped by decision on 13 Oct 2026: sections C-D are the first motion of this
       control code on any robot, so run them slowly, one item at a time.)
-- [ ] Every limit in `rig.yaml` is filled from your measurements and protocol (`docs/rig_limits.md`).
+- [ ] Every limit in `rig.yaml` is filled from your measurements and protocol (`docs/rig_limits.md`), entered with
+      `ros2 run usrig_robot rig_setup`; `rig_setup --review` shows no ERROR.
       For this first session use **low speed and acceleration caps** (your choice) and a small force band.
 - [ ] `keymap.yaml` speeds and `force_step_n` are set and below the `rig.yaml` caps (keyboard_teleop refuses otherwise).
 - [ ] A **dedicated operator keyboard** is set in `keymap.yaml device:` (its /dev/input/by-id path): evdev reads

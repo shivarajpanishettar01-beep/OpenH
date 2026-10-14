@@ -18,6 +18,7 @@ RIG = {
     'motion': {'transit_speed_mm_s': 30.0, 'descent_speed_mm_s': 5.0,
                'descent_max_travel_mm': 50.0, 'retract_distance_mm': 50.0},
     'probe': {'tcp_already_includes_probe': True},
+    'rtde': {'force_mode_limits': [0.1] * 6},
 }
 
 

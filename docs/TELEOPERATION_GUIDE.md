@@ -21,6 +21,7 @@ Requested (`/teleop/twist`), executed (`/robot/cmd_executed`, after the filter) 
 ## Setup (once)
 1. `rig.yaml`: every limit filled (`rig_limits.md`). `robot_control` and `keyboard_teleop` refuse to start otherwise.
 2. `keymap.yaml`: `speeds.*` and `force_step_n` (your values, below the `rig.yaml` caps; checked at start).
+   Both with `ros2 run usrig_robot rig_setup` (sections `speeds`, `force`, `motion`, `keyboard`).
 3. `keymap.yaml device:` = the `/dev/input/by-id/...-event-kbd` path of a **dedicated operator keyboard**.
    evdev reads the device regardless of window focus: with `null` the first keyboard found is used, and keys
    typed into any window would reach the robot.

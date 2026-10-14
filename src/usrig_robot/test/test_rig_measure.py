@@ -13,9 +13,9 @@ RIG = Path(__file__).resolve().parents[2] / 'usrig_bringup/config/rig.yaml'
 def test_write_key_keeps_comments_and_parses(tmp_path):
     p = tmp_path / 'rig.yaml'
     shutil.copy(RIG, p)
-    write_key(p, 'min', [-0.5, -0.6, 0.05])
-    write_key(p, 'max', [0.1, -0.2, 0.4])
-    write_key(p, 'tilt_reference_axis_base', [0.0, 0.0, -1.0])
+    write_key(p, 'limits.workspace_box_base_m.min', [-0.5, -0.6, 0.05])
+    write_key(p, 'limits.workspace_box_base_m.max', [0.1, -0.2, 0.4])
+    write_key(p, 'limits.tilt_reference_axis_base', [0.0, 0.0, -1.0])
     cfg = yaml.safe_load(p.read_text())
     box = cfg['limits']['workspace_box_base_m']
     assert box == {'min': [-0.5, -0.6, 0.05], 'max': [0.1, -0.2, 0.4]}
@@ -38,3 +38,19 @@ def test_force_tilt_table_spread():
     out, sm = force_tilt_table(rows, np.array([0, 0, -1.0]))
     assert abs(out[1]['tilt_deg'] - 20) < 1e-6
     assert abs(sm['f_axis_spread_n'] - np.cos(np.radians(20))) < 1e-6 and abs(sm['f_norm_max_n'] - 1.0) < 1e-9
+
+
+def test_write_yaml_path_never_confuses_same_named_keys(tmp_path):
+    import pytest
+    from usrig_common import config
+    p = tmp_path / 'rig.yaml'
+    shutil.copy(RIG, p)
+    config.write_yaml_path(p, 'limits.phantom_box_m.pmax', [0.1, 0.1, 0.2])
+    config.write_yaml_path(p, 'freedrive.input', 3)
+    config.write_yaml_path(p, 'limits.force_band_n', [2.0, 8.0])
+    cfg = yaml.safe_load(p.read_text())
+    assert cfg['limits']['phantom_box_m']['pmax'] == [0.1, 0.1, 0.2] and cfg['limits']['phantom_box_m']['pmin'] is None
+    assert cfg['freedrive']['input'] == 3 and cfg['limits']['force_band_n'] == [2.0, 8.0]
+    assert '# [low, high] allowed force setpoint' in p.read_text()
+    with pytest.raises(KeyError):
+        config.write_yaml_path(p, 'limits.no_such_key', 1)

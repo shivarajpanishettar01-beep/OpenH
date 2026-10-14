@@ -39,6 +39,7 @@ MOTION_LIMITS = (
     'motion.descent_max_travel_mm',
     'motion.retract_distance_mm',
     'probe.tcp_already_includes_probe',
+    'rtde.force_mode_limits',          # RtdeBackend needs all 6; null used to crash robot_control at start
 )
 
 
@@ -150,6 +151,49 @@ def write_yaml_key(path, key, value):
     if n != 1:
         raise KeyError(f'{key} not found in {path}')
     p.write_text(new)
+
+
+def _split_comment(rest):
+    """('value', '# comment' or '') for the text after 'key:' on one line."""
+    import re
+    m = re.search(r'(^|\s)#', rest)
+    if not m:
+        return rest.strip(), ''
+    return rest[:m.start()].strip(), rest[m.start():].strip()
+
+
+def write_yaml_path(path, dotted, value):
+    """Set the value of a nested key given by its full dotted path (e.g. limits.workspace_box_base_m.min),
+    keeping every comment and every other line as it is. Raises KeyError if the path is not in the file.
+    Unlike write_yaml_key, keys with the same name in different sections (min / max / input) are never confused."""
+    import re
+    p = Path(path)
+    lines = p.read_text().split('\n')
+    target = dotted.split('.')
+    flow = yaml.safe_dump(value, default_flow_style=True, width=10**6).strip()
+    if flow.endswith('...'):
+        flow = flow[:-3].strip()
+    stack = []
+    for i, line in enumerate(lines):
+        if line.lstrip().startswith('#'):
+            continue
+        m = re.match(r'^(\s*)([A-Za-z0-9_]+):(.*)$', line)
+        if not m:
+            continue
+        ind = len(m.group(1))
+        while stack and stack[-1][0] >= ind:
+            stack.pop()
+        keys = [k for _, k in stack] + [m.group(2)]
+        if keys == target:
+            _, comment = _split_comment(m.group(3))
+            new = f'{m.group(1)}{m.group(2)}: {flow}'
+            if comment:
+                new = new.ljust(max(len(new) + 3, 36)) + comment
+            lines[i] = new
+            p.write_text('\n'.join(lines))
+            return
+        stack.append((ind, m.group(2)))
+    raise KeyError(f'{dotted} not found in {path}')
 
 
 def expand(path: str, **fmt) -> Path:
