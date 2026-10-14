@@ -563,6 +563,9 @@ class RobotControlNode(Node):
         if s is None or (now_ns() - s.stamp_ns) * 1e-9 > self.stale_state_s:
             if self.status.mode not in (ST.MODE_IDLE, ST.MODE_FAULT):
                 self._fault(0, 'robot state stale')
+            # keep /robot/control_status alive: robot_state_cpp would otherwise relabel the samples
+            # (IDLE / freedrive) while robot_control still owns the robot
+            self._publish_status()
             return
         T = geometry.pose_from_ur(s.tcp_pose)
         hard = safety.hard_violations(self.lim, T, s.wrench, s.tcp_speed)

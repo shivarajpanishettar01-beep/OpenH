@@ -645,3 +645,15 @@ def test_motion_services_refused_while_faulted(sim):
     r = node._srv_teleop(SetBool.Request(data=True), SetBool.Response())
     assert not r.success and 'FAULT' in r.message
     node.destroy_node()
+
+
+def test_status_keeps_publishing_while_state_is_stale(sim):
+    import dataclasses
+    node, robot = sim()
+    published = []
+    node.pub_status.publish = lambda m: published.append(m.mode)
+    fresh = robot.get_latest
+    robot.get_latest = lambda: dataclasses.replace(fresh(), stamp_ns=time.time_ns() - 10**9)
+    time.sleep(0.2)
+    assert len(published) > 10 and set(published) == {rc.ST.MODE_IDLE}
+    node.destroy_node()

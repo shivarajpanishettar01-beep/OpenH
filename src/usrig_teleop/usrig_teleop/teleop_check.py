@@ -33,10 +33,14 @@ class Recorder:
 
     def __init__(self, node):
         self.lock = threading.Lock()
-        self.flags, self.modes, self.cmd_max = 0, set(), np.zeros(6)
         self.active = False
+        self.reset()
         node.create_subscription(RobotState, '/robot/state', self._state, 50)
         node.create_subscription(TwistStamped, '/robot/cmd_executed', self._cmd, 50)
+
+    def reset(self):
+        with self.lock:
+            self.flags, self.modes, self.cmd_max = 0, set(), np.zeros(6)
 
     def _state(self, m):
         if self.active:
@@ -69,6 +73,7 @@ def run_axis(node, cli, pub, rec, axis, speed, seconds, rate_hz=100.0):
     i, rot = mc.AXES[axis]
     tw = np.zeros(6)
     tw[i + (3 if rot else 0)] = np.radians(speed) if rot else speed / 1000.0
+    rec.reset()                                      # each motion reports only its own flags
     T0 = node.averaged_tcp_pose()
     for _ in range(int(0.1 * rate_hz)):              # input alive before teleop is enabled (no deadman blip)
         send(pub, np.zeros(6))

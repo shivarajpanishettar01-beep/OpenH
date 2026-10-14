@@ -65,13 +65,19 @@ def main(argv=None):
                           QoSProfile(depth=10, reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST))
     threading.Thread(target=rclpy.spin, args=(n,), daemon=True).start()
     T_ref = None
+    stdin_open = sys.stdin is not None and not sys.stdin.closed
     try:
         while rclpy.ok():
-            if select.select([sys.stdin], [], [], 1.0 / a.rate)[0]:
-                line = sys.stdin.readline().strip().lower()
-                if line == 'q':
+            if stdin_open and select.select([sys.stdin], [], [], 1.0 / a.rate)[0]:
+                raw = sys.stdin.readline()
+                if raw == '':                  # EOF (no terminal, e.g. started from a launch file)
+                    stdin_open = False
+                    continue
+                if raw.strip().lower() == 'q':
                     break
                 T_ref = None
+            elif not stdin_open:
+                time.sleep(1.0 / a.rate)
             with lock:
                 m, t, hist = st['m'], st['t'], list(st['hist'])
             if m is None:

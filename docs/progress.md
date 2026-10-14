@@ -21,7 +21,7 @@ GR00T-H is out of scope for now (separate task).
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
-**Code base** (11 ROS 2 packages, 124 tests, fresh clone builds and passes in a clean shell)
+**Code base** (11 ROS 2 packages, 125 tests, fresh clone builds and passes in a clean shell)
 - Mode packages (14 Oct): `usrig_teleop`, `usrig_presets` (waypoints / paths / plans moved from usrig_episode),
   `usrig_freedrive`; a check per mode that prints the pose change on the real arm (`teleop_check`,
   `preset_check`, `freedrive_check`) and `pose_monitor` (`REAL_ROBOT_CHECKS.md`). Freedrive works in Remote
