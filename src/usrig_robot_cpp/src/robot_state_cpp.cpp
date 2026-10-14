@@ -288,12 +288,24 @@ private:
     set_rt();
     const double period = 1.0 / freq_;
     auto pkg = std::make_unique<urcl::rtde_interface::DataPackage>(kOutputs);  // pre-allocated, reused
+    auto last_ok = std::chrono::steady_clock::now();
     while (!stop_ && rclcpp::ok()) {
       if (!client_->getDataPackageBlocking(pkg)) {
         ++read_failures_;
+        // ur_client_library does not resume the stream after the controller drops it (measured 14 Oct 2026:
+        // still no data 30 s after the controller was back). Exit so the launch file restarts this node, which
+        // then reconnects (or fails fast while the robot is still away).
+        if (std::chrono::duration<double>(std::chrono::steady_clock::now() - last_ok).count() > kStreamLostExitS) {
+          RCLCPP_FATAL(get_logger(), "no robot data for %.0f s: exiting so the launch file restarts and reconnects",
+                       kStreamLostExitS);
+          stream_lost_ = true;
+          rclcpp::shutdown();
+          return;
+        }
         std::this_thread::sleep_for(std::chrono::milliseconds(10));  // connection problem: do not spin
         continue;
       }
+      last_ok = std::chrono::steady_clock::now();
       const int64_t stamp_ns = now_ns();  // one stamp per sample, taken at reception
       double ctrl_t = 0;
       urcl::vector6d_t q{}, qd{}, pose{}, speed{}, force{};
@@ -464,6 +476,18 @@ private:
       p50 = d[d.size() / 2];
       p99 = d[std::min(d.size() - 1, static_cast<size_t>(0.99 * d.size()))];
     }
+    if (samples == 0) {
+      ++silent_s_;
+      RCLCPP_ERROR(get_logger(),
+                   "NO ROBOT DATA for %ld s (read failures %ld): controller rebooting, cable or network? Everything "
+                   "downstream is stale; restart this node when the robot is back",
+                   silent_s_, read_failures_.exchange(0));
+      return;
+    }
+    if (silent_s_ > 0) {
+      RCLCPP_WARN(get_logger(), "robot data back after %ld s without samples", silent_s_);
+      silent_s_ = 0;
+    }
     RCLCPP_INFO(get_logger(),
                 "RTDE %ld Hz, repeated ctrl time %ld, gaps %ld (samples lost %ld), jitter(stamp-ctrl) "
                 "p50=%.3f ms p99=%.3f ms, read failures %ld, control status %s, freedrive samples %ld",
@@ -484,6 +508,11 @@ private:
   int freedrive_input_ = -1;
   int64_t status_t_ns_ = 0;
   long nocmd_counter_ = 0;
+  long silent_s_ = 0;
+
+public:
+  static constexpr double kStreamLostExitS = 5.0;
+  std::atomic<bool> stream_lost_{false};
   std::atomic<long> freedrive_samples_{0};
   rclcpp::Subscription<ControlStatus>::SharedPtr sub_status_;
   rclcpp::TimerBase::SharedPtr stats_timer_;
@@ -504,13 +533,50 @@ private:
 int main(int argc, char** argv)
 {
   rclcpp::init(argc, argv);
+  // Connecting (RTDE handshake + start) runs in its own thread: ur_client_library can block there without a
+  // timeout when the controller accepts the connection but does not stream (e.g. still booting), and Ctrl+C
+  // would then be ignored. Measured 14 Oct 2026 on a half-booted URSim: stuck, needed SIGKILL.
+  constexpr double kConnectTimeoutS = 30.0;
+  std::shared_ptr<RobotStateCpp> node;
+  std::exception_ptr err;
+  std::atomic<bool> done{false};
+  std::thread connect([&] {
+    try {
+      node = std::make_shared<RobotStateCpp>();
+    } catch (...) {
+      err = std::current_exception();
+    }
+    done = true;
+  });
+  const auto t0 = std::chrono::steady_clock::now();
+  while (!done) {
+    if (!rclcpp::ok()) {
+      fprintf(stderr, "[robot_state_cpp] interrupted while connecting to the robot\n");
+      std::_Exit(130);
+    }
+    if (std::chrono::duration<double>(std::chrono::steady_clock::now() - t0).count() > kConnectTimeoutS) {
+      fprintf(stderr, "[robot_state_cpp] the robot accepted the connection but did not start streaming within %.0f s "
+                      "(controller still booting? RTDE busy?): stopping. Start again when the pendant shows the robot "
+                      "is ready.\n", kConnectTimeoutS);
+      std::_Exit(2);
+    }
+    std::this_thread::sleep_for(std::chrono::milliseconds(50));
+  }
+  connect.join();
   int rc = 0;
-  try {
-    auto node = std::make_shared<RobotStateCpp>();
+  if (err) {
+    try {
+      std::rethrow_exception(err);
+    } catch (const std::exception& e) {
+      fprintf(stderr, "[robot_state_cpp] %s\n", e.what());
+      rc = 2;
+    }
+  } else {
     rclcpp::spin(node);
-  } catch (const std::exception& e) {
-    fprintf(stderr, "[robot_state_cpp] %s\n", e.what());
-    rc = 2;
+    if (node->stream_lost_) {
+      rc = 3;                                  // non-zero: the launch file restarts the node
+    }
+    node.reset();
   }
   rclcpp::shutdown();
   return rc;

@@ -116,8 +116,8 @@ def store(a, rig_file, best, T_flange_cam, n, capture_dir, board_cfg):
     if a.write_rig:
         if T_flange_cam is None:
             raise SystemExit('not written: robot.tcp_setting is null')
-        config.write_yaml_key(rig_file, 'wrist_cam_cali_mtx', np.round(T_flange_cam, 7).tolist())
-        config.write_yaml_key(rig_file, 'wrist_cam_cali_info', info)
+        config.write_yaml_path(rig_file, 'calibration.wrist_cam_cali_mtx', np.round(T_flange_cam, 7).tolist())
+        config.write_yaml_path(rig_file, 'calibration.wrist_cam_cali_info', info)
         print(f'written to {rig_file}: calibration.wrist_cam_cali_mtx + wrist_cam_cali_info')
     if a.session:
         update_session_json(a.session, wrist_cam_cali_mtx=None if T_flange_cam is None else T_flange_cam.tolist(),

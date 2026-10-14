@@ -43,7 +43,10 @@ def main():
     if a.write and tcp is None:
         raise SystemExit('rig.yaml robot.tcp_setting is null: needed to express the tip in the flange frame')
 
-    r = connect(ip)
+    try:
+        r = connect(ip)
+    except RuntimeError as e:
+        raise SystemExit(str(e))
     poses = []
     try:
         print(__doc__.split('\n\n')[1])
@@ -92,9 +95,9 @@ def main():
         print('probe: not written (a flat probe face cannot be pivoted precisely); '
               'if you trust the value, put it in rig.yaml probe.tip_offset_flange_m yourself')
         return
-    # rig.yaml lists pointer: before probe:, so these keys are the pointer's
-    config.write_yaml_key(rig_file, 'tip_offset_flange_m', [round(float(v), 6) for v in tip_flange])
-    config.write_yaml_key(rig_file, 'tip_calibration', {
+    # by full path: tip_offset_flange_m exists under both pointer: and probe:
+    config.write_yaml_path(rig_file, 'pointer.tip_offset_flange_m', [round(float(v), 6) for v in tip_flange])
+    config.write_yaml_path(rig_file, 'pointer.tip_calibration', {
         'date': time.strftime('%Y-%m-%d %H:%M'), 'method': 'pivot', 'n_poses': res['n_poses'],
         'rms_mm': round(res['rms_mm'], 3), 'max_mm': round(res['max_mm'], 3),
         'orientation_spread_deg': round(res['orientation_spread_deg'], 1), 'file': str(raw)})

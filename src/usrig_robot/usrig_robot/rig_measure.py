@@ -20,7 +20,15 @@ import numpy as np
 from usrig_common import config, geometry
 
 
-def connect(ip):
+def connect(ip, timeout_s=3.0):
+    """Read-only RTDE connection. Fails within timeout_s on an unreachable robot instead of blocking
+    (a blocked TCP connect takes minutes and ignores Ctrl+C)."""
+    import socket
+    try:
+        socket.create_connection((ip, 30004), timeout=timeout_s).close()
+    except OSError as e:
+        raise RuntimeError(f'robot {ip}:30004 (RTDE) not reachable within {timeout_s:g} s ({e}): check robot.ip, '
+                           'the cable / PC address, and that the controller is booted') from e
     import rtde_receive
     return rtde_receive.RTDEReceiveInterface(ip)
 
@@ -176,7 +184,10 @@ def main():
     ip = a.ip or config.get_path(rig, 'robot.ip')
     if not ip:
         raise SystemExit('give --ip (rig.yaml robot.ip is null)')
-    r = connect(ip)
+    try:
+        r = connect(ip)
+    except RuntimeError as e:
+        raise SystemExit(str(e))
     try:
         {'pose': cmd_pose, 'box': cmd_box, 'tilt-axis': cmd_tilt_axis, 'force-noise': cmd_force_noise,
          'force-tilt': cmd_force_tilt}[a.what](r, a)

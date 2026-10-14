@@ -59,8 +59,10 @@ def _setup(context):
              'freedrive_input': int(-1 if (rig.get('freedrive') or {}).get('input') is None else rig['freedrive']['input'])}
         if T:          # launch rejects empty lists: pass the registration only when it exists
             p['T_base_phantom'] = T
+        # respawn: after a lost stream (controller reboot, cable) the node exits and reconnects; while the robot
+        # is unreachable each attempt fails within ~3 s with a message, then retries
         actions.append(Node(package='usrig_robot_cpp', executable='robot_state_cpp', output='screen',
-                            parameters=[p]))
+                            parameters=[p], respawn=True, respawn_delay=3.0))
     else:
         actions.append(LogInfo(msg='WARNING: robot_state_cpp not built (ros-humble-ur-client-library missing); '
                                    'using the Python robot_state, which loses samples under load'))

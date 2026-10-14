@@ -21,7 +21,7 @@ GR00T-H is out of scope for now (separate task).
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
-**Code base** (11 ROS 2 packages, 147 tests, fresh clone builds and passes in a clean shell)
+**Code base** (11 ROS 2 packages, 148 tests, fresh clone builds and passes in a clean shell)
 - Guided setup (14 Oct): `ros2 run usrig_robot rig_setup` enters the robot_control / keyboard values one by one
   (meaning, unit, source; `m` measures box, tilt axis, payload, F/T noise read-only), checks them against each
   other, keeps the old files and a change record; it never proposes a value. `rtde.force_mode_limits` is now

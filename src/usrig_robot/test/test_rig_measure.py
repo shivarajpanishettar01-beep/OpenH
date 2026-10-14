@@ -54,3 +54,18 @@ def test_write_yaml_path_never_confuses_same_named_keys(tmp_path):
     assert '# [low, high] allowed force setpoint' in p.read_text()
     with pytest.raises(KeyError):
         config.write_yaml_path(p, 'limits.no_such_key', 1)
+
+
+def test_pointer_calibration_writes_the_pointer_not_the_probe(tmp_path):
+    from usrig_common import config
+    p = tmp_path / 'rig.yaml'
+    shutil.copy(RIG, p)
+    # rig.yaml order swapped (probe before pointer): a first-match writer would hit the probe
+    text = p.read_text()
+    a, b = text.index('\npointer:'), text.index('\nprobe:')
+    c = text.index('\nlimits:')
+    p.write_text(text[:a] + text[b:c] + text[a:b] + text[c:])
+    config.write_yaml_path(p, 'pointer.tip_offset_flange_m', [0.001, 0.002, 0.25])
+    cfg = yaml.safe_load(p.read_text())
+    assert cfg['pointer']['tip_offset_flange_m'] == [0.001, 0.002, 0.25]
+    assert cfg['probe']['tip_offset_flange_m'] is None

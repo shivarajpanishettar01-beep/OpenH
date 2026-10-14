@@ -28,7 +28,7 @@ git clone ~/OpenH /tmp/clean && cd /tmp/clean && env -i HOME=$HOME USER=$USER PA
 |---|---|---|
 | fresh clone + `scripts/build.sh` in an empty environment | exit 0, 9 packages, 30 s | warnings only: CMake "cannot generate a safe runtime search path" (conda vs system libraries, harmless) |
 | same clone + `scripts/test.sh` | 83 passed (before this audit's additions) | |
-| `scripts/test.sh` (final) | **147 passed**, ~98 s | 21 files; fresh clone of 14 Oct: 11 packages build, all pass |
+| `scripts/test.sh` (final) | **148 passed**, ~98 s | 21 files; fresh clone of 14 Oct: 11 packages build, all pass |
 | `pyflakes src export tools` | clean (after removing 6 unused imports) | |
 | `ros2 launch usrig_bringup {robot,micrus,wrist_camera,collect}.launch.py --show-args` | all parse; arguments listed | |
 | `dashboard` offscreen (`QT_QPA_PLATFORM=offscreen`, no topics) | ran 8 s, no exception | |
@@ -93,6 +93,13 @@ README, modality and custom keys.
 
 Not covered: real episodes, Open-H `validate_formatting.py` (not in this repo), GR00T `modality.json`
 against a GR00T release, `torchcodec` decoding (FFmpeg shared libraries missing in `openh-export`; pyav used).
+
+## Robot connection robustness (URSim, 14 Oct 2026)
+| Case | Before | After (measured) |
+|---|---|---|
+| Unreachable IP | each connect attempt blocked ~137 s, Ctrl+C ignored | refused after 3 s with a message (robot_state_cpp, rig_measure, pivot_calib, rig_setup m) |
+| Controller accepts but does not stream (booting) | stuck in startup, Ctrl+C ignored, needed SIGKILL | Ctrl+C exits at once (130); 30 s connect watchdog |
+| Controller drops the stream mid-run | INFO "RTDE 0 Hz" every second, no recovery 30 s after the controller was back | ERROR "NO ROBOT DATA" every second; after 5 s the node exits and robot.launch restarts it; reconnected at ~477 Hz with no manual action |
 
 ## Freedrive (kinesthetic) collection
 | Check | Level | Result |
