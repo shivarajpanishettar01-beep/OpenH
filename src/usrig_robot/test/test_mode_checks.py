@@ -43,7 +43,7 @@ def rig_up(sim, tmp_path):
         ex.add_node(node)
         threading.Thread(target=ex.spin, daemon=True).start()
         tool = ToolNode('check_under_test')
-        tool.scfg['session']['waypoint_dir'] = str(tmp_path)
+        tool.scfg['session']['root'] = str(tmp_path)          # presets go to <tmp>/presets
         nodes.append((ex, node, tool))
         tool.state(5.0)
         return node, robot, tool

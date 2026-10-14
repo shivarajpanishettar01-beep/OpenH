@@ -4,7 +4,7 @@ Session setup, recording, the episode lifecycle, QC and export. The commands are
 Recording and crash recovery were run in simulation (`P4_results.md`); a real session has **not** run
 yet. Every terminal starts with `cd ~/OpenH && source scripts/env.sh`.
 
-Related: `TELEOPERATION_GUIDE.md` (keys, enable, stop), `WAYPOINT_COLLECTION_GUIDE.md` (waypoints,
+Where every file goes: `DATA_LAYOUT.md`. Related: `TELEOPERATION_GUIDE.md` (keys, enable, stop), `WAYPOINT_COLLECTION_GUIDE.md` (waypoints,
 paths, plans), `FREEDRIVE_COLLECTION_GUIDE.md` (guiding the arm by hand with the freedrive pedal),
 `first_motion_checklist.md` (before the first real session).
 
@@ -19,7 +19,7 @@ paths, plans), `FREEDRIVE_COLLECTION_GUIDE.md` (guiding the arm by hand with the
 
 ## 2. Bring up (terminal 1)
 ```bash
-ros2 launch usrig_bringup collect.launch.py session_id:=<SESSION_ID> session_json:=$HOME/data/<SESSION_ID>/session.json control:=true teleop:=true
+ros2 launch usrig_bringup collect.launch.py session_id:=<SESSION_ID> session_json:=$HOME/data/sessions/<SESSION_ID>/session.json control:=true teleop:=true
 ```
 `control:=true` starts `robot_control`, which refuses to start while any `rig.yaml` limit is null, without
 Remote Control, or with a TCP / payload mismatch. Simulation: `sim:=true camera:=false` (micrus
@@ -27,7 +27,7 @@ Remote Control, or with a TCP / payload mismatch. Simulation: `sim:=true camera:
 
 ## 3. Pre-session check (terminal 2): required
 ```bash
-ros2 run usrig_qc presession_check --stage <0|1|2> --session ~/data/<SESSION_ID> --control --planned-hours <h> --mb-per-s <measured>
+ros2 run usrig_qc presession_check --stage <0|1|2> --session ~/data/sessions/<SESSION_ID> --control --planned-hours <h> --mb-per-s <measured>
 ```
 One row per check: micrus command / licence / USB, every stream's rate and stamp offset, clock (no sim
 time), D415 exposure / white balance locked and USB 3, data root, stage gate, `rig.yaml` limits, plan
@@ -39,14 +39,14 @@ without a PASS for that stage, run with `--control` if the robot will be command
 
 ## 4. Calibrations (when needed)
 ```bash
-ros2 run usrig_episode register_phantom ~/data/<SESSION_ID>
+ros2 run usrig_episode register_phantom ~/data/sessions/<SESSION_ID>
 ```
 ```bash
-ros2 run usrig_episode rig_static_tf --ros-args -p session_json:=$HOME/data/<SESSION_ID>/session.json
+ros2 run usrig_episode rig_static_tf --ros-args -p session_json:=$HOME/data/sessions/<SESSION_ID>/session.json
 ```
 Hand-eye (after touching the camera mount):
 ```bash
-ros2 run usrig_episode handeye_calib ~/data/<SESSION_ID>
+ros2 run usrig_episode handeye_calib ~/data/sessions/<SESSION_ID>
 ```
 Full list and order: `calibration.md`. Waypoints need re-verification after a TCP / probe / payload change.
 
@@ -117,7 +117,7 @@ if every check is pass or n/a. Checks: `micrus_fps`, `micrus_frame_gaps`, `setti
 `free_disk`, `wrist_rate`, `wrist_stamp_offset`, `wrist_usb`, `valid_depth`.
 Re-run on any episode:
 ```bash
-ros2 run usrig_qc episode_qc ~/data/<SESSION_ID>/ep_0001
+ros2 run usrig_qc episode_qc ~/data/sessions/<SESSION_ID>/ep_0001
 ```
 
 ## 9. End of session
@@ -127,7 +127,11 @@ ros2 run usrig_qc episode_qc ~/data/<SESSION_ID>/ep_0001
 
 ## 10. Backup
 ```bash
-rsync -a --info=progress2 ~/data/<SESSION_ID> ~/MicrUs/<SESSION_ID> <BACKUP_DEST>/
+rsync -a --info=progress2 ~/data/sessions/<SESSION_ID> ~/data/micrus/<SESSION_ID> <BACKUP_DEST>/
+```
+or everything at once (sessions, micrus recordings, waypoints, paths, plans, presets, phantoms, calibration):
+```bash
+rsync -a --info=progress2 ~/data/ <BACKUP_DEST>/data/
 ```
 Verify the copy before deleting anything from the rig disk. Raw bags and HDF5 stay the master copy;
 the exported dataset is derived from them.
@@ -137,7 +141,7 @@ Only episodes with QC pass, not discarded, not simulated (`sim: true` is refused
 exported. Stage 0 / Stage 1 need `--include-stage0` / `--include-stage1` (open decision 6). Test sessions
 are whole held-out sessions.
 ```bash
-python export/stage_bags.py --sessions ~/data/S1 ~/data/S2 --test-sessions ~/data/S3 -o ~/datasets/staging
+python export/stage_bags.py --sessions ~/data/sessions/S1 ~/data/sessions/S2 --test-sessions ~/data/sessions/S3 -o ~/datasets/staging
 ```
 ```bash
 cd export && python "$BAG_TO_LEROBOT" -c lerobot_rig.yaml -o ~/datasets/us_v21 ~/datasets/staging

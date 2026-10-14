@@ -17,7 +17,7 @@ known trajectory), executed twist, force setpoint, expert flag, ultrasound frame
 values (lossy video, tolerance), ultrasound host stamps, lossless 16-bit depth, g_t status labels,
 instruction, splits and timestamps.
 
-The work folder defaults to <session.sim_root>/_pipeline_check (never the real data root). The
+The work folder defaults to <session.sim_root>/checks/pipeline_check (never the real data root). The
 dataset is named SYNTHETIC_*: stage_bags.py and openh_export.py refuse synthetic episodes without
 --pipeline-check and refuse real episodes with it.
 `verify` is run by `run` in the conda env openh-export (Python 3.12, LeRobot 0.6.0).
@@ -224,9 +224,9 @@ def run(a):
     import yaml
     sys.path.insert(0, str(REPO / 'src' / 'usrig_common'))
     from usrig_common import config
-    from usrig_common.session import data_root
+    from usrig_common.session import data_dir
     scfg = config.load_config('session')
-    work = Path(a.work).expanduser() if a.work else data_root(scfg, sim=True) / '_pipeline_check'
+    work = Path(a.work).expanduser() if a.work else data_dir(scfg, 'checks', sim=True) / 'pipeline_check'
     if work.exists():
         shutil.rmtree(work)
     work.mkdir(parents=True)
@@ -411,7 +411,7 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     sub = ap.add_subparsers(dest='cmd', required=True)
     r = sub.add_parser('run')
-    r.add_argument('--work', help='default: <session.sim_root>/_pipeline_check')
+    r.add_argument('--work', help='default: <session.sim_root>/checks/pipeline_check')
     r.add_argument('--keep', action='store_true', help='keep the work folder')
     r.add_argument('--export-python', default=str(Path.home() / 'miniconda3/envs/openh-export/bin/python'))
     v = sub.add_parser('verify')

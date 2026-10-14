@@ -22,8 +22,10 @@ def config_dir():
     return Path(get_package_share_directory('usrig_bringup')) / 'config'
 
 
-def micrus_cmd(m, session_id, sim):
-    out = Path(os.path.expanduser(m['out_root_sim'] if sim else m['out_root'])) / session_id
+def micrus_cmd(m, session_id, sim, scfg):
+    # <root>/micrus/<session_id> (session.root, or session.sim_root with sim:=true)
+    from usrig_common.session import data_dir
+    out = data_dir(scfg, 'micrus', sim) / session_id
     cmd = [os.path.expanduser(m['command']), m['mode'], '--ros2',
            '--lines', str(m['lines']), '--depth', str(m['depth_mm']),
            '--pixel-mm', str(m['pixel_mm']), '--out', str(out),
@@ -47,7 +49,7 @@ def _setup(context):
     m = session['micrus']
     sid = LaunchConfiguration('session_id').perform(context)
     sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
-    cmd = micrus_cmd(m, sid, sim)
+    cmd = micrus_cmd(m, sid, sim, session)
     t = str(m.get('shutdown_timeout_s', 15))
     return [
         LogInfo(msg='micrus: ' + ' '.join(cmd)),

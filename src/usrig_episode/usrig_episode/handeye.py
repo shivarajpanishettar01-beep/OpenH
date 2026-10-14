@@ -10,7 +10,7 @@ At each pose press Enter: it grabs the colour image, camera_info and the TCP pos
 and stores the pair. `q` + Enter solves with every OpenCV hand-eye method and keeps the one with the
 lowest residual (spread of the board pose in the base frame).
 
-Every capture (PNG + poses + intrinsics) is saved in <calibration_dir>/handeye_<date>/ so the result
+Every capture (PNG + poses + intrinsics) is saved in <root>/calibration/handeye_<date>/ so the result
 can be re-solved or audited later. The result T_tcp_camera is converted to T_flange_camera with
 rig.yaml robot.tcp_setting (the end-effector frame of the dataset). --write-rig stores it in rig.yaml
 calibration.wrist_cam_cali_mtx with a provenance record; --session also stores it in that
@@ -156,7 +156,9 @@ def capture(a, rig, rig_file, scfg):
     threading.Thread(target=rclpy.spin, args=(node,), daemon=True).start()
 
     stamp = time.strftime('%Y%m%d_%H%M%S')
-    out = Path(scfg['session'].get('calibration_dir', '~/data/calibration')).expanduser() / f'handeye_{stamp}'
+    from usrig_common.session import data_dir, session_is_sim
+    sim = session_is_sim(a.session) if a.session else a.sim
+    out = data_dir(scfg, 'calibration', sim) / f'handeye_{stamp}'
     out.mkdir(parents=True, exist_ok=True)
     caps = []
     try:
@@ -206,6 +208,7 @@ def main():
     ap.add_argument('--write-rig', action='store_true', help='store the result in rig.yaml (all sessions)')
     ap.add_argument('--resolve', help='re-solve a saved capture directory (no robot / camera needed)')
     ap.add_argument('--min-poses', type=int, default=12)
+    ap.add_argument('--sim', action='store_true', help='simulation (captures under session.sim_root)')
     ap.add_argument('--config-dir')
     a, _ = ap.parse_known_args()
     d = Path(a.config_dir) if a.config_dir else config.default_config_dir()

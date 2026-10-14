@@ -1,6 +1,10 @@
 # Session configuration. Nothing here is hard-coded in launch files or nodes.
 # Values marked "NOT VERIFIED" were not checked on the rig yet.
 
+# Data layout (usrig_common/session.py): everything under ONE root, the same folders for real and sim:
+#   <root>/sessions/<session_id>/   session.json, ep_NNNN/ (bag, episode.json, qc.json, annotation.json)
+#   <root>/micrus/<session_id>/     micrus HDF5 recordings and snapshots
+#   <root>/waypoints/  paths/  plans/  presets/  phantoms/  calibration/  checks/
 session:
   root: ~/data                                  # [SESSION_ROOT] real collection only
   sim_root: ~/data_sim                          # sim:=true runs (micrus --simulate / URSim); never exported
@@ -11,10 +15,6 @@ session:
   phantom_placement: null
   stage: 0                                      # 0 shakedown, 1 constant speed, 2 planned
   min_free_disk_gb: 50
-  waypoint_dir: ~/data/waypoints              # waypoints/<phantom_id>.yaml
-  path_dir: ~/data/paths                      # paths/<phantom_id>.yaml
-  calibration_dir: ~/data/calibration         # raw captures of every calibration (images, poses)
-  phantom_dir: ~/data/phantoms                # phantoms/<phantom_id>.yaml (fiducials)
 
 # Open-H V2 proposal (IIT Mandi): two phantoms, 10 h total in 20-30 s episodes, ~20 % failure/recovery.
 phantoms:
@@ -32,8 +32,6 @@ targets:
 micrus:
   command: micrus                               # [MICRUS_CMD]: `micrus` (SDK conda install) or AppImage path
   mode: serve                                   # serve (headless) | view
-  out_root: ~/MicrUs                            # --out = <out_root>/<session_id>
-  out_root_sim: ~/MicrUs_sim                    # used with sim:=true
   ros2_name: micrus
   ros2_frame: micrus_probe
   # Scan settings: fixed for a whole dataset (image size and frame rate depend on them).

@@ -21,7 +21,7 @@ teleoperation. Waypoint tools never talk to the robot directly.
 ## 1. Register the phantom (each session, or whenever it moved)
 Touch the 4 fiducials of `phantoms/<id>.yaml` with the probe tip (or the calibrated pointer):
 ```bash
-ros2 run usrig_episode register_phantom ~/data/<SESSION_ID>
+ros2 run usrig_episode register_phantom ~/data/sessions/<SESSION_ID>
 ```
 Refused if the RMS residual exceeds `registration_max_residual_mm`. Writes `T_base_phantom` to
 `session.json`. Waypoints are stored in the **phantom frame**, so a new registration does not invalidate
@@ -31,10 +31,10 @@ that box is null).
 ## 2. Teach
 Drive the probe to the view with teleop (`TELEOPERATION_GUIDE.md`), then:
 ```bash
-ros2 run usrig_presets waypoint_teach ~/data/<SESSION_ID>
+ros2 run usrig_presets waypoint_teach ~/data/sessions/<SESSION_ID>
 ```
 For each waypoint: name, Enter to capture, organ, view name, 3-5 paraphrased instructions. Stored in
-`<waypoint_dir>/<phantom_id>.yaml`:
+`~/data/waypoints/<phantom_id>.yaml`:
 
 | Field | Meaning |
 |---|---|
@@ -52,7 +52,7 @@ A taught waypoint has `verified: false` and **cannot be executed**.
 
 ## 3. Verify (makes a waypoint executable)
 ```bash
-ros2 run usrig_presets waypoint_verify ~/data/<SESSION_ID> [--only NAME ...]
+ros2 run usrig_presets waypoint_verify ~/data/sessions/<SESSION_ID> [--only NAME ...]
 ```
 For each waypoint: retract → move to the approach pose (phantom frame, via the safe height) → zero F/T →
 descend to contact at `force_n` → snapshot → NCC against the reference. `verified: true` only if
@@ -77,8 +77,8 @@ entries are poses derived from one.
 
 ## 5. Plans (Stage 2)
 ```bash
-ros2 run usrig_presets plan_generator generate --waypoints <waypoint_dir>/<phantom>.yaml --rows 400 --seed 1 --operators op1 op2 -o plan_v1.csv
-ros2 run usrig_presets plan_generator lock --plan plan_v1.csv --session ~/data/<SESSION_ID>
+ros2 run usrig_presets plan_generator generate --waypoints ~/data/waypoints/<phantom>.yaml --rows 400 --seed 1 --operators op1 op2     # -> ~/data/plans/plan_<phantom>_400rows_seed1.csv
+ros2 run usrig_presets plan_generator lock --plan ~/data/plans/plan_<phantom>_400rows_seed1.csv --session ~/data/sessions/<SESSION_ID>
 ```
 Only verified waypoints become targets. The lock stores the plan's SHA-256 in `session.json`;
 `episode_manager` refuses a plan that is not locked or changed since.

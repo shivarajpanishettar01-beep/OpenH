@@ -8,7 +8,8 @@
   ros2 run usrig_presets preset_check waypoint NAME --session ~/data/<SESSION_ID> [--yes]
 
 offset: relative move (mm, deg; probe frame by default: x along the array, y across, z into tissue).
-save / go: free-space test presets in the robot base frame (<waypoint_dir>/base_presets.yaml) with the rig
+save / go: free-space test presets in the robot base frame (<root>/presets/base_presets.yaml; --sim: under
+session.sim_root) with the rig
 configuration they were saved with; `go` refuses after a TCP / probe / payload change. These are for
 testing and transit, not collection waypoints.
 waypoint: the approach pose of an executable collection waypoint (verified with the current rig
@@ -62,8 +63,9 @@ def service_call_text(T, speed):
             f'y: {q[1]:.6f}, z: {q[2]:.6f}, w: {q[3]:.6f}}}}}}}, speed_mm_s: {speed:g}}}"')
 
 
-def presets_file(node):
-    return Path(node.scfg['session'].get('waypoint_dir', '~/data/waypoints')).expanduser() / 'base_presets.yaml'
+def presets_file(node, sim=False):
+    from usrig_common.session import data_dir
+    return data_dir(node.scfg, 'presets', sim) / 'base_presets.yaml'
 
 
 def load_presets(f):
@@ -135,7 +137,7 @@ def cmd_offset(node, a, ask):
 
 
 def cmd_save(node, a, ask):
-    f = presets_file(node)
+    f = presets_file(node, a.sim)
     data = load_presets(f)
     T = node.averaged_tcp_pose(0.5)
     p, q = geometry.pq_from_pose(T)
@@ -148,7 +150,7 @@ def cmd_save(node, a, ask):
 
 
 def cmd_list(node, a, ask):
-    f = presets_file(node)
+    f = presets_file(node, a.sim)
     data = load_presets(f)
     try:
         T = node.averaged_tcp_pose()
@@ -164,7 +166,7 @@ def cmd_list(node, a, ask):
 
 
 def cmd_go(node, a, ask):
-    data = load_presets(presets_file(node))
+    data = load_presets(presets_file(node, a.sim))
     if a.name not in data['presets']:
         raise SystemExit(f'no preset {a.name} (preset_check list)')
     e = data['presets'][a.name]
@@ -185,8 +187,9 @@ def cmd_waypoint(node, a, ask):
     reg = read_json(sess / 'session.json').get('phantom_registration', {})
     if 'T_base_phantom' not in reg:
         raise SystemExit(f'no phantom registration in {sess}/session.json (register_phantom)')
+    from usrig_common.session import data_dir, session_is_sim
     pid = node.scfg['session'].get('phantom_id')
-    f = Path(node.scfg['session'].get('waypoint_dir', '~/data/waypoints')).expanduser() / f'{pid}.yaml'
+    f = data_dir(node.scfg, 'waypoints', session_is_sim(sess)) / f'{pid}.yaml'
     wps = {w['name']: w for w in (yaml.safe_load(f.read_text()) if f.exists() else {'waypoints': []})['waypoints']}
     if a.name not in wps:
         raise SystemExit(f'waypoint {a.name} not in {f}')
@@ -223,6 +226,8 @@ def main(argv=None, ask=input, node=None):
     for p in (o, g, w):
         p.add_argument('--speed', type=float, default=10.0, help='mm/s (robot_control caps it)')
         p.add_argument('--yes', action='store_true')
+    for p in (o, s, g, sub.choices['list'], w):
+        p.add_argument('--sim', action='store_true', help='simulation presets (session.sim_root)')
     a, _ = ap.parse_known_args(argv)
     fn = {'offset': cmd_offset, 'save': cmd_save, 'list': cmd_list, 'go': cmd_go, 'waypoint': cmd_waypoint}[a.cmd]
     if node is not None:

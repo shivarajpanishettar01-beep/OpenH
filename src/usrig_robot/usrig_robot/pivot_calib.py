@@ -10,12 +10,11 @@ Solves R_i p + t_i = c (tip p in the active-TCP frame, divot c in the base frame
 reports the residual per pose. The tip is converted to the flange frame with rig.yaml robot.tcp_setting
 (the controller's active TCP offset) and, with --write, stored in rig.yaml as
 <tool>.tip_offset_flange_m with a provenance record (<tool>.tip_calibration). Raw poses are saved
-under session.yaml calibration_dir. Acceptance (rms, spread) is printed; the decision is yours.
+under <root>/calibration (session.root, or session.sim_root with --sim). Acceptance (rms, spread) is printed; the decision is yours.
 """
 import argparse
 import json
 import time
-from pathlib import Path
 
 import numpy as np
 
@@ -31,6 +30,7 @@ def main():
     ap.add_argument('--ip')
     ap.add_argument('--min-poses', type=int, default=12)
     ap.add_argument('--write', action='store_true', help='store the result in rig.yaml')
+    ap.add_argument('--sim', action='store_true', help='simulation (raw poses under session.sim_root)')
     ap.add_argument('--config-dir')
     a, _ = ap.parse_known_args()
     rig_file = rig_path(a.config_dir)
@@ -75,7 +75,8 @@ def main():
               f'(UR TCP to enter on the pendant for this tool: x, y, z = these values, orientation as needed)')
 
     stamp = time.strftime('%Y%m%d_%H%M%S')
-    out_dir = Path(scfg['session'].get('calibration_dir', '~/data/calibration')).expanduser()
+    from usrig_common.session import data_dir
+    out_dir = data_dir(scfg, 'calibration', a.sim)
     out_dir.mkdir(parents=True, exist_ok=True)
     raw = out_dir / f'pivot_{a.tool}_{stamp}.json'
     raw.write_text(json.dumps({'tool': a.tool, 'tcp_setting': tcp, 'poses': [p.tolist() for p in poses],

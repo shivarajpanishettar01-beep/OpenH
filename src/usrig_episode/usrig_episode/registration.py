@@ -1,6 +1,6 @@
 """Phantom registration: touch 4 marked fiducials with the probe tip, solve with Kabsch.
 
-  ros2 run usrig_episode register_phantom <session_dir> [--phantom-file phantoms/<id>.yaml]
+  ros2 run usrig_episode register_phantom <session_dir> [--phantom-file <root>/phantoms/<id>.yaml]
 
 phantoms/<id>.yaml:  fiducials_mm: {F1: [x, y, z], F2: ..., F3: ..., F4: ...}  (phantom frame)
 Teleop the probe tip onto each fiducial (keyboard_teleop runs separately), press Enter here.
@@ -24,7 +24,8 @@ def _register(node, a):
     max_res = config.get_path(node.rig, 'registration_max_residual_mm')
     if max_res is None:
         raise config.UnsetLimitError(['registration_max_residual_mm'], 'rig.yaml')
-    pf = a.phantom_file or (Path(node.scfg['session']['phantom_dir']).expanduser()
+    from usrig_common.session import data_dir, session_is_sim
+    pf = a.phantom_file or (data_dir(node.scfg, 'phantoms', session_is_sim(a.session))
                             / f"{node.scfg['session']['phantom_id']}.yaml")
     fid = config.load_yaml(pf)['fiducials_mm']
     if len(fid) < 4:

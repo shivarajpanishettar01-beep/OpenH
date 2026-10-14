@@ -25,7 +25,6 @@ import signal
 import sys
 import threading
 import time
-from pathlib import Path
 
 import numpy as np
 import rclpy
@@ -609,7 +608,8 @@ class EpisodeManager(Node):
 
     # ------------------------------------------------------------------ geometry
     def _waypoint_file(self):
-        return Path(self.scfg['session'].get('waypoint_dir', '~/data/waypoints')).expanduser() / f'{self.phantom_id}.yaml'
+        from usrig_common.session import data_dir
+        return data_dir(self.scfg, 'waypoints', self.sim) / f'{self.phantom_id}.yaml'
 
     def _waypoint(self, name):
         wps = config.load_yaml(self._waypoint_file())['waypoints']

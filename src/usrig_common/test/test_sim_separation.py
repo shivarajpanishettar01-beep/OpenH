@@ -58,3 +58,22 @@ def test_synthetic_pipeline_check_episodes_never_mix(tmp_path, synthetic, flag, 
     cmd = [sys.executable, str(REPO / 'export/stage_bags.py'), '--sessions', str(s), '-o', str(tmp_path / 'st')]
     r = subprocess.run(cmd + (['--pipeline-check'] if flag else []), capture_output=True, text=True)
     assert (r.returncode == 0) == ok, r.stderr
+
+
+def test_data_layout_same_folders_real_and_sim(tmp_path):
+    from usrig_common.session import LAYOUT, data_dir, episode_files, session_dir, session_is_sim
+    for kind in LAYOUT:
+        assert data_dir(SCFG, kind, False) == Path('/data/real') / kind
+        assert data_dir(SCFG, kind, True) == Path('/data/sim') / kind
+    with pytest.raises(ValueError):
+        data_dir(SCFG, 'somewhere', False)
+    assert session_dir('/data/real', 'S1') == Path('/data/real/sessions/S1')
+    s = session_dir(tmp_path, 'S1')
+    (s / 'ep_0001').mkdir(parents=True)
+    (s / 'ep_0001' / 'episode.json').write_text('{}')
+    (tmp_path / 'waypoints').mkdir()                     # asset folders are never taken for sessions
+    (tmp_path / 'waypoints' / 'x.yaml').write_text('{}')
+    assert episode_files(tmp_path) == [s / 'ep_0001' / 'episode.json']
+    assert not session_is_sim(s)
+    update_session_json(s, sim=True)
+    assert session_is_sim(s)

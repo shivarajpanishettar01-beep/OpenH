@@ -52,11 +52,11 @@ ros2 run usrig_freedrive freedrive_check
 
 ## 2. Each session
 ```bash
-ros2 run usrig_qc presession_check --stage 0 --session ~/data/<SESSION_ID> --planned-hours <h> --mb-per-s <measured>
+ros2 run usrig_qc presession_check --stage 0 --session ~/data/sessions/<SESSION_ID> --planned-hours <h> --mb-per-s <measured>
 ```
 (no `--control`: nothing is commanded). Then:
 ```bash
-ros2 launch usrig_bringup collect.launch.py session_id:=<SESSION_ID> session_json:=$HOME/data/<SESSION_ID>/session.json control:=false teleop:=true input:=freedrive episode_manager:=true
+ros2 launch usrig_bringup collect.launch.py session_id:=<SESSION_ID> session_json:=$HOME/data/sessions/<SESSION_ID>/session.json control:=false teleop:=true input:=freedrive episode_manager:=true
 ```
 ```bash
 ros2 run usrig_qc status_console

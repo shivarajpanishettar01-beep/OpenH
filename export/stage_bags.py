@@ -2,7 +2,7 @@
 """Select and order episode bags for conversion (bag_to_lerobot takes a folder of bags in name
 order). Writes a staging folder of symlinks:
 
-  python stage_bags.py --sessions ~/data/S1 ~/data/S2 --test-sessions ~/data/S3 -o ~/datasets/staging
+  python stage_bags.py --sessions ~/data/sessions/S1 ~/data/sessions/S2 --test-sessions ~/data/sessions/S3 -o ~/datasets/staging
 
 * Simulated sessions / episodes (sim: true) are refused outright.
 * Synthetic pipeline-check episodes (synthetic_pipeline_check: true, written by pipeline_check.py)

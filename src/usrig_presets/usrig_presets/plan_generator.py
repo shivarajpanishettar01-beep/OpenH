@@ -1,7 +1,7 @@
 """Stage 2 plan generator: plan_v1.csv with fixed seeds, balanced and shuffled.
 
-  ros2 run usrig_presets plan_generator generate --waypoints waypoints/<phantom>.yaml \
-      --rows 400 --seed 1 --operators op1 op2 -o plan_v1.csv
+  ros2 run usrig_presets plan_generator generate --waypoints ~/data/waypoints/<phantom>.yaml \
+      --rows 400 --seed 1 --operators op1 op2       # -> ~/data/plans/plan_<phantom>_400rows_seed1.csv
   ros2 run usrig_presets plan_generator lock --plan plan_v1.csv --session <session_dir>
 
 * start offsets: 8 directions x 2 radii (10 mm, 25 mm), plus rock / tilt / rotation in +-10 deg
@@ -152,7 +152,10 @@ def main(argv=None):
     g.add_argument('--seed', type=int, required=True)
     g.add_argument('--operators', nargs='+', required=True)
     g.add_argument('--contact-frac', type=float, default=0.0)
-    g.add_argument('-o', '--output', required=True)
+    g.add_argument('-o', '--output', default=None,
+                   help='default: <root>/plans/plan_<phantom>_<rows>rows_seed<seed>.csv')
+    g.add_argument('--sim', action='store_true', help='simulation data (session.sim_root)')
+    g.add_argument('--config-dir', default=None)
     lk = sub.add_parser('lock')
     lk.add_argument('--plan', required=True)
     lk.add_argument('--session', required=True, help='session directory (session.json)')
@@ -172,6 +175,12 @@ def main(argv=None):
             rows = generate(targets, a.rows, a.seed, a.operators, load_catalog(catalog_path), a.contact_frac)
         except ValueError as e:
             sys.exit(str(e))
+        if a.output is None:
+            from usrig_common import config
+            from usrig_common.session import data_dir
+            d = data_dir(config.load_config('session', a.config_dir), 'plans', a.sim)
+            d.mkdir(parents=True, exist_ok=True)
+            a.output = str(d / f'plan_{wp.get("phantom_id") or "phantom"}_{a.rows}rows_seed{a.seed}.csv')
         if Path(a.output).exists():
             sys.exit(f'{a.output} exists; plans are never overwritten')
         write_csv(rows, a.output)

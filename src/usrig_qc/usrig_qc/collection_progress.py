@@ -8,7 +8,7 @@ import json
 from pathlib import Path
 
 from usrig_common import config
-from usrig_common.session import data_root
+from usrig_common.session import data_root, episode_files
 
 FAILURE_RECOVERY_TYPES = {'recovery-start', 'recovery-mid', 'failure'}
 
@@ -20,7 +20,7 @@ def progress(scfg, root=None):
     lo, hi = (tgt.get('episode_s') or [None, None])
     rows = {p: {'hours': 0.0, 'episodes': 0, 'failure_recovery': 0, 'outside_length': 0} for p in phantoms}
     skipped = {'sim': 0, 'discard': 0, 'qc_fail': 0, 'unknown_phantom': 0}
-    for f in sorted(root.glob('*/ep_*/episode.json')):
+    for f in episode_files(root):
         e = json.loads(f.read_text())
         if e.get('sim'):
             skipped['sim'] += 1

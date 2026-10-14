@@ -87,7 +87,7 @@ ros2 run usrig_presets preset_check list
 ```
 Reports the pose before / target / after, and PASS if move_to_pose succeeded and the TCP ended within 1 mm /
 1 deg of the target. A target outside the box or cone is refused before anything moves. Test presets are
-stored in `<waypoint_dir>/base_presets.yaml` with the TCP / probe / payload they were saved with; `go` refuses
+stored in `~/data/presets/base_presets.yaml` with the TCP / probe / payload they were saved with; `go` refuses
 after a change. They are for testing and transit, not collection waypoints.
 
 To see the raw service call for an offset without moving:
@@ -97,7 +97,7 @@ ros2 run usrig_presets preset_check offset --dx 10 --print-only
 Collection waypoints (after `register_phantom` and `waypoint_verify`; robot.launch.py started with that
 session's `session_json`) go to the approach pose via the safe height:
 ```bash
-ros2 run usrig_presets preset_check waypoint <NAME> --session ~/data/<SESSION_ID>
+ros2 run usrig_presets preset_check waypoint <NAME> --session ~/data/sessions/<SESSION_ID>
 ```
 
 ## 3. Freedrive (`usrig_freedrive freedrive_check`)

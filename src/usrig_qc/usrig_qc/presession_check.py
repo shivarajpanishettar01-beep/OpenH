@@ -212,7 +212,8 @@ def main():
     free_gb = shutil.disk_usage(root).free / 1e9
     mbps = a.mb_per_s
     if mbps is None:
-        eps = sorted(root_data.glob('*/ep_*/episode.json'))
+        from usrig_common.session import episode_files
+        eps = episode_files(root_data)
         for e in reversed(eps):
             ep = json.loads(e.read_text())
             if ep.get('duration_s'):

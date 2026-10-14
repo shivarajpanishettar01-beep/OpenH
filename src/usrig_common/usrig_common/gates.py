@@ -2,15 +2,15 @@
 a gate with a null value never passes. Results are written to session.json.
 """
 import json
-from pathlib import Path
 
 from usrig_common.config import get_path
 
 
 def load_episodes(session_root):
-    """All episode.json files under the session root, in name order."""
+    """All episode.json files under <root>/sessions, in name order."""
+    from .session import episode_files
     out = []
-    for p in sorted(Path(session_root).expanduser().glob('*/ep_*/episode.json')):
+    for p in episode_files(session_root):
         try:
             out.append(json.loads(p.read_text()))
         except ValueError:

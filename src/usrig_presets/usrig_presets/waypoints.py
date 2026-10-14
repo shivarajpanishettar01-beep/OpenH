@@ -29,7 +29,7 @@ from std_msgs.msg import String
 from std_srvs.srv import Trigger
 
 from usrig_common import config, geometry
-from usrig_common.session import read_json
+from usrig_common.session import data_dir, read_json, session_is_sim
 from usrig_common.timeutil import now_ns
 from usrig_interfaces.srv import DescendToContact, MoveToPose
 
@@ -95,8 +95,23 @@ def _paths(node, session):
     pid = node.scfg['session']['phantom_id']
     if not pid:
         raise RuntimeError('session.phantom_id is null in session.yaml')
-    f = Path(node.scfg['session']['waypoint_dir']).expanduser() / f'{pid}.yaml'
+    # <root>/waypoints/<phantom_id>.yaml, root = real or sim by the session's own sim flag
+    f = data_dir(node.scfg, 'waypoints', session_is_sim(session)) / f'{pid}.yaml'
     return np.array(reg['T_base_phantom']), f, pid
+
+
+def keep_reference(png, waypoint_file, name):
+    """Copy the reference snapshot from the session's micrus folder to <root>/waypoints/<phantom_id>/<name>.png,
+    so the waypoint keeps its reference when sessions are archived or moved."""
+    import shutil
+    dst = waypoint_file.with_suffix('') / f'{name}.png'
+    dst.parent.mkdir(parents=True, exist_ok=True)
+    try:
+        shutil.copy2(png, dst)
+    except OSError as e:
+        print(f'  could not copy the reference snapshot {png}: {e}')
+        return str(png)
+    return str(dst)
 
 
 def _load(f, pid):
@@ -150,7 +165,7 @@ def _teach(node, a):
               'position_m': p.tolist(), 'quaternion_xyzw': q.tolist(),
               'approach_position_m': pa.tolist(), 'approach_quaternion_xyzw': qa.tolist(),
               'force_n': f_axis, 'preset': fi.get('settings'),
-              'reference_snapshot': str(snapshot_png(r.message)) if r.success else None,
+              'reference_snapshot': keep_reference(snapshot_png(r.message), f, name) if r.success else None,
               'instructions': instr, 'verified': False, 'taught_ns': now_ns(),
               'taught_config': rig_fingerprint(node.rig)}
         data['waypoints'] = [w for w in data['waypoints'] if w['name'] != name] + [wp]

@@ -2,7 +2,7 @@
 
 All results are 4x4 rigid transforms in metres, stored in `src/usrig_bringup/config/rig.yaml`
 with a provenance record (date, method, residual, number of poses, raw-capture folder). Raw
-captures go to `session.yaml calibration_dir` (`~/data/calibration`), so every result can be
+captures go to `<root>/calibration` (`~/data/calibration`; simulation: `~/data_sim/calibration`), so every result can be
 re-solved or audited. Redo a calibration whenever its mount is touched.
 
 | Calibration | Tool | Stored as | Used by |
