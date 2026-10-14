@@ -127,20 +127,25 @@ def rows(scfg, rig, km):
 
     # ---- test 3: camera
     cam = scfg['wrist_camera']
-    for k in ('serial', 'exposure_us', 'white_balance_k'):
+    if not cam.get('enabled'):
+        add('3 camera', 'wrist camera', INFO, 'disabled on this PC (machine.yaml): test 3 runs on the camera PC')
+        cam = None
+    for k in ([] if cam is None else ('serial', 'exposure_us', 'white_balance_k')):
         v = cam.get(k)
         add('3 camera', f'wrist_camera.{k}', OK if v is not None else SET,
             '' if v is not None else ('camera_autolock --write' if k != 'serial' else 'rs-enumerate-devices -s'))
-    board = config.get_path(scfg, 'wrist_camera.calib_board.type')
-    add('3 camera', 'wrist_camera.calib_board', OK if board else SET, board or 'for hand-eye')
-    devs = realsense_usb(cam.get('serial'))
-    if not devs:
-        add('3 camera', 'D415 on USB', CONNECT, 'not on the bus')
-    else:
-        sp = devs[0]['speed_mbps']
-        add('3 camera', 'D415 on USB 3', OK if sp >= 5000 else CONNECT, f'{sp} Mbit/s' + ('' if sp >= 5000 else ': use a USB 3 port'))
-    add('3 camera', 'hand-eye (calibration.wrist_cam_cali_mtx)',
-        OK if config.get_path(rig, 'calibration.wrist_cam_cali_mtx') is not None else INFO, 'made in test 3')
+    if cam is not None:
+        board = config.get_path(scfg, 'wrist_camera.calib_board.type')
+        add('3 camera', 'wrist_camera.calib_board', OK if board else SET, board or 'for hand-eye')
+        devs = realsense_usb(cam.get('serial'))
+        if not devs:
+            add('3 camera', 'D415 on USB', CONNECT, 'not on the bus')
+        else:
+            sp = devs[0]['speed_mbps']
+            add('3 camera', 'D415 on USB 3', OK if sp >= 5000 else CONNECT,
+                f'{sp} Mbit/s' + ('' if sp >= 5000 else ': use a USB 3 port'))
+        add('3 camera', 'hand-eye (calibration.wrist_cam_cali_mtx)',
+            OK if config.get_path(rig, 'calibration.wrist_cam_cali_mtx') is not None else INFO, 'made in test 3')
 
     # ---- test 4: everything, moving the arm
     miss = nulls(rig, config.MOTION_LIMITS)
@@ -167,7 +172,13 @@ def main(argv=None):
     scfg = config.load_config('session', a.config_dir)
     rig = config.load_config('rig', a.config_dir)
     km = config.load_config('keymap', a.config_dir)
+    mp = config.machine_config_path()
+    print(f'this PC: {mp}' + ('' if mp.exists() else ' (none: shared settings only)'))
+    for name in ('session', 'rig'):
+        for k, v in config.machine_overrides(name).items():
+            print(f'  {name}.yaml {k} = {v}')
     table = rows(scfg, rig, km)
+    camera_here = bool(scfg['wrist_camera'].get('enabled'))
     w = max(len(r[1]) for r in table)
     last = None
     for test, item, status, detail in table:
@@ -193,8 +204,12 @@ def main(argv=None):
              '4 full': ['software', '1 robot', '2 ultrasound', '3 camera', '4 full']}
     print('\nReady to start (no SET / CONNECT left in what the test needs):')
     for t, req in needs.items():
+        if not camera_here and t == '3 camera':
+            print(f'  test {t:13s} not on this PC (camera disabled here)')
+            continue
         left = sum(blocking.get(x, 0) for x in req)
-        print(f'  test {t:13s} {"yes" if not left else f"not yet ({left} item(s) above)"}')
+        print(f'  test {t:13s} {"yes" if not left else f"not yet ({left} item(s) above)"}'
+              + ('  (without the camera: camera:=false)' if t == '4 full' and not camera_here else ''))
 
 if __name__ == '__main__':
     main()

@@ -65,7 +65,16 @@ Then restart without `auto:=true` and continue P1b (`stream_check --camera --dur
 MCAP test, depth at contact, hand-eye).
 
 ## 6. After setup
-In every terminal: `cd ~/OpenH && source scripts/env.sh`. Then:
+Per-PC settings go in `~/.config/usrig/machine.yaml` (outside the repository; allowed keys:
+`usrig_common/config.py MACHINE_KEYS`), e.g. the data disk and this PC's micrus licence:
+```yaml
+session:
+  session: {root: /mnt/data/usrig, sim_root: /mnt/data/usrig_sim}
+  micrus: {licence_file: /path/to/this_pc.lic, usb_vendor_id: "xxxx"}
+rig:
+  calibration: {ultrasound_time_offset_s: <measured on this PC>, camera_time_offset_s: <measured on this PC>}
+```
+On the capture PC the camera stays enabled (the shared default). In every terminal: `cd ~/OpenH && source scripts/env.sh`. Then:
 ```bash
 ros2 run usrig_qc rig_status
 ```

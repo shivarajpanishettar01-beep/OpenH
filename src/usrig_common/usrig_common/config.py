@@ -71,10 +71,67 @@ def load_yaml(path) -> dict:
         return yaml.safe_load(f) or {}
 
 
-def load_config(name: str, config_dir=None) -> dict:
-    """Load ``<config_dir>/<name>.yaml`` (name: session, rig, keymap)."""
+# Settings that differ between PCs (data disk, scanner licence, camera present, PC-dependent latencies). Only
+# these may be set in the machine file; anything else there (e.g. a safety limit) is refused, so no value
+# that matters for safety can hide outside the shared rig.yaml.
+MACHINE_KEYS = {
+    'session': ('session.root', 'session.sim_root', 'micrus.command', 'micrus.licence_file', 'micrus.usb_vendor_id',
+                'wrist_camera.enabled', 'recording.include_wrist_camera', 'recording.rt_priority'),
+    'rig': ('robot.rt_priority', 'calibration.ultrasound_time_offset_s', 'calibration.camera_time_offset_s'),
+}
+
+
+class MachineConfigError(RuntimeError):
+    pass
+
+
+def machine_config_path() -> Path:
+    """Per-PC settings outside the repository: $USRIG_MACHINE_CONFIG or ~/.config/usrig/machine.yaml."""
+    return Path(os.environ.get('USRIG_MACHINE_CONFIG', '~/.config/usrig/machine.yaml')).expanduser()
+
+
+def _flatten(d, prefix=''):
+    out = {}
+    for k, v in (d or {}).items():
+        key = f'{prefix}{k}'
+        if isinstance(v, dict) and v:
+            out.update(_flatten(v, key + '.'))
+        else:
+            out[key] = v
+    return out
+
+
+def machine_overrides(name: str) -> dict:
+    """{dotted key: value} of the machine file for one config (session / rig); {} if there is no file."""
+    p = machine_config_path()
+    if not p.exists():
+        return {}
+    data = load_yaml(p)
+    unknown = set(data) - set(MACHINE_KEYS)
+    if unknown:
+        raise MachineConfigError(f'{p}: unknown sections {sorted(unknown)} (allowed: {sorted(MACHINE_KEYS)})')
+    flat = _flatten(data.get(name) or {})
+    bad = sorted(set(flat) - set(MACHINE_KEYS.get(name, ())))
+    if bad:
+        raise MachineConfigError(f'{p}: {bad} may not be set per machine (only {list(MACHINE_KEYS.get(name, ()))}); '
+                                 f'set them in the shared {name}.yaml')
+    return flat
+
+
+def load_config(name: str, config_dir=None, machine=True) -> dict:
+    """Load ``<config_dir>/<name>.yaml`` (name: session, rig, keymap), then the per-machine settings of
+    ~/.config/usrig/machine.yaml on top (session and rig only, MACHINE_KEYS only). machine=False: the shared
+    file alone (tools that edit it)."""
     d = Path(config_dir) if config_dir else default_config_dir()
-    return load_yaml(d / f'{name}.yaml')
+    cfg = load_yaml(d / f'{name}.yaml')
+    if machine:
+        for dotted, value in machine_overrides(name).items():
+            node = cfg
+            *parents, last = dotted.split('.')
+            for k in parents:
+                node = node.setdefault(k, {})
+            node[last] = value
+    return cfg
 
 
 def get_path(cfg: dict, dotted: str, default=None):

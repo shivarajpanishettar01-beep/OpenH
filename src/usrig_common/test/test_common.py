@@ -143,3 +143,29 @@ def test_presession_without_camera_does_not_cover_camera_episodes():
     assert presession_ok(j, 0, False, 101 * H, 12, camera=False)[0]
     ok, why = presession_ok(j, 0, False, 101 * H, 12, camera=True)
     assert not ok and '--no-camera' in why
+
+
+def test_machine_file_overlays_only_machine_keys(tmp_path, monkeypatch):
+    import pytest
+    import yaml
+    from usrig_common import config
+    cfg_dir = tmp_path / 'cfg'
+    cfg_dir.mkdir()
+    (cfg_dir / 'session.yaml').write_text(yaml.safe_dump(
+        {'session': {'root': '~/data'}, 'wrist_camera': {'enabled': True, 'serial': '123'}}))
+    (cfg_dir / 'rig.yaml').write_text(yaml.safe_dump({'limits': {'max_contact_force_n': None}, 'robot': {'rt_priority': 80}}))
+    m = tmp_path / 'machine.yaml'
+    monkeypatch.setenv('USRIG_MACHINE_CONFIG', str(m))
+    assert config.load_config('session', cfg_dir)['wrist_camera']['enabled'] is True      # no machine file
+    m.write_text(yaml.safe_dump({'session': {'wrist_camera': {'enabled': False}, 'session': {'root': '/mnt/data'}},
+                                 'rig': {'robot': {'rt_priority': 0}}}))
+    s = config.load_config('session', cfg_dir)
+    assert s['wrist_camera'] == {'enabled': False, 'serial': '123'} and s['session']['root'] == '/mnt/data'
+    assert config.load_config('rig', cfg_dir)['robot']['rt_priority'] == 0
+    assert config.load_config('session', cfg_dir, machine=False)['wrist_camera']['enabled'] is True
+    m.write_text(yaml.safe_dump({'rig': {'limits': {'max_contact_force_n': 50}}}))         # safety value: refused
+    with pytest.raises(config.MachineConfigError, match='may not be set per machine'):
+        config.load_config('rig', cfg_dir)
+    m.write_text(yaml.safe_dump({'keymap': {'speeds': {'slide_along_mm_s': 5}}}))
+    with pytest.raises(config.MachineConfigError, match='unknown sections'):
+        config.load_config('session', cfg_dir)

@@ -2,7 +2,6 @@
 import os
 from pathlib import Path
 
-import yaml
 from launch.actions import ExecuteProcess, IncludeLaunchDescription, LogInfo
 from launch.launch_description_sources import PythonLaunchDescriptionSource
 from launch_ros.actions import Node
@@ -19,7 +18,8 @@ def config_dir():
 
 
 def session_cfg():
-    return yaml.safe_load((config_dir() / 'session.yaml').read_text())
+    from usrig_common import config               # shared session.yaml + this PC's machine.yaml
+    return config.load_config('session', str(config_dir()))
 
 
 def include(name, args):

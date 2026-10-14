@@ -10,6 +10,19 @@ you can read: a PASS / FAIL table from `bag_check`, or an episode with `qc.json`
 | 3 Camera + robot | `test3_camera_robot.launch.py` | + D415 (USB 3) | exposure lock, hand-eye, camera temporal offset |
 | 4 Everything | `test4_full_system.launch.py` | all | pre-session check, Stage 0 episodes |
 
+**Two PCs** (plan of 14 Oct 2026): tests 1 and 2 on this development PC, test 3 (camera) and the final
+collection on the camera / capture PC. Both pull the same repository. Settings that differ per PC live outside
+it, in `~/.config/usrig/machine.yaml`, and only these keys are allowed there: data roots, micrus command /
+licence / USB id, camera on/off, recording and robot real-time priority, ultrasound and camera time offsets.
+Safety limits are refused there and always come from the shared `rig.yaml`. This PC's file switches the camera
+off, so `qc_monitor`, the recorder and the pre-session check do not expect it. `rig_status` prints the active
+machine settings.
+- The micrus licence is tied to the machine (`micrus machine-id`): the capture PC needs its own.
+- The ultrasound time offset (test 2) depends on the PC's USB and CPU: measure it again on the capture PC and
+  keep each PC's value in its own `machine.yaml` (`rig: {calibration: {ultrasound_time_offset_s: ...}}`).
+- Robot values (IP, TCP, payload, limits), the pointer calibration and the phantom files are the same for both
+  PCs. They go in the shared files: commit and push them here, then pull on the capture PC.
+
 **Every terminal**:
 ```bash
 cd ~/OpenH && source scripts/env.sh
@@ -189,7 +202,8 @@ Shows the live rates of both streams.
    python tools/temporal_calib.py ~/data/checks/test2_micrus_robot_<date_time> --us-rows 150 380 --session ~/data/sessions/<ID>
    ```
    (`--us-rows`: an image band containing a bright structure that moves with the compression.) Put the
-   reported offset into `rig.yaml calibration.ultrasound_time_offset_s`.
+   reported offset into this PC's `~/.config/usrig/machine.yaml` as
+   `rig: {calibration: {ultrasound_time_offset_s: <value>}}`. It depends on the PC; the capture PC measures its own.
 4. Ultrasound image to probe (`prob_cali_mtx`): pending the lab's calibration file.
 
 **2.4 Check the recording**

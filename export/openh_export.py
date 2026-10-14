@@ -122,6 +122,25 @@ def carry_meta(work, custom_info):
     shutil.rmtree(old)
 
 
+_warned = set()
+
+
+def warn_offsets(epj, ep_off):
+    """bag_to_lerobot aligned the images with lerobot_rig.yaml time_offset_s; warn once per value if that differs
+    from what the recording PC measured (episode.json time_offsets_s)."""
+    import yaml
+    lr = yaml.safe_load((HERE / 'lerobot_rig.yaml').read_text())
+    pairs = (('ultrasound', lr['images']['observation.images.ultrasound'].get('time_offset_s')),
+             ('camera', lr['images']['observation.images.wrist_camera'].get('time_offset_s')))
+    for name, used in pairs:
+        meas = ep_off.get(name)
+        if meas is not None and used is not None and abs(float(meas) - float(used)) > 0.001 and name not in _warned:
+            _warned.add(name)
+            print(f'WARNING: {epj.get("episode_id")}: lerobot_rig.yaml {name} time_offset_s {used} differs from the '
+                  f'{meas} measured on {epj.get("capture_host")}: set lerobot_rig.yaml to the capture PC value and '
+                  'convert again (bag_to_lerobot aligned the images with it)')
+
+
 def feature_of(col, pa):
     typ = col.type
     if pa.types.is_string(typ):
@@ -198,6 +217,11 @@ def main():
         if o is None:
             sys.exit(f'episode {ep_index}: bag {bag} not in {a.order}')
         epj = json.loads((Path(bag) / 'episode.json').read_text())
+        # offsets measured on the PC that recorded this episode (episode.json) win over the exporting PC's rig.yaml
+        ep_off = epj.get('time_offsets_s') or {}
+        us_off_ep = us_off if a.us_time_offset_s is not None or ep_off.get('ultrasound') is None else float(ep_off['ultrasound'])
+        d_off_ep = d_off if a.depth_time_offset_s is not None or ep_off.get('camera') is None else float(ep_off['camera'])
+        warn_offsets(epj, ep_off)
         if epj.get('sim'):
             sys.exit(f'{bag}: simulated episode (sim: true): never exported')
         if bool(epj.get('synthetic_pipeline_check')) != a.pipeline_check:
@@ -213,7 +237,7 @@ def main():
                                     'depth_units': 'mm', 'depth_aligned_to': 'wrist_camera'}
 
         us = np.sort(np.asarray(st['us'], np.int64))
-        hi = F.sample_hold(us + int(us_off * 1e9), t_steps)
+        hi = F.sample_hold(us + int(us_off_ep * 1e9), t_steps)
         host = np.where(hi >= 0, us[np.clip(hi, 0, None)], -1)
         status, phase, gesture = F.step_labels(ann, t_steps)
         cam = sess.get('wrist_cam_cali_mtx') or cal.get('wrist_cam_cali_mtx')
@@ -258,7 +282,7 @@ def main():
         if a.depth == 'png':
             if not st['depth']:
                 sys.exit(f'{bag}: no depth frames on {ct["depth"]}')
-            di = F.sample_hold(np.asarray(st['depth_st'], np.int64) + int(d_off * 1e9), t_steps)
+            di = F.sample_hold(np.asarray(st['depth_st'], np.int64) + int(d_off_ep * 1e9), t_steps)
             if np.any(di < 0):
                 sys.exit(f'{bag}: depth starts after the first step')
             cols['observation.images.wrist_depth'] = pa.array(

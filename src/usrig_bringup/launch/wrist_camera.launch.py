@@ -25,8 +25,10 @@ def config_dir():
 
 def _setup(context):
     import tempfile
-    with open(config_dir() / 'session.yaml') as f:
-        cam = yaml.safe_load(f)['wrist_camera']
+    from usrig_common import config               # shared session.yaml + this PC's machine.yaml
+    cam = config.load_config('session', str(config_dir()))['wrist_camera']
+    if not cam.get('enabled'):
+        return [LogInfo(msg='wrist_camera: disabled on this PC (wrist_camera.enabled false, see machine.yaml); not starting')]
     auto = LaunchConfiguration('auto').perform(context).lower() == 'true'
     missing = [k for k in ['serial'] + ([] if auto else ['exposure_us', 'white_balance_k']) if cam.get(k) is None]
     if missing:

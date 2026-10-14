@@ -8,7 +8,6 @@ powers down the scanner), then waits micrus.shutdown_timeout_s before escalating
 import os
 from pathlib import Path
 
-import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, ExecuteProcess, OpaqueFunction, LogInfo
 from launch.substitutions import LaunchConfiguration
@@ -44,8 +43,8 @@ def micrus_cmd(m, session_id, sim, scfg):
 
 
 def _setup(context):
-    with open(config_dir() / 'session.yaml') as f:
-        session = yaml.safe_load(f)
+    from usrig_common import config               # shared session.yaml + this PC's machine.yaml
+    session = config.load_config('session', str(config_dir()))
     m = session['micrus']
     sid = LaunchConfiguration('session_id').perform(context)
     sim = LaunchConfiguration('sim').perform(context).lower() == 'true'

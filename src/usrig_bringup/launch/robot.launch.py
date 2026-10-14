@@ -12,7 +12,6 @@ says so and the rest of an including launch file (micrus, camera, ...) still run
 import os
 from pathlib import Path
 
-import yaml
 from launch import LaunchDescription
 from launch.actions import DeclareLaunchArgument, LogInfo, OpaqueFunction
 from launch.substitutions import LaunchConfiguration
@@ -37,8 +36,8 @@ def cpp_available():
 
 def _setup(context):
     cfg = config_dir()
-    with open(cfg / 'rig.yaml') as f:
-        rig = yaml.safe_load(f)
+    from usrig_common import config               # shared rig.yaml + this PC's machine.yaml
+    rig = config.load_config('rig', str(cfg))
     sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
     control = LaunchConfiguration('control').perform(context).lower() == 'true'
     sj = LaunchConfiguration('session_json').perform(context)

@@ -296,6 +296,10 @@ class EpisodeManager(Node):
             'rig_git_commit': provenance.rig_git_commit(),
             'micrus_version': provenance.micrus_version(self.scfg['micrus']['command']),
             'robot_tcp_setting': config.get_path(self.rig, 'robot.tcp_setting'),
+            # this PC's measured stream offsets (machine.yaml), carried with the data for the export
+            'time_offsets_s': {'ultrasound': config.get_path(self.rig, 'calibration.ultrasound_time_offset_s'),
+                               'camera': config.get_path(self.rig, 'calibration.camera_time_offset_s')},
+            'capture_host': __import__('socket').gethostname(),
             't_start_ns': None, 't_end_ns': None, 't_bag_ready_ns': None, 'duration_s': None, 'qc': None,
             'wrist_camera': self._wrist_info() if self.camera_recorded else None,
         }

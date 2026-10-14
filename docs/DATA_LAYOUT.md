@@ -55,3 +55,9 @@ python scripts/migrate_data_layout.py
 shows the moves; add `--apply` to do them (it moves, never deletes or overwrites, and rewrites the HDF5 paths
 in the moved episodes). Run on 14 Oct 2026 for the simulated P4 sessions. Other files in `~/MicrUs` (your own
 micrus captures) are not touched.
+
+## Two PCs
+Tests 1-2 run on the development PC and test 3 / collection on the capture PC. The data roots can differ per PC
+(`~/.config/usrig/machine.yaml`, `session.root`). Every episode records the time offsets of the PC that captured
+it and that PC's host name (`episode.json time_offsets_s`, `capture_host`), so the export uses the right values
+wherever it runs.

@@ -5,6 +5,8 @@ cd "$(dirname "$0")/.."
 source scripts/env.sh
 # ROS puts its launch_testing pytest plugin on PYTHONPATH; it is incompatible with pytest 9.
 export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
+# Tests never depend on this PC's machine settings (~/.config/usrig/machine.yaml).
+export USRIG_MACHINE_CONFIG=/nonexistent/usrig_machine.yaml
 # Test the source tree, not the installed copies (a non-symlink build would otherwise hide edits).
 for _p in src/usrig_common src/usrig_robot src/usrig_teleop src/usrig_presets src/usrig_freedrive src/usrig_episode src/usrig_qc src/usrig_dashboard; do
   PYTHONPATH="$PWD/$_p:$PYTHONPATH"

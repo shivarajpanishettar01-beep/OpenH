@@ -216,7 +216,8 @@ def write_session(root):
         (d / 'episode.json').write_text(json.dumps({**extra,
             'episode_id': eid, 'session_id': 'SYNTHETIC_session', 'type': typ, 'stage': stage,
             'instruction': instr, 'outcome': 'recovered' if fail else 'success', 'qc': {'pass': True},
-            'failure_mode': 'FM-SYN' if fail else None, 'sim': False, 'synthetic_pipeline_check': True}, indent=1))
+            'failure_mode': 'FM-SYN' if fail else None, 'sim': False, 'synthetic_pipeline_check': True,
+            'time_offsets_s': {'ultrasound': -0.020, 'camera': 0.0}, 'capture_host': 'synthetic'}, indent=1))
     return sess
 
 
