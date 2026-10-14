@@ -27,5 +27,6 @@ setup(
         'collection_progress = usrig_qc.collection_progress:main',
         'status_console = usrig_qc.status_console:main',
         'bag_check = usrig_qc.bag_check:main',
+        'rig_status = usrig_qc.rig_status:main',
     ]},
 )

@@ -19,7 +19,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 import _test_common as T  # noqa: E402
 
 ARGS = (('session_id', None), ('session_json', ''), ('sim', 'false'), ('control', 'false'), ('camera', 'true'),
-        ('input', 'keyboard'), ('episode_manager', 'true'), ('qc', 'true'), ('dashboard', 'false'))
+        ('input', 'keyboard'), ('episode_manager', 'true'), ('qc', 'true'), ('dashboard', 'false'), ('robot_ip', ''))
 
 
 def _setup(context):

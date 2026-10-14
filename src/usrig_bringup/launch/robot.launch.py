@@ -5,7 +5,9 @@ when it is built; otherwise the Python robot_state (polls RTDE; loses samples un
 docs/data_integrity.md) with a warning.
 control:=true adds robot_control (refuses while limits are null); it reads RTDE for control and
 publishes /robot/control_status, which robot_state_cpp merges into /robot/state.
-sim:=true points everything at URSim (rig.yaml robot.ursim_ip).
+sim:=true points everything at URSim (rig.yaml robot.ursim_ip). robot_ip:=<ip> overrides both.
+Without any robot address (robot.ip null, no robot_ip:=) the robot nodes are not started: a notice
+says so and the rest of an including launch file (micrus, camera, ...) still runs.
 """
 import os
 from pathlib import Path
@@ -40,7 +42,10 @@ def _setup(context):
     sim = LaunchConfiguration('sim').perform(context).lower() == 'true'
     control = LaunchConfiguration('control').perform(context).lower() == 'true'
     sj = LaunchConfiguration('session_json').perform(context)
-    ip = rig['robot']['ursim_ip'] if sim else rig['robot']['ip']
+    ip = LaunchConfiguration('robot_ip').perform(context) or (rig['robot']['ursim_ip'] if sim else rig['robot']['ip'])
+    if not ip:
+        return [LogInfo(msg='robot: NOT STARTED - no robot address (rig.yaml robot.ip is null). Connect the robot and '
+                            'set robot.ip, or give robot_ip:=<ip>, or sim:=true for URSim. Nothing else is affected.')]
     T = []
     if sj and Path(sj).exists():
         import json
@@ -79,5 +84,6 @@ def generate_launch_description():
         DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('control', default_value='false'),
         DeclareLaunchArgument('session_json', default_value=''),
+        DeclareLaunchArgument('robot_ip', default_value='', description='overrides rig.yaml robot.ip / ursim_ip'),
         OpaqueFunction(function=_setup),
     ])

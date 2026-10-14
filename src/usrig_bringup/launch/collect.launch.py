@@ -48,6 +48,7 @@ def generate_launch_description():
         DeclareLaunchArgument('input', default_value='keyboard',
                               description='keyboard | spacemouse (D1) | freedrive (arm guided by hand with the UR '
                                           'freedrive pedal; keyboard sends commands only, use control:=false)'),
+        DeclareLaunchArgument('robot_ip', default_value='', description='overrides rig.yaml robot.ip'),
         DeclareLaunchArgument('episode_manager', default_value='false'),
         DeclareLaunchArgument('qc', default_value='true'),
         DeclareLaunchArgument('dashboard', default_value='false'),
@@ -57,7 +58,7 @@ def generate_launch_description():
             PythonLaunchDescriptionSource(PathJoinSubstitution([share, 'launch', 'wrist_camera.launch.py'])),
             condition=IfCondition(L('camera'))),
         inc('robot.launch.py', {'sim': L('sim'), 'control': L('control'),
-                                'session_json': L('session_json')}),
+                                'session_json': L('session_json'), 'robot_ip': L('robot_ip')}),
         Node(package='usrig_teleop', executable='keyboard_teleop', output='screen',
              parameters=params + [{'publish_twist': ParameterValue(PythonExpression(["'", L('input'), "' == 'keyboard'"]), value_type=bool)}],
              condition=IfCondition(L('teleop'))),

@@ -109,7 +109,7 @@ ros2 run usrig_qc presession_check --stage 0 --session ~/data/sessions/<SESSION_
 ```
 Collection runs headless; the operator view is `ros2 run usrig_qc status_console`. The dashboard
 is for demos only. Bring-up in four staged tests (robot, ultrasound + robot, camera + robot, everything), each
-with its own launch file: [`docs/TESTING_STEPS.md`](docs/TESTING_STEPS.md). All data goes under `~/data` (simulation: `~/data_sim`), one folder per kind:
+with its own launch file: [`docs/TESTING_STEPS.md`](docs/TESTING_STEPS.md). What is set up and connected: `ros2 run usrig_qc rig_status`. All data goes under `~/data` (simulation: `~/data_sim`), one folder per kind:
 [`docs/DATA_LAYOUT.md`](docs/DATA_LAYOUT.md). Before collecting, check each mode on the arm and watch the pose change:
 [`docs/REAL_ROBOT_CHECKS.md`](docs/REAL_ROBOT_CHECKS.md). Guides: [`docs/DATA_COLLECTION_GUIDE.md`](docs/DATA_COLLECTION_GUIDE.md),
 [`docs/TELEOPERATION_GUIDE.md`](docs/TELEOPERATION_GUIDE.md), [`docs/WAYPOINT_COLLECTION_GUIDE.md`](docs/WAYPOINT_COLLECTION_GUIDE.md),
@@ -133,7 +133,7 @@ The whole export chain is checked on synthetic episodes with `python export/pipe
 - micrus is never modified; it is driven only through its CLI and ROS 2 interface.
 
 ## Status
-Builds from a fresh clone (11 packages); 127 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
+Builds from a fresh clone (11 packages); 128 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
 (27.35 Hz, 0 frame gaps in 5 min, clean power-down), robot state on URSim, recording and crash recovery
 in simulation, data integrity under load on the development PC (C++ robot_state: 0 of ~31,000 samples
 lost per minute), and the export chain end to end on synthetic episodes. Not yet run: the D415 on USB 3,

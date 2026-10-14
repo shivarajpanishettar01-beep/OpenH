@@ -1,6 +1,6 @@
 # Filling rig.yaml (safety limits and robot setup)
 
-`robot_control` refuses to start while any of these is null and names each one. Values come from
+`robot_control` refuses to start while any of these is null and names each one. `ros2 run usrig_qc rig_status` lists the ones still null (26 of 27 today). Values come from
 your measurements and judgement; `rig_measure` (read-only, never moves the robot) helps with the
 ones that can be measured. Units are in the key names.
 

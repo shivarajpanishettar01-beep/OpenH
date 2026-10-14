@@ -71,9 +71,9 @@ are ignored while a path runs and `set_teleop` is an explicit takeover; motion s
   Robot state and the base-frame twist sent to `speedL` are in the UR base frame.
 
 ## Readiness decision
-**Software tests pass; simulation remains incomplete.** Build from a fresh clone (11 packages) and 127 tests pass; the
+**Software tests pass; simulation remains incomplete.** Build from a fresh clone (11 packages) and 128 tests pass; the
 export chain is verified on synthetic data; recording and crash recovery were verified with the micrus
 simulator and URSim state (P4). Teleoperation and path execution are verified only against the kinematic
 mock, because the URSim control run was skipped by decision. The next level, a controlled hardware trial,
-is **not yet eligible**: `robot_control` refuses to start while the 22 limits in `rig.yaml` are null (by
+is **not yet eligible**: `robot_control` refuses to start while any of its 27 required `rig.yaml` values is null (26 today) (by
 design), and the capture PC is not set up. Details and evidence: `TEST_AND_VERIFICATION.md`.

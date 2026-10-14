@@ -178,3 +178,13 @@ def test_grip_on_probe_makes_force_band_not_applicable(tmp_path):
     write_bag(tmp_path / 'ep_0009', source=5, mode=7)
     r = run_episode_qc(tmp_path / 'ep_0009', dict(FD, grip='probe', force_label_valid=False), *freedrive_config())
     assert r['checks']['force_band']['status'] == 'n/a'
+
+
+def test_rig_status_with_nothing_configured():
+    from usrig_qc.rig_status import CONNECT, SET, rows
+    km = yaml.safe_load((REPO / 'src/usrig_bringup/config/keymap.yaml').read_text())
+    table = rows(SCFG, RIG, km)
+    status = {item: st for _, item, st, _ in table}
+    assert status['robot.ip'] == SET                       # null ip: no network probe, a SET row
+    assert status['rig.yaml limits (robot_control)'] == SET
+    assert all(st in ('ok', SET, CONNECT, 'info') for _, _, st, _ in table)

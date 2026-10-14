@@ -29,6 +29,26 @@ None of them has run on the UR7e, the real scanner or the camera yet.
 
 ---
 
+## Step 0 (before every test): what is set up, connected and running
+```bash
+ros2 run usrig_qc rig_status
+```
+Read-only, works with nothing connected. Per test it lists what is ready (`ok`), what to fill in the config
+(`SET`, with the key and where the value comes from), what is not connected (`CONNECT`), and rig nodes that are
+already running from an earlier launch. The last lines say which tests can start.
+
+## Troubleshooting
+| You see | Cause | Fix |
+|---|---|---|
+| `Package 'usrig_bringup' not found` | the terminal has not loaded the workspace | `cd ~/OpenH && source scripts/env.sh` (every new terminal) |
+| `The message type 'usrig_interfaces/msg/RobotState' is invalid` (`ros2 topic hz/echo`) | same: only `/opt/ros/humble` is sourced, so the rig's own message types are unknown | `source scripts/env.sh` in that terminal too |
+| `robot: NOT STARTED - no robot address` | `rig.yaml robot.ip` is null | connect the robot and set `robot.ip`, or `robot_ip:=<ip>` on the launch line |
+| `robot <ip>:30004 (RTDE) not reachable within 3 s` | wrong IP, cable, PC not on the robot subnet, controller off | `ping <ip>`; PC address on the same subnet; controller booted |
+| nodes / topics you did not start in `ros2 node list` / `ros2 topic list` | a launch from another terminal is still running (a topic also appears when only a subscriber exists, e.g. `qc_monitor` lists `/robot/state` and `/micrus/bmode` even without a robot) | `rig_status` shows them under "running now"; stop them with Ctrl+C in their terminal |
+| `process has died ... exit code 2` right after start | that node refused to start and printed why on the line above | read the line above; fix the config value it names |
+
+---
+
 ## Test 1: robot connection, topics, saving poses, recorded data
 
 **Before**
@@ -246,7 +266,7 @@ ros2 run usrig_qc bag_check ~/data/checks/test3_camera_robot_<date_time> --expec
 
 ## Test 4: everything together (final check)
 
-**Before**: tests 1-3 passed, calibrations stored. For motion with robot_control: all 22 `rig.yaml` limits
+**Before**: tests 1-3 passed, calibrations stored. For motion with robot_control: all `rig.yaml` values robot_control needs (26 null today; `ros2 run usrig_qc rig_status` lists them)
 and the keymap speeds filled (`rig_limits.md`), and `first_motion_checklist.md` sections B-D done. Without
 them, run test 4 with `control:=false` and freedrive or the pendant.
 

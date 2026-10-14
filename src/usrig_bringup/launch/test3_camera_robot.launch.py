@@ -21,7 +21,8 @@ import _test_common as T  # noqa: E402
 def _setup(context):
     sj, sid = T.value(context, 'session_json'), T.value(context, 'session_id')
     acts = [T.include('wrist_camera.launch.py', {'auto': T.value(context, 'auto')}),
-            T.include('robot.launch.py', {'sim': 'false', 'control': T.value(context, 'control'), 'session_json': sj}),
+            T.include('robot.launch.py', {'sim': 'false', 'control': T.value(context, 'control'), 'session_json': sj,
+                                          'robot_ip': T.value(context, 'robot_ip')}),
             T.static_tf(sj)]
     if T.truthy(context, 'qc'):
         acts.append(T.qc_monitor(sid, False))
@@ -38,4 +39,5 @@ def generate_launch_description():
         DeclareLaunchArgument('control', default_value='false'),
         DeclareLaunchArgument('qc', default_value='true'),
         DeclareLaunchArgument('record', default_value='false'),
+        DeclareLaunchArgument('robot_ip', default_value='', description='overrides rig.yaml robot.ip'),
         OpaqueFunction(function=_setup)])

@@ -21,7 +21,8 @@ def _setup(context):
     sim, sj, sid = T.truthy(context, 'sim'), T.value(context, 'session_json'), T.value(context, 'session_id')
     acts = [T.include('micrus.launch.py', {'session_id': sid, 'sim': str(sim).lower()}),
             T.include('robot.launch.py', {'sim': str(sim).lower(), 'control': T.value(context, 'control'),
-                                          'session_json': sj}),
+                                          'session_json': sj,
+                                          'robot_ip': T.value(context, 'robot_ip')}),
             T.static_tf(sj)]
     if T.truthy(context, 'qc'):
         acts.append(T.qc_monitor(sid, sim))
@@ -38,4 +39,5 @@ def generate_launch_description():
         DeclareLaunchArgument('control', default_value='false'),
         DeclareLaunchArgument('qc', default_value='true'),
         DeclareLaunchArgument('record', default_value='false'),
+        DeclareLaunchArgument('robot_ip', default_value='', description='overrides rig.yaml robot.ip'),
         OpaqueFunction(function=_setup)])

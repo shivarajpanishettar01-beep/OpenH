@@ -12,7 +12,7 @@ GR00T-H is out of scope for now (separate task).
 | P1 | micrus bringup (simulator) | **passed** | 27.35 Hz, 0 frame gaps in 5 min, clean power-down on Ctrl+C (`P1_results.md`) |
 | P1b | Wrist D415 bringup | **blocked on hardware** | dev PC only gives USB 2.1; runs on the capture PC (`capture_pc_setup.md`) |
 | P2 | robot_state | URSim done; real UR7e pending | pose matches pendant; URSim runs at 0.968x real time so its 500 Hz check is not meaningful (`P2_results.md`) |
-| P3 | Control + teleop | **code done, mocked tests pass** | path B; URSim run skipped (decision 13 Oct); first motion on the real arm needs the 22 limits |
+| P3 | Control + teleop | **code done, mocked tests pass** | path B; URSim run skipped (decision 13 Oct); first motion on the real arm needs the 26 rig.yaml values still null (`rig_status` lists them) |
 | P4 | Episode recorder + manager | **passed in simulation** | 5 episodes incl. SIGKILL mid-recording; crash recovery verified (`P4_results.md`) |
 | P5 | Registration, waypoints, paths, plan | code done, not run | waypoints executable only if verified with the current TCP / probe / payload; moves and paths pre-checked; needs robot motion |
 | P6 | QC + pre-session check | done, tested on bags | per-episode QC on real MCAP bags; checks every source for gaps |
@@ -21,7 +21,7 @@ GR00T-H is out of scope for now (separate task).
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
-**Code base** (11 ROS 2 packages, 127 tests, fresh clone builds and passes in a clean shell)
+**Code base** (11 ROS 2 packages, 128 tests, fresh clone builds and passes in a clean shell)
 - Staged bring-up (14 Oct): `test1_robot`, `test2_micrus_robot`, `test3_camera_robot`, `test4_full_system`
   launch files, `bag_check`, `docs/TESTING_STEPS.md`; tests 1, 2 and 4 run in simulation. Fixed on the way:
   robot_state_cpp hung ~2 min per attempt on an unreachable robot (now 3 s with a clear message);
@@ -95,7 +95,7 @@ real robot. In order:
 
 | Item | Where | Owner |
 |---|---|---|
-| Safety limits: 22 values incl. payload mass / CoG (`rig_limits.md`) | `rig.yaml` | you |
+| Safety limits and robot setup: 26 null `rig.yaml` values incl. robot IP, TCP, payload (`rig_limits.md`; `ros2 run usrig_qc rig_status` lists them) | `rig.yaml` | you |
 | Teleop speeds per axis, fine mode (D6) | `keymap.yaml` | you |
 | Failure-mode mapping to the four classes; staging methods and magnitudes | `failure_catalog.yaml` | you |
 | Gate values `gate01.*`, `gate12.*` | `session.yaml` | you |
