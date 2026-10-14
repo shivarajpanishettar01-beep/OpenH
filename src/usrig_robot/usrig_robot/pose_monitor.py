@@ -20,6 +20,7 @@ from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
 
 from usrig_common import geometry
 from usrig_common import motion_check as mc
+from usrig_common.rosutil import ignore_sigint
 from usrig_interfaces.msg import RobotState
 
 MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']
@@ -93,6 +94,7 @@ def main(argv=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         n.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

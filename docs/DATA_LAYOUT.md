@@ -25,7 +25,8 @@ tool has its own path setting.
 ├── presets/base_presets.yaml                test / transit poses, base frame (preset_check save)
 ├── phantoms/<phantom_id>.yaml               fiducials for register_phantom
 ├── calibration/                             handeye_<date>/ (images + poses), pivot_<tool>_<date>.json
-└── checks/                                  pipeline checks on synthetic data (sim root only)
+└── checks/                                  test recordings (test1-test3 launch files, record:=true) and
+                                             pipeline checks on synthetic data; never exported
 ```
 
 | Written by | Goes to |
@@ -39,6 +40,7 @@ tool has its own path setting.
 | `register_phantom` | reads `phantoms/`, writes `sessions/<id>/session.json` |
 | `handeye_calib`, `pivot_calib` | `calibration/` (handeye: by the session's `sim` flag; `--sim`) |
 | `presession_check`, `temporal_calib` | `sessions/<id>/session.json` |
+| `test1_robot` / `test2_micrus_robot` / `test3_camera_robot` launch with `record:=true` | `checks/<test>_<date_time>/` |
 | `export/pipeline_check.py` | `~/data_sim/checks/pipeline_check/` |
 | `rig_measure --write`, `handeye --write-rig`, `pivot_calib --write`, `camera_autolock --write` | the config files in `src/usrig_bringup/config/` (values, not data) |
 | exports (`stage_bags`, `bag_to_lerobot`, `openh_export`) | where you point `-o` / `--out` (e.g. `~/datasets`): derived data, rebuilt from `~/data` |

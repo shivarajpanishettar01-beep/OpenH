@@ -69,6 +69,7 @@ def generate_launch_description():
              parameters=params, condition=IfCondition(L('qc'))),
         Node(package='usrig_episode', executable='episode_manager', output='screen',
              parameters=params + [{'robot_control': ParameterValue(L('control'), value_type=bool),
+                                   'camera': ParameterValue(L('camera'), value_type=bool),
                                    'collection_mode': ParameterValue(PythonExpression(
                                        ["'freedrive' if '", L('input'), "' == 'freedrive' else 'robot'"]), value_type=str)}],
              condition=IfCondition(L('episode_manager'))),

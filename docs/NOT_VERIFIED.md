@@ -93,3 +93,9 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 ## Phantom / plan
 - Fiducial file format `phantoms/<id>.yaml` (`fiducials_mm`), staging method names and
   disturbance magnitudes in `failure_catalog.yaml` (proposed placeholders).
+
+## Staged tests (TESTING_STEPS.md)
+- test1-test4 launch files ran in simulation only (test 3: refusal path only, no D415 here).
+- `temporal_calib.py` on a real compress test (hand-driven in freedrive or robot-driven): not run yet.
+- Ultrasound frames missing from the bag under heavy load (12 of 555 in a simulated test 4 episode, micrus
+  simulator writing HDF5 + MP4 at ~4.5 cores; the HDF5 keeps every frame): measure on the capture PC.

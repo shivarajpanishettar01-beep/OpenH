@@ -13,6 +13,7 @@ import time
 import rclpy
 from rclpy.executors import ExternalShutdownException
 from rclpy.qos import HistoryPolicy, QoSProfile, ReliabilityPolicy
+from usrig_common.rosutil import ignore_sigint
 from std_msgs.msg import String
 
 from usrig_interfaces.msg import ControlStatus, EpisodeEvent
@@ -94,6 +95,7 @@ def main():
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         n.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

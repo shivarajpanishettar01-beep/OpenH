@@ -96,10 +96,13 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     r_st = np.array([stamp_ns(m) for _, m in rs])
     r_win = r_st[[in_win(s) for s in r_st]] if len(r_st) else r_st
     r_hz = (len(r_win) - 1) / ((r_win[-1] - r_win[0]) * 1e-9) if len(r_win) > 1 else 0.0
-    checks['robot_rate'] = _status(r_hz >= 490.0, hz=r_hz)
     # Samples lost anywhere between the controller and the bag: controller time steps > 1.5 periods.
-    period = 1.0 / float(config.get_path(rig, 'robot.state_rate_hz') or 500.0)
+    rate = float(config.get_path(rig, 'robot.state_rate_hz') or 500.0)
+    period = 1.0 / rate
     ctrl = np.array([m.controller_time_s for _, m in rs if in_win(stamp_ns(m))])
+    # rate on the controller's clock (a simulator slower than real time is not a data problem); PC clock as info
+    hz_ctrl = (len(ctrl) - 1) / (ctrl[-1] - ctrl[0]) if len(ctrl) > 1 and ctrl[-1] > ctrl[0] else 0.0
+    checks['robot_rate'] = _status(hz_ctrl >= 0.98 * rate, hz=hz_ctrl, hz_pc_clock=r_hz)
     if len(ctrl) > 1:
         dc = np.diff(ctrl)
         lost = int(np.sum(np.round(dc[dc > 1.5 * period] / period) - 1))

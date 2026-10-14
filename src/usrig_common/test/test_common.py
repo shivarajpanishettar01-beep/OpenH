@@ -101,3 +101,14 @@ def test_pose_monitor_render():
     out = render(m, T2, T, 3.0, 0.1)
     assert 'FREEDRIVE' in out and 'kinesthetic' in out and 'setpoint none' in out and '+12.00' in out
     assert 'STALE' in render(m, T2, T, 0.0, 2.0)
+
+
+def test_every_python_file_compiles():
+    """A syntax error in a node that no unit test imports (e.g. episode_manager) must still fail the suite."""
+    from pathlib import Path
+    repo = Path(__file__).resolve().parents[3]
+    files = [f for d in ('src', 'export', 'tools', 'scripts') for f in (repo / d).rglob('*.py')
+             if '/build/' not in str(f) and '/install/' not in str(f)]
+    assert len(files) > 50
+    for f in files:
+        compile(f.read_text(), str(f), 'exec')      # SyntaxError fails the test; nothing is written

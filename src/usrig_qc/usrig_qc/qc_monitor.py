@@ -23,6 +23,7 @@ from std_msgs.msg import String
 
 from usrig_common import config
 from usrig_common.timeutil import now_ns
+from usrig_common.rosutil import ignore_sigint
 from usrig_interfaces.msg import RobotState
 
 from .stream_check import stamp_from_cdr
@@ -193,6 +194,7 @@ def main(args=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         n.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

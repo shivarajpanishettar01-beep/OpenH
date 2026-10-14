@@ -31,6 +31,7 @@ from std_msgs.msg import String
 
 from usrig_common import config
 from usrig_common.timeutil import now_ns, stamp_from_ns
+from usrig_common.rosutil import ignore_sigint
 
 from .ramp import KeyState, TwistRamp
 
@@ -216,6 +217,7 @@ def main(args=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         if node is not None:
             node.destroy_node()
         if rclpy.ok():

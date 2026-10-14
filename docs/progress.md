@@ -21,7 +21,13 @@ GR00T-H is out of scope for now (separate task).
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
-**Code base** (11 ROS 2 packages, 126 tests, fresh clone builds and passes in a clean shell)
+**Code base** (11 ROS 2 packages, 127 tests, fresh clone builds and passes in a clean shell)
+- Staged bring-up (14 Oct): `test1_robot`, `test2_micrus_robot`, `test3_camera_robot`, `test4_full_system`
+  launch files, `bag_check`, `docs/TESTING_STEPS.md`; tests 1, 2 and 4 run in simulation. Fixed on the way:
+  robot_state_cpp hung ~2 min per attempt on an unreachable robot (now 3 s with a clear message);
+  `camera:=false` still made episodes wait for the camera (every episode discarded silently); aborted episodes
+  are now logged and closed with an episode.json; a double Ctrl+C killed nodes mid-cleanup; a syntax error
+  in episode_manager that no test imported (every source file is now compiled by the test suite).
 - Mode packages (14 Oct): `usrig_teleop`, `usrig_presets` (waypoints / paths / plans moved from usrig_episode),
   `usrig_freedrive`; a check per mode that prints the pose change on the real arm (`teleop_check`,
   `preset_check`, `freedrive_check`) and `pose_monitor` (`REAL_ROBOT_CHECKS.md`). Freedrive works in Remote

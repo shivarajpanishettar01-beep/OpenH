@@ -45,6 +45,7 @@ from usrig_interfaces.msg import EpisodeEvent
 from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPose, RunPath
 
 from usrig_common import gates
+from usrig_common.rosutil import ignore_sigint
 
 from . import provenance
 from .recorder import EpisodeRecorder, RecorderError
@@ -64,11 +65,16 @@ class EpisodeManager(Node):
         for name, default in (('config_dir', ''), ('session_id', ''), ('session_json', ''),
                               ('stage', -1), ('robot_control', False), ('adhoc_json', ''),
                               ('operator_id', ''), ('phantom_id', ''), ('sim', False),
-                              ('collection_mode', 'robot')):
+                              ('collection_mode', 'robot'), ('camera', True)):
             self.declare_parameter(name, default)
         p = lambda n: self.get_parameter(n).value  # noqa: E731
         cfg_dir = p('config_dir') or None
         self.scfg = config.load_config('session', cfg_dir)
+        if not bool(self.get_parameter('camera').value):
+            # camera:=false: not started, so not recorded, not waited for, not checked by QC
+            self.scfg['recording']['include_wrist_camera'] = False
+        self.camera_recorded = bool(self.scfg['recording'].get('include_wrist_camera')
+                                    and self.scfg['wrist_camera'].get('enabled'))
         self.rig = config.load_config('rig', cfg_dir)
         self.session_id = p('session_id')
         if not self.session_id:
@@ -291,7 +297,7 @@ class EpisodeManager(Node):
             'micrus_version': provenance.micrus_version(self.scfg['micrus']['command']),
             'robot_tcp_setting': config.get_path(self.rig, 'robot.tcp_setting'),
             't_start_ns': None, 't_end_ns': None, 't_bag_ready_ns': None, 'duration_s': None, 'qc': None,
-            'wrist_camera': self._wrist_info(),
+            'wrist_camera': self._wrist_info() if self.camera_recorded else None,
         }
         ep.update(fields)
         ep.update(self.adhoc)
@@ -309,6 +315,18 @@ class EpisodeManager(Node):
         self.event('phase', {'phase': 'free_air', 'hold_s': self.scfg['recording']['free_air_hold_s']})
         time.sleep(float(self.scfg['recording']['free_air_hold_s']))
         self.event('phase', {'phase': 'free_air_end'})
+
+    def _close_unstarted(self, ep):
+        """An episode whose bag never became ready (readiness gate, approach failure): stop whatever started and
+        write its episode.json as a discard now, so no folder is left without one."""
+        self.recorder.abort()
+        with self.ep_lock:
+            self.ep = None
+        ep['outcome'] = 'discard'
+        d = self.sdir / ep['episode_dir']
+        if d.exists():
+            write_json_atomic(d / 'episode.json', ep)
+        (self.sdir / f'.{ep["episode_dir"]}.partial.json').unlink(missing_ok=True)
 
     def _start_event(self, ep):
         ep['t_start_ns'] = self.event('start', {k: ep.get(k) for k in
@@ -422,15 +440,14 @@ class EpisodeManager(Node):
                 elif c['cmd'] == 'discard':
                     ep['outcome'] = 'discard'
             except (Abort, RecorderError) as e:
+                self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
                 ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
             finally:
                 if ep.get('t_bag_ready_ns'):
                     self._finish(ep)
                 else:
-                    self.recorder.abort()
-                    with self.ep_lock:
-                        self.ep = None
+                    self._close_unstarted(ep)
                 if self.control:
                     self._safe_retract()
 
@@ -461,15 +478,14 @@ class EpisodeManager(Node):
                 elif c['cmd'] == 'discard':
                     ep['outcome'] = 'discard'
             except (Abort, RecorderError) as e:
+                self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
                 ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
             finally:
                 if ep.get('t_bag_ready_ns'):
                     self._finish(ep)
                 else:
-                    self.recorder.abort()
-                    with self.ep_lock:
-                        self.ep = None
+                    self._close_unstarted(ep)
 
     def _stage1(self):
         st1 = self.scfg['stage1']
@@ -512,11 +528,14 @@ class EpisodeManager(Node):
                 elif ep.get('outcome') != 'discard':
                     ep['outcome'] = 'fail'
             except (Abort, RecorderError) as e:
+                self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
                 ep['notes'] = f'aborted: {e}'
             finally:
                 if ep.get('t_bag_ready_ns'):
                     self._finish(ep, task_text=ep.get('instruction') or f'Scan path {name}')
+                else:
+                    self._close_unstarted(ep)
                 self._safe_retract()
 
     def _try_call(self, name, req):
@@ -575,11 +594,14 @@ class EpisodeManager(Node):
                         self.call('teleop', SetBool.Request(data=False))
                         time.sleep(float(s2['success_hold_s']))
             except (Abort, RecorderError) as e:
+                self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
                 ep['notes'] = f'aborted: {e}'
             finally:
                 if ep.get('t_bag_ready_ns'):
                     ep = self._finish(ep)
+                else:
+                    self._close_unstarted(ep)
                 self._safe_retract()
             ok = ep.get('outcome') != 'discard' and (ep.get('qc') or {}).get('pass') is True
             prog = read_json(prog_path)
@@ -662,6 +684,7 @@ def main(args=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         if node is not None:
             node.recorder.abort()
             node.destroy_node()

@@ -26,5 +26,6 @@ setup(
         'auto_annotate = usrig_qc.auto_annotate:main',
         'collection_progress = usrig_qc.collection_progress:main',
         'status_console = usrig_qc.status_console:main',
+        'bag_check = usrig_qc.bag_check:main',
     ]},
 )

@@ -9,6 +9,7 @@ from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
 
 from usrig_common import config, geometry
+from .rosutil import ignore_sigint
 from usrig_interfaces.msg import RobotState
 
 
@@ -24,6 +25,10 @@ class ToolNode(Node):
         self._ex = MultiThreadedExecutor(num_threads=2)
         self._ex.add_node(self)
         threading.Thread(target=self._ex.spin, daemon=True).start()
+
+    def destroy_node(self):
+        self._ex.shutdown(timeout_sec=1.0)        # stop spinning first: no 'destruction was requested' noise
+        super().destroy_node()
 
     def _on_state(self, m):
         with self._lock:
@@ -108,6 +113,7 @@ def run_tool(fn, name):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         if node is not None:
             node.destroy_node()
         if rclpy.ok():

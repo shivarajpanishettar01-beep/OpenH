@@ -96,7 +96,8 @@ def read(bag, a):
         half = a.marker_mm / 2000.0
         obj = np.array([[-half, half, 0], [half, half, 0], [half, -half, 0], [-half, -half, 0]], np.float32)
     rz_t, rz, us_t, us, c_t, c, K, D = [], [], [], [], [], [], None, None
-    topics = {'/robot/state', '/micrus/bmode', a.color_topic, a.color_info_topic, a.depth_topic}
+    # ultrasound only with --us-rows (a camera-only recording, e.g. test 3, has none)
+    topics = {'/robot/state', a.color_topic, a.color_info_topic, a.depth_topic} | ({'/micrus/bmode'} if a.us_rows else set())
     with AnyReader([Path(bag)], default_typestore=ts) as r:
         for con, _, raw in r.messages(connections=[x for x in r.connections if x.topic in topics]):
             m = r.deserialize(raw, con.msgtype)
@@ -159,7 +160,7 @@ def calibrate(bag, a):
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('bags', nargs='+', help='one bag, or start and end bags of a session')
-    ap.add_argument('--us-rows', type=int, nargs=2, required=True)
+    ap.add_argument('--us-rows', type=int, nargs=2, help='image row band of a moving bright structure (ultrasound)')
     ap.add_argument('--us-cols', type=int, nargs=2)
     ap.add_argument('--aruco', help='e.g. DICT_4X4_50 (marker fixed on the phantom / table)')
     ap.add_argument('--marker-mm', type=float, default=40.0)
@@ -170,6 +171,8 @@ def main():
     ap.add_argument('--max-lag-ms', type=float, default=200.0)
     ap.add_argument('--session', help='write the result into <session>/session.json')
     a = ap.parse_args()
+    if not a.us_rows and not a.aruco and not a.depth_roi:
+        sys.exit('nothing to calibrate: give --us-rows (ultrasound) and / or --aruco / --depth-roi (camera)')
     if len(a.bags) > 2:
         sys.exit('give one bag, or start and end bags')
     results = [calibrate(b, a) for b in a.bags]

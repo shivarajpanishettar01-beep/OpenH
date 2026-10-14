@@ -19,7 +19,12 @@
 // Parameters: robot_ip, frequency_hz (500), rt_priority (0 = off), base_frame ("base"),
 //             T_base_phantom (16 doubles, row-major; identity until phantom registration),
 //             freedrive_input (configurable digital input 0-7 of the pedal; -1 = none).
+#include <fcntl.h>
+#include <netdb.h>
+#include <poll.h>
 #include <pthread.h>
+#include <sys/socket.h>
+#include <unistd.h>
 #include <sched.h>
 
 #include <algorithm>
@@ -27,6 +32,7 @@
 #include <atomic>
 #include <chrono>
 #include <cmath>
+#include <cerrno>
 #include <cstring>
 #include <limits>
 #include <memory>
@@ -65,6 +71,36 @@ int64_t steady_ns()
 {
   return std::chrono::duration_cast<std::chrono::nanoseconds>(
              std::chrono::steady_clock::now().time_since_epoch()).count();
+}
+
+// Non-blocking TCP connect with a timeout: is something listening on ip:port? (Never sends data.)
+bool tcp_reachable(const std::string& ip, int port, int timeout_ms)
+{
+  addrinfo hints{}, *res = nullptr;
+  hints.ai_family = AF_UNSPEC;
+  hints.ai_socktype = SOCK_STREAM;
+  if (getaddrinfo(ip.c_str(), std::to_string(port).c_str(), &hints, &res) != 0 || res == nullptr) {
+    return false;
+  }
+  const int fd = socket(res->ai_family, res->ai_socktype, res->ai_protocol);
+  bool ok = false;
+  if (fd >= 0) {
+    fcntl(fd, F_SETFL, fcntl(fd, F_GETFL, 0) | O_NONBLOCK);
+    if (connect(fd, res->ai_addr, res->ai_addrlen) == 0) {
+      ok = true;
+    } else if (errno == EINPROGRESS) {
+      pollfd pfd{fd, POLLOUT, 0};
+      if (poll(&pfd, 1, timeout_ms) == 1) {
+        int err = 0;
+        socklen_t len = sizeof(err);
+        getsockopt(fd, SOL_SOCKET, SO_ERROR, &err, &len);
+        ok = (err == 0);
+      }
+    }
+    close(fd);
+  }
+  freeaddrinfo(res);
+  return ok;
 }
 
 int64_t now_ns()
@@ -168,9 +204,24 @@ public:
     status_.mode = RobotState::MODE_IDLE;
     status_.action_source = RobotState::SOURCE_NONE;
 
+    // Fail fast on an unreachable robot (wrong IP, cable, controller off): a blocked TCP connect would
+    // otherwise take ~2 min per attempt and ignore Ctrl+C.
+    if (!tcp_reachable(ip_, 30004, 3000)) {
+      throw std::runtime_error("robot " + ip_ + ":30004 (RTDE) not reachable within 3 s: check robot.ip in rig.yaml, "
+                               "the network cable / PC address, and that the controller is booted");
+    }
     client_ = std::make_unique<urcl::rtde_interface::RTDEClient>(ip_, notifier_, kOutputs,
                                                                  std::vector<std::string>{}, freq_);
-    if (!client_->init()) {
+    // 3 attempts, 2 s apart: an unreachable robot (wrong IP, cable, controller off) fails within ~6 s with a
+    // clear message instead of retrying forever (and ignoring Ctrl+C) inside the constructor
+    bool ok = false;
+    try {
+      ok = client_->init(3, std::chrono::milliseconds(2000));
+    } catch (const std::exception& e) {
+      throw std::runtime_error("robot " + ip_ + " not reachable on RTDE port 30004 (" + e.what() +
+                               "): check the IP in rig.yaml, the cable / network, and that the controller is on");
+    }
+    if (!ok) {
       throw std::runtime_error("RTDE init failed for " + ip_);
     }
     if (!client_->start(false)) {  // no background thread: lossless blocking reads

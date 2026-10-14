@@ -30,6 +30,7 @@ from std_srvs.srv import SetBool, Trigger
 from usrig_common import config, geometry
 from usrig_common.session import read_json
 from usrig_common.timeutil import now_ns, stamp_from_ns
+from usrig_common.rosutil import ignore_sigint
 from usrig_interfaces.msg import ControlStatus as ControlStatusMsg  # not the shared-status class below
 from usrig_interfaces.msg import EpisodeEvent, RobotState
 from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPose, RunPath
@@ -891,6 +892,7 @@ def main(args=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         for n in (control, state):
             if n is not None:
                 n.destroy_node()

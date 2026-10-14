@@ -12,6 +12,7 @@ from tf2_ros.static_transform_broadcaster import StaticTransformBroadcaster
 from usrig_common import config, geometry
 from usrig_common.session import read_json
 from usrig_common.timeutil import now_stamp
+from usrig_common.rosutil import ignore_sigint
 
 
 def _tf(parent, child, T):
@@ -59,6 +60,7 @@ def main(args=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         n.destroy_node()
         if rclpy.ok():
             rclpy.shutdown()

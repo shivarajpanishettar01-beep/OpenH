@@ -20,6 +20,7 @@ from sensor_msgs.msg import JointState
 from usrig_common import config, geometry
 from usrig_common.session import read_json
 from usrig_common.timeutil import stamp_from_ns
+from usrig_common.rosutil import ignore_sigint
 from usrig_interfaces.msg import RobotState
 
 from usrig_freedrive.labels import label_sample
@@ -216,6 +217,7 @@ def main(args=None):
     except (KeyboardInterrupt, ExternalShutdownException):
         pass
     finally:
+        ignore_sigint()
         if node is not None:
             node.destroy_node()
         if rclpy.ok():

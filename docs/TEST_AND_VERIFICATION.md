@@ -28,7 +28,7 @@ git clone ~/OpenH /tmp/clean && cd /tmp/clean && env -i HOME=$HOME USER=$USER PA
 |---|---|---|
 | fresh clone + `scripts/build.sh` in an empty environment | exit 0, 9 packages, 30 s | warnings only: CMake "cannot generate a safe runtime search path" (conda vs system libraries, harmless) |
 | same clone + `scripts/test.sh` | 83 passed (before this audit's additions) | |
-| `scripts/test.sh` (final) | **126 passed**, ~95 s | 21 files; fresh clone of 14 Oct: 11 packages build, all pass |
+| `scripts/test.sh` (final) | **127 passed**, ~98 s | 21 files; fresh clone of 14 Oct: 11 packages build, all pass |
 | `pyflakes src export tools` | clean (after removing 6 unused imports) | |
 | `ros2 launch usrig_bringup {robot,micrus,wrist_camera,collect}.launch.py --show-args` | all parse; arguments listed | |
 | `dashboard` offscreen (`QT_QPA_PLATFORM=offscreen`, no topics) | ran 8 s, no exception | |

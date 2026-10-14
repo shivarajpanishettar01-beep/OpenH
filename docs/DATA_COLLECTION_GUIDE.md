@@ -46,7 +46,7 @@ ros2 run usrig_episode rig_static_tf --ros-args -p session_json:=$HOME/data/sess
 ```
 Hand-eye (after touching the camera mount):
 ```bash
-ros2 run usrig_episode handeye_calib ~/data/sessions/<SESSION_ID>
+ros2 run usrig_episode handeye_calib --session ~/data/sessions/<SESSION_ID>
 ```
 Full list and order: `calibration.md`. Waypoints need re-verification after a TCP / probe / payload change.
 
