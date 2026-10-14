@@ -39,3 +39,7 @@
 18. **F/T offset in freedrive episodes**: no `zero_ft` service without robot_control. Each episode records a
     free-air window (`free_air` phase); subtract its mean force in the export, or rely on zeroing on the
     pendant at the start of the session? (Applies to robot episodes too if the offset drifts.)
+19. **Paused spans in the export** (operator console Pause, 14 Oct 2026): recording continues while paused (a bag
+    hole would not line up with the micrus HDF5 and QC would fail the episode); the robot holds, samples are
+    labelled not expert, and `episode.json` has `pauses` / `paused_s`. Drop those spans in `openh_export.py`, or
+    keep them as non-expert steps? Not implemented in the exporter yet.

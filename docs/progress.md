@@ -16,12 +16,20 @@ GR00T-H is out of scope for now (separate task).
 | P4 | Episode recorder + manager | **passed in simulation** | 5 episodes incl. SIGKILL mid-recording; crash recovery verified (`P4_results.md`) |
 | P5 | Registration, waypoints, paths, plan | code done, not run | waypoints executable only if verified with the current TCP / probe / payload; moves and paths pre-checked; needs robot motion |
 | P6 | QC + pre-session check | done, tested on bags | per-episode QC on real MCAP bags; checks every source for gaps |
-| P7 | Dashboard | done (demos only) | runs stably on PySide6 6.8.3; collection is headless |
+| P7 | Dashboard, operator console | dashboard done (demos only); console written, checked offscreen | dashboard stable on PySide6 6.8.3; console: no images, load on the capture PC not measured |
 | P8 | Export (Open-H, LeRobot v3.0) | **verified end to end on synthetic episodes** | `pipeline_check.py`, 3 export defects fixed; real episodes pending |
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
 **Code base** (11 ROS 2 packages, 153 tests, fresh clone builds and passes in a clean shell)
+- Operator console (14 Oct): `ros2 run usrig_dashboard operator_console` / `console:=true`, the collection GUI
+  (no images): session and episode details (number, date, start time, elapsed, paused), start / stop / pause /
+  resume, outcomes and failure / recovery marks, teleop and safety controls, preset waypoints (go, descend,
+  verify, teach) and paths, freedrive status, session set-up (pre-session check, launch in a detached terminal).
+  `episode_manager` publishes `/episode/status`; Pause keeps recording (no bag hole vs the micrus HDF5), holds the
+  robot and records the spans (`pauses`, `paused_s`). Waypoint teach / verify split into functions shared by the
+  CLI and the console. Fixed a race in the control-test fixture (fault events of the first tick were missed).
+  `OPERATOR_CONSOLE_GUIDE.md`; open decision 19 (paused spans in the export).
 - Review of the three modes (14 Oct): the lift perturbation left its force setpoint behind when cut short
   (preempt / FAULT / contact loss), down to 0 N for the next hold or recontact; a rotated phantom box could
   re-introduce motion out through the base box (found by random search: +11.6 mm/s outward for 4.4 mm/s asked);
@@ -97,7 +105,7 @@ Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) i
 
 **Decisions taken**
 - Control path B (13 Oct). URSim control dry run skipped (13 Oct): motion checks on the real arm in free air.
-- GUI for demos only; collection headless.
+- Image GUI (dashboard) for demos only; collection uses the image-free operator console or the headless status_console.
 - Action = incremental TCP pose (proposal); wrist depth exported losslessly.
 - Code licence MIT; repo public.
 

@@ -14,6 +14,7 @@
   <exec_depend>usrig_common</exec_depend>
   <exec_depend>std_srvs</exec_depend>
   <exec_depend>usrig_qc</exec_depend>
+  <exec_depend>usrig_presets</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <export>
     <build_type>ament_python</build_type>

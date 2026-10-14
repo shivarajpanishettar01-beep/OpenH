@@ -22,5 +22,6 @@ setup(
     entry_points={'console_scripts': [
         'dashboard = usrig_dashboard.dashboard:main',
         'annotator = usrig_dashboard.annotator:main',
+        'operator_console = usrig_dashboard.operator_console:main',
     ]},
 )

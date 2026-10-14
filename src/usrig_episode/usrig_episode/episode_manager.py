@@ -33,6 +33,7 @@ from geometry_msgs.msg import PoseStamped
 from rclpy.callback_groups import ReentrantCallbackGroup
 from rclpy.executors import MultiThreadedExecutor
 from rclpy.node import Node
+from rclpy.qos import DurabilityPolicy, QoSProfile, ReliabilityPolicy
 from scipy.spatial.transform import Rotation
 from std_msgs.msg import String
 from std_srvs.srv import SetBool, Trigger
@@ -47,6 +48,7 @@ from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPos
 from usrig_common import gates
 from usrig_common.rosutil import ignore_sigint
 
+from . import episode_status as es
 from . import provenance
 from .recorder import EpisodeRecorder, RecorderError
 from usrig_presets.path_editor import resolve as resolve_path
@@ -123,6 +125,16 @@ class EpisodeManager(Node):
         self.cmds = queue.Queue()
         self.ep = None
         self.ep_lock = threading.Lock()
+        # operator console state (/episode/status): what we wait for, pause spans, last episode, counts
+        self.pause_log = None
+        self.waiting_for = set()
+        self.finishing = False
+        self.last_ep = None
+        self.plan_info = None
+        self.counts = es.summarize_episodes(self._finished_episodes())
+        self.pub_status = self.create_publisher(
+            String, '/episode/status',
+            QoSProfile(depth=1, reliability=ReliabilityPolicy.RELIABLE, durability=DurabilityPolicy.TRANSIENT_LOCAL))
         self.recorder = EpisodeRecorder(self, self.scfg, self.sdir)
         self.recorder.ensure_micrus_stopped()
         self._recover_interrupted()
@@ -144,8 +156,40 @@ class EpisodeManager(Node):
             if not ok:
                 raise RuntimeError(f'refusing to collect: {why}')
 
+        self.create_timer(0.5, self._publish_status, callback_group=cb)
         self.worker = threading.Thread(target=self._run_stage, name='stage', daemon=True)
         self.worker.start()
+
+    # ------------------------------------------------------------------ operator console status
+    def _finished_episodes(self):
+        out = []
+        for f in sorted(self.sdir.glob('ep_*/episode.json')):
+            try:
+                out.append(read_json(f))
+            except (OSError, ValueError):
+                continue
+        return out
+
+    def _publish_status(self):
+        with self.ep_lock:
+            payload = es.status_payload(
+                session={'session_id': self.session_id, 'stage': self.stage, 'collection_mode': self.collection_mode,
+                         'robot_control': self.control, 'operator_id': self.operator_id,
+                         'phantom_id': self.phantom_id, 'sim': self.sim, 'session_dir': str(self.sdir)},
+                ep=self.ep, pause_log=self.pause_log, waiting_for=self.waiting_for, finishing=self.finishing,
+                last_ep=self.last_ep, counts=self.counts, plan=self.plan_info, now_ns=now_ns())
+        self.pub_status.publish(String(data=json.dumps(payload, default=str)))
+
+    def _set_paused(self, ep, pause, t):
+        """Operator pause / resume (ep_lock held). Recording continues; the span is marked and the robot holds."""
+        if self.pause_log is None or ep.get('t_start_ns') is None:
+            return
+        changed = self.pause_log.pause(t) if pause else self.pause_log.resume(t)
+        if not changed:
+            return
+        self.event('pause', {'state': 'paused' if pause else 'resumed', 't_ns': t}, t)
+        if self.control:
+            self.pub_cmd.publish(String(data=json.dumps({'cmd': 'hold', 'value': bool(pause)})))
 
     # ------------------------------------------------------------------ inputs
     def _on_cmd(self, msg):
@@ -169,6 +213,9 @@ class EpisodeManager(Node):
                 elif cmd == 'gel':
                     ep['gel_state'] = c.get('value')
                     self.event('gel', {'state': c.get('value')})
+                elif cmd in ('pause', 'resume', 'pause_toggle'):
+                    want = (not (self.pause_log and self.pause_log.paused)) if cmd == 'pause_toggle' else cmd == 'pause'
+                    self._set_paused(ep, want, t)
                 elif cmd in ('onset', 'recovery_start', 'recovery_end'):
                     key = {'onset': 'onset_t', 'recovery_start': 'recovery_start_t',
                            'recovery_end': 'recovery_end_t'}[cmd]
@@ -237,17 +284,21 @@ class EpisodeManager(Node):
     def wait_cmd(self, wanted, timeout=None):
         """Block until one of the wanted commands arrives; returns it (or None on timeout)."""
         t_end = None if timeout is None else time.monotonic() + timeout
-        while rclpy.ok():
-            left = None if t_end is None else t_end - time.monotonic()
-            if left is not None and left <= 0:
-                return None
-            try:
-                c = self.cmds.get(timeout=0.1 if left is None else min(0.1, left))
-            except queue.Empty:
-                continue
-            if c.get('cmd') in wanted:
-                return c
-        raise Abort('shutdown')
+        self.waiting_for = set(wanted)
+        try:
+            while rclpy.ok():
+                left = None if t_end is None else t_end - time.monotonic()
+                if left is not None and left <= 0:
+                    return None
+                try:
+                    c = self.cmds.get(timeout=0.1 if left is None else min(0.1, left))
+                except queue.Empty:
+                    continue
+                if c.get('cmd') in wanted:
+                    return c
+            raise Abort('shutdown')
+        finally:
+            self.waiting_for = set()
 
     def _drain(self):
         while not self.cmds.empty():
@@ -279,6 +330,7 @@ class EpisodeManager(Node):
                 'cali_ref': 'session.json:wrist_cam_cali_mtx'}
 
     def _new_episode(self, **fields):
+        self.finishing = False
         idx = self._next_index()
         ep_id = f'{self.session_id}_ep_{idx:04d}'
         ep = {
@@ -292,6 +344,7 @@ class EpisodeManager(Node):
             'failure_mode': None, 'staging_method': None, 'onset_t': None, 'recovery_start_t': None,
             'recovered': None, 'recovery_end_t': None, 'onset_source': None,
             'outcome': None, 'success': None, 'view_reached_ns': [], 'gel_state': None, 'notes': '',
+            't_created_ns': now_ns(), 'pauses_ns': [], 'pauses': [], 'paused_s': 0.0,
             'micrus_hdf5_path': None, 'micrus_settings': None, 'micrus_settings_constant': True,
             'rig_git_commit': provenance.rig_git_commit(),
             'micrus_version': provenance.micrus_version(self.scfg['micrus']['command']),
@@ -311,6 +364,7 @@ class EpisodeManager(Node):
     def _begin_recording(self, ep):
         with self.ep_lock:
             self.ep = ep
+            self.pause_log = es.PauseLog()
         write_json_atomic(self.sdir / f'.{ep["episode_dir"]}.partial.json', ep)
         ep['t_bag_ready_ns'] = self.recorder.start(self.sdir / ep['episode_dir'])
         ep['micrus_hdf5_path'] = self.recorder.hdf5_path
@@ -326,6 +380,7 @@ class EpisodeManager(Node):
         self.recorder.abort()
         with self.ep_lock:
             self.ep = None
+            self.pause_log = None
         ep['outcome'] = 'discard'
         d = self.sdir / ep['episode_dir']
         if d.exists():
@@ -340,6 +395,12 @@ class EpisodeManager(Node):
         """end event -> bag stops -> micrus stops -> task.txt / episode.json -> QC."""
         if ep.get('t_start_ns') is None:
             ep['t_start_ns'] = ep.get('t_bag_ready_ns')
+        self.finishing = True
+        with self.ep_lock:
+            self._set_paused(ep, False, now_ns())         # a pause open at the end is closed (robot hold released)
+            spans = self.pause_log.closed(now_ns()) if self.pause_log else []
+            self.pause_log = None
+        ep.update(es.episode_record(spans, ep['t_start_ns']))
         ep['t_end_ns'] = self.event('end', {'outcome': ep.get('outcome')})
         if ep.get('outcome'):
             self.event('outcome', {'outcome': ep['outcome']})
@@ -372,6 +433,9 @@ class EpisodeManager(Node):
         write_json_atomic(d / 'episode.json', ep)
         self.get_logger().info(f'{ep["episode_id"]}: outcome={ep.get("outcome")} '
                                f'duration={ep["duration_s"]} qc_pass={ep["qc"].get("pass")}')
+        self.last_ep = es.last_summary(ep)
+        self.counts = es.summarize_episodes(self._finished_episodes())
+        self.finishing = False
         return ep
 
     def _safe_retract(self):
@@ -575,6 +639,9 @@ class EpisodeManager(Node):
         cap = float(s2['cap_s'])
         for row in rows:
             prog = read_json(prog_path)
+            self.plan_info = {'file': str(plan_file), 'rows': len(rows), 'current_row': row['row'],
+                              'done': sum(1 for v in prog.values() if v.get('status') == 'done'),
+                              'redo': sum(1 for v in prog.values() if v.get('status') == 'redo')}
             if prog.get(row['row'], {}).get('status') == 'done':
                 continue
             off = [float(row[k] or 0) for k in ('off_dx_mm', 'off_dy_mm', 'off_dz_mm',

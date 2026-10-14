@@ -58,6 +58,12 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 - Gravity compensation with the probe + camera + handle payload; hand in the wrist camera view; F/T reading
   with the handle above the sensor.
 
+## Operator console (14 Oct 2026)
+- Checked offscreen with scripted states and on a ROS stand-in only. CPU use on the capture PC with the scanner,
+  D415 and UR7e running (data_integrity.md runner, with and without the console); every robot action from the
+  console on the real arm; the terminal emulator used by "Launch collection".
+- `/episode/status` with TRANSIENT_LOCAL durability under Fast DDS (`config/fastdds_rig.xml`).
+
 ## Teleop
 - SpaceMouse: spacenav driver Joy axis order, scaling (`full_scale`) and the axis signs in `keymap.yaml spacemouse.axes`.
 - Contact-loss thresholds on the real phantom; recontact behaviour in real contact.

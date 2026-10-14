@@ -6,7 +6,8 @@ yet. Every terminal starts with `cd ~/OpenH && source scripts/env.sh`.
 
 Where every file goes: `DATA_LAYOUT.md`. Related: `TELEOPERATION_GUIDE.md` (keys, enable, stop), `WAYPOINT_COLLECTION_GUIDE.md` (waypoints,
 paths, plans), `FREEDRIVE_COLLECTION_GUIDE.md` (guiding the arm by hand with the freedrive pedal),
-`first_motion_checklist.md` (before the first real session).
+`first_motion_checklist.md` (before the first real session), `OPERATOR_CONSOLE_GUIDE.md` (the collection window:
+every command below has a button there, and Pause holds the robot while recording continues).
 
 ## 1. Power-on
 1. Power the UR7e and release brakes on the pendant (you, not software). Check the controller TCP and

@@ -53,6 +53,9 @@ Collection runs headless: keyboard teleop (evdev), episode_manager, recorder, qc
 `ros2 run usrig_qc status_console` (terminal view: episode / recording state, robot mode and
 faults, QC and per-topic rates, recent events; low-rate topics only). The dashboard (1.2-1.4
 cores here) is started only for demos (`dashboard:=true`); the annotator runs offline.
+The operator console (14 Oct 2026, `docs/OPERATOR_CONSOLE_GUIDE.md`) is built for use during collection: no
+images, the 500 Hz robot stream read raw with 1 in 25 messages decoded, 4 Hz refresh, nice 10, never the parent
+of capture processes. Its load on the capture PC is NOT VERIFIED: measure it with this runner before relying on it.
 
 ## Still needed (recommendations, in order)
 1. ~~robot_state in C++~~: done (above).

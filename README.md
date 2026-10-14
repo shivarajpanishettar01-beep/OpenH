@@ -21,7 +21,7 @@ authority (`robot_control`, which freedrive never uses), one recorder and one ep
 | `src/usrig_freedrive` | **freedrive mode**: sample labelling rule (`labels.py`, mirrored in `robot_state_cpp`); `freedrive_check` (guided, never commands) |
 | `src/usrig_episode` | `episode_manager` (the collection lifecycle for every mode: stages 0/1/2 and freedrive, crash-safe recorder, resume), `register_phantom`, `handeye_calib`, `rig_static_tf` |
 | `src/usrig_qc` | `rig_status` (what is set up / connected), `bag_check` (test recordings), `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `collection_plan` (schedule to a deadline), `label_agreement` (inter-rater kappa), `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
-| `src/usrig_dashboard` | dashboard (demos only), `annotator` (offline expert labelling) |
+| `src/usrig_dashboard` | `operator_console` (collection GUI, no images: episodes, start / stop / pause, safety, presets, freedrive, session launch), dashboard (demos only), `annotator` (offline expert labelling) |
 | `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files incl. the staged tests `test1_robot` ... `test4_full_system` |
 | `export/` | `lerobot_rig.yaml` (bag_to_lerobot config), `stage_bags.py`, `depth_export.py`, `openh_export.py` |
 | `tools/temporal_calib.py` | ultrasound / D415 latency from a sinusoidal compress test |
@@ -108,7 +108,7 @@ Then [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md) on the r
 ```bash
 ros2 run usrig_qc presession_check --stage 0 --session ~/data/sessions/<SESSION_ID> --control
 ```
-Collection runs headless; the operator view is `ros2 run usrig_qc status_console`. The dashboard
+During collection the operator window is `ros2 run usrig_dashboard operator_console` (or `console:=true`; no images, so it can stay open: [`docs/OPERATOR_CONSOLE_GUIDE.md`](docs/OPERATOR_CONSOLE_GUIDE.md)); the terminal view `ros2 run usrig_qc status_console` remains. The dashboard
 is for demos only. Bring-up in four staged tests (robot, ultrasound + robot, camera + robot, everything), each
 with its own launch file: [`docs/TESTING_STEPS.md`](docs/TESTING_STEPS.md). What is set up and connected: `ros2 run usrig_qc rig_status`. All data goes under `~/data` (simulation: `~/data_sim`), one folder per kind:
 [`docs/DATA_LAYOUT.md`](docs/DATA_LAYOUT.md). Before collecting, check each mode on the arm and watch the pose change:

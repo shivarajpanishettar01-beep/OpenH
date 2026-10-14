@@ -130,14 +130,17 @@ def sim(monkeypatch):
         monkeypatch.setattr(rc, 'make_backend', lambda rig, log=print, ip=None: robot)
         status = rc.ControlStatus()
         node = rc.RobotControlNode(robot, status, sys.modules[__name__].RIG)
-        node.events = []
-        orig = node._event
-
-        def rec(kind, value, stamp_ns=None):
-            node.events.append((kind, value))
-            orig(kind, value, stamp_ns)
-        node._event = rec
+        node.__dict__.setdefault('events', [])
         return node, robot
+
+    # Record events from the node's first control tick: the loop starts inside the constructor (a robot
+    # placed outside the box FAULTs at once), so wrapping node._event after construction missed events.
+    orig = rc.RobotControlNode._event
+
+    def rec(self, kind, value, stamp_ns=None):
+        self.__dict__.setdefault('events', []).append((kind, value))
+        orig(self, kind, value, stamp_ns)
+    monkeypatch.setattr(rc.RobotControlNode, '_event', rec)
     yield make
     rclpy.shutdown()
 
