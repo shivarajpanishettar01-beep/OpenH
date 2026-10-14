@@ -1,7 +1,7 @@
 """robot_state: UR7e state at 500 Hz over read-only RTDE.
 
 Publishes /robot/state, /joint_states, /robot/tcp_pose, /robot/wrench, all with the same stamp
-per RTDE sample. Labels (mode, source, expert, force setpoint) follow labels.py: robot_control's
+per RTDE sample. Labels (mode, source, expert, force setpoint) follow usrig_freedrive/labels.py: robot_control's
 status when embedded in robot_control, else freedrive detection, else IDLE; standalone it also
 publishes the NaN "no command" marker on /robot/cmd_executed (as robot_state_cpp). No forward kinematics: the TCP pose is the controller's actual_TCP_pose.
 RTDE receive is read-only, so this can run next to whatever program is on the robot.
@@ -22,7 +22,7 @@ from usrig_common.session import read_json
 from usrig_common.timeutil import stamp_from_ns
 from usrig_interfaces.msg import RobotState
 
-from .labels import label_sample
+from usrig_freedrive.labels import label_sample
 from .rtde_reader import RtdeReader
 
 JOINT_NAMES = ['shoulder_pan_joint', 'shoulder_lift_joint', 'elbow_joint',

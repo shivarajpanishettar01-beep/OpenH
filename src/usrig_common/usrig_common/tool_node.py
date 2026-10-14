@@ -1,4 +1,4 @@
-"""Small ROS helper for the interactive CLI tools (registration, waypoints, hand-eye)."""
+"""Small ROS helper for the interactive CLI tools (registration, hand-eye, waypoints, mode checks)."""
 import threading
 import time
 
@@ -63,6 +63,18 @@ class ToolNode(Node):
         if off is None:
             raise config.UnsetLimitError(['probe.tip_offset_flange_m'], 'rig.yaml')
         return T @ geometry.pose_from_ur(off)
+
+    def averaged_tcp_pose(self, seconds=0.3):
+        """Controller TCP pose (base frame): mean position and last orientation over a short window."""
+        ps, T = [], None
+        t_end = time.monotonic() + seconds
+        while time.monotonic() < t_end or T is None:
+            T = geometry.pose_from_msg(self.state().tcp_base)
+            ps.append(T[:3, 3])
+            time.sleep(0.01)
+        T = T.copy()
+        T[:3, 3] = np.mean(ps, axis=0)
+        return T
 
     def averaged_tip_position(self, seconds=0.5, tool='probe'):
         pts = []

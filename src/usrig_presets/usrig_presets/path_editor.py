@@ -1,10 +1,10 @@
 """Stage 1 path editor: build paths from taught waypoints, set speed, preview in RViz, save.
 
-  ros2 run usrig_episode path_editor line  NAME --through WP1 WP2 [WP3 ...] [--instruction "..."]
-  ros2 run usrig_episode path_editor fan   NAME --at WP --axis tilt|rock --deg 10 --steps 5
-  ros2 run usrig_episode path_editor sweep NAME --at WP --along x|y --mm 40
-  ros2 run usrig_episode path_editor show  NAME        # nav_msgs/Path on /usrig/path_preview (frame phantom)
-  ros2 run usrig_episode path_editor list
+  ros2 run usrig_presets path_editor line  NAME --through WP1 WP2 [WP3 ...] [--instruction "..."]
+  ros2 run usrig_presets path_editor fan   NAME --at WP --axis tilt|rock --deg 10 --steps 5
+  ros2 run usrig_presets path_editor sweep NAME --at WP --along x|y --mm 40
+  ros2 run usrig_presets path_editor show  NAME        # nav_msgs/Path on /usrig/path_preview (frame phantom)
+  ros2 run usrig_presets path_editor list
 
 Paths are stored in paths/<phantom_id>.yaml. Waypoints in a path are names of taught waypoints
 or inline poses generated here (fan / sweep). Speed is session.yaml stage1.speed_mm_s.

@@ -1,7 +1,7 @@
 """Waypoint teach and verify.
 
-  ros2 run usrig_episode waypoint_teach  <session_dir>
-  ros2 run usrig_episode waypoint_verify <session_dir> [--only NAME ...]
+  ros2 run usrig_presets waypoint_teach  <session_dir>
+  ros2 run usrig_presets waypoint_verify <session_dir> [--only NAME ...]
 
 Teach: drive the probe to the view (keyboard teleop), press Enter. Saves the probe-tip pose in
 the phantom frame, the force along the probe axis, the micrus preset, a reference snapshot
@@ -33,7 +33,7 @@ from usrig_common.session import read_json
 from usrig_common.timeutil import now_ns
 from usrig_interfaces.srv import DescendToContact, MoveToPose
 
-from .tool_node import run_tool
+from usrig_common.tool_node import run_tool
 
 
 CONFIG_KEYS = (('tcp_setting', 'robot.tcp_setting'), ('probe_type', 'probe.type'),

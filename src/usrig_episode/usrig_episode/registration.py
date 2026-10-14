@@ -17,7 +17,7 @@ from usrig_common import config, geometry
 from usrig_common.session import update_session_json
 from usrig_common.timeutil import now_ns
 
-from .tool_node import run_tool
+from usrig_common.tool_node import run_tool
 
 
 def _register(node, a):

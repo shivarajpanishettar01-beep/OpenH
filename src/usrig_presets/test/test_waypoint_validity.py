@@ -1,7 +1,7 @@
 """A waypoint runs only if verified with the current probe / TCP / payload (Stage E)."""
 import copy
 
-from usrig_episode.waypoints import executable_problem, rig_fingerprint
+from usrig_presets.waypoints import executable_problem, rig_fingerprint
 
 RIG = {'robot': {'tcp_setting': [0, 0, 0.21, 0, 0, 0], 'payload_kg': 0.62, 'payload_cog_m': [0, 0, 0.06]},
        'probe': {'type': 'MPRO-L40S'}}

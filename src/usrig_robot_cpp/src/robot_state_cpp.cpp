@@ -8,7 +8,7 @@
 // controller's actual_TCP_pose (rotation vector -> quaternion).
 //
 // mode / safety_flags / action_source / action_is_expert / force_setpoint_n: same rule as
-// usrig_robot/labels.py (keep in step):
+// usrig_freedrive/labels.py (keep in step):
 //   * robot_control's /robot/control_status if younger than 50 ms (never carried forward);
 //   * else freedrive: the configurable input wired to the foot pedal (UR installation: "Freedrive")
 //     is held and robot_mode is RUNNING -> FREEDRIVE / KINESTHETIC / expert;

@@ -65,3 +65,39 @@ def test_presession_result_required_for_collection():
     failed = {'presession': {'stage2': {'pass': False, 'checked_ns': 100 * H,
                                         'rows': [{'check': 'free disk', 'result': 'FAIL'}, {'check': 'x', 'result': 'PASS'}]}}}
     assert "['free disk']" in presession_ok(failed, 2, False, 101 * H, 12)[1]
+
+
+def test_motion_check_delta_and_axis_evaluation():
+    from scipy.spatial.transform import Rotation
+    from usrig_common import motion_check as mc
+    T0 = np.eye(4)
+    T0[:3, :3] = np.diag([1.0, -1.0, -1.0])            # probe down: probe y = base -y, probe z = base -z
+    T1 = T0.copy()
+    T1[:3, 3] = [0.0, -0.010, 0.0]                      # 10 mm along probe +y
+    d = mc.pose_delta(T0, T1)
+    assert np.allclose(d['dp_probe_mm'], [0, 10, 0]) and np.allclose(d['dp_base_mm'], [0, -10, 0])
+    ok, rows = mc.evaluate_axis(d, 'slide_across', 10.0)
+    assert ok
+    ok, rows = mc.evaluate_axis(d, 'slide_across', -10.0)   # wrong sign: FAIL
+    assert not ok and not rows[0][1]
+    T2 = T0.copy()
+    T2[:3, :3] = T0[:3, :3] @ Rotation.from_euler('x', 5, degrees=True).as_matrix()   # tilt about probe x
+    ok, rows = mc.evaluate_axis(mc.pose_delta(T0, T2), 'tilt', 5.0)
+    assert ok
+    T2[:3, 3] = [0.005, 0, 0]                           # rotation that also slides the face: pivot FAIL
+    ok, rows = mc.evaluate_axis(mc.pose_delta(T0, T2), 'tilt', 5.0)
+    assert not ok and rows[-1][0] == 'pivot at the probe face'
+
+
+def test_pose_monitor_render():
+    from usrig_interfaces.msg import RobotState
+    from usrig_robot.pose_monitor import render
+    m = RobotState()
+    m.mode, m.action_source, m.action_is_expert, m.force_setpoint_n = 7, 5, True, float('nan')
+    m.tcp_phantom.orientation.w = 1.0
+    T = np.eye(4)
+    T2 = T.copy()
+    T2[0, 3] = 0.012
+    out = render(m, T2, T, 3.0, 0.1)
+    assert 'FREEDRIVE' in out and 'kinesthetic' in out and 'setpoint none' in out and '+12.00' in out
+    assert 'STALE' in render(m, T2, T, 0.0, 2.0)

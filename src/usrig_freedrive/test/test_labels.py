@@ -1,7 +1,7 @@
 """Per-sample labels without robot_control: freedrive detection (labels.py, mirrored in robot_state_cpp)."""
 import math
 
-from usrig_robot.labels import label_sample
+from usrig_freedrive.labels import label_sample
 
 CTL = (4.0, 3, 0, 0, True)           # robot_control: TELEOP, teleop, expert, 4 N
 PEDAL_ON_INPUT_2 = 1 << (8 + 2)      # configurable input 2 = bit 10

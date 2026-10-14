@@ -41,8 +41,14 @@ pedal path has **not run on the UR7e yet** (checklist at the end).
    safety planes around the phantom table. In freedrive these are the only limits. The rig's box / tilt cone
    are not enforced (nothing is commanded); QC only reports speed afterwards.
 
-The robot can stay in **Local** mode: the rig only reads RTDE. Whether the freedrive input also works in
-Remote Control mode is NOT VERIFIED.
+The freedrive input works in **Remote Control** mode as well as Local (user, 14 Oct 2026), so the robot can
+stay in Remote Control between teleop / preset sessions and freedrive sessions. `robot_control` must still
+be stopped for freedrive collection (it would otherwise label and hold the arm); the rig only reads RTDE.
+
+Before the first session, run the guided check (section 7):
+```bash
+ros2 run usrig_freedrive freedrive_check
+```
 
 ## 2. Each session
 ```bash
@@ -111,6 +117,9 @@ Verified end to end on a synthetic freedrive episode by `python export/pipeline_
 - The free-air window gives an F/T offset per episode; the export does not subtract it yet (open decision 18).
 
 ## 7. First run on the UR7e (checklist)
+The first three items are what `freedrive_check` measures (steps 1-4: released = IDLE and still, guided =
+kinesthetic with no unlabelled motion, released again = locked, pedal held hands off = drift < 2 mm).
+Watch the pose live in another terminal with `ros2 run usrig_robot pose_monitor`.
 - [ ] Pedal released: `status_console` shows IDLE; the arm cannot be moved by hand.
 - [ ] Pedal held: FREEDRIVE / kinesthetic / expert True; the arm moves by hand; released mid-motion: it locks.
 - [ ] Let go of the handle mid-air with the pedal held: the arm stays (payload right) and does not drift.

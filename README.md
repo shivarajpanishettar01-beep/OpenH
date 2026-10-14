@@ -6,14 +6,20 @@ HDF5, and exports LeRobot v3.0 for the Open-H Embodiment V2 contribution (via Le
 `bag_to_lerobot`).
 
 ## Layout
+Three collection modes, one package each (operator tools and checks). All of them share one motion
+authority (`robot_control`, which freedrive never uses), one recorder and one episode lifecycle
+(`episode_manager`).
+
 | Path | Contents |
 |---|---|
 | `src/usrig_interfaces` | `RobotState`, `EpisodeEvent`, `ControlStatus` msgs; `MoveToPose`, `DescendToContact`, `InjectPerturbation`, `RunPath` srvs |
-| `src/usrig_common` | config + null-limit refusal, geometry (no FK), constant-speed paths, Kabsch, stage gates, legacy packet parser |
+| `src/usrig_common` | config + null-limit refusal, geometry (no FK), constant-speed paths, Kabsch, stage gates, CLI tool node, motion-check helpers |
 | `src/usrig_robot_cpp` | `robot_state_cpp`: lossless 500 Hz RTDE state (ur_client_library), the recorded robot data |
-| `src/usrig_robot` | `robot_control` (only node that moves the robot; safety envelope, controller watchdog, FAULT/ack, services), Python `robot_state` fallback, `rig_measure` |
-| `src/usrig_teleop` | `spacemouse_teleop` (proportional 6-DoF, hold-to-move) and `keyboard_teleop` (Ctrl hold-to-move, commands); fail-safe on device loss |
-| `src/usrig_episode` | `episode_manager` (stages 0/1/2, crash-safe recorder, resume), `plan_generator`, `register_phantom`, `waypoint_teach/verify`, `path_editor`, `handeye_calib`, `rig_static_tf` |
+| `src/usrig_robot` | `robot_control` (only node that moves the robot; safety envelope, controller watchdog, FAULT/ack, services), Python `robot_state` fallback, `rig_measure`, `pose_monitor` (live pose and its change) |
+| `src/usrig_teleop` | **teleoperation mode**: `keyboard_teleop` (Ctrl hold-to-move, commands), `spacemouse_teleop` (proportional 6-DoF, hold-to-move), fail-safe on device loss; `teleop_check` |
+| `src/usrig_presets` | **preset mode**: `waypoint_teach/verify`, `path_editor` (Stage 1), `plan_generator` + `failure_catalog.yaml` (Stage 2); `preset_check` (offset / save / go / waypoint moves) |
+| `src/usrig_freedrive` | **freedrive mode**: sample labelling rule (`labels.py`, mirrored in `robot_state_cpp`); `freedrive_check` (guided, never commands) |
+| `src/usrig_episode` | `episode_manager` (the collection lifecycle for every mode: stages 0/1/2 and freedrive, crash-safe recorder, resume), `register_phantom`, `handeye_calib`, `rig_static_tf` |
 | `src/usrig_qc` | `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
 | `src/usrig_dashboard` | dashboard (demos only), `annotator` (offline expert labelling) |
 | `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files |
@@ -102,7 +108,8 @@ Then [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md) on the r
 ros2 run usrig_qc presession_check --stage 0 --session ~/data/<SESSION_ID> --control
 ```
 Collection runs headless; the operator view is `ros2 run usrig_qc status_console`. The dashboard
-is for demos only. Guides: [`docs/DATA_COLLECTION_GUIDE.md`](docs/DATA_COLLECTION_GUIDE.md),
+is for demos only. Before collecting, check each mode on the arm and watch the pose change:
+[`docs/REAL_ROBOT_CHECKS.md`](docs/REAL_ROBOT_CHECKS.md). Guides: [`docs/DATA_COLLECTION_GUIDE.md`](docs/DATA_COLLECTION_GUIDE.md),
 [`docs/TELEOPERATION_GUIDE.md`](docs/TELEOPERATION_GUIDE.md), [`docs/WAYPOINT_COLLECTION_GUIDE.md`](docs/WAYPOINT_COLLECTION_GUIDE.md),
 [`docs/FREEDRIVE_COLLECTION_GUIDE.md`](docs/FREEDRIVE_COLLECTION_GUIDE.md) (guide the arm by hand with a foot pedal).
 `episode_manager` refuses a real session without a passing pre-session check for that stage.
@@ -124,7 +131,7 @@ The whole export chain is checked on synthetic episodes with `python export/pipe
 - micrus is never modified; it is driven only through its CLI and ROS 2 interface.
 
 ## Status
-Builds from a fresh clone; 110 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
+Builds from a fresh clone (11 packages); 124 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
 (27.35 Hz, 0 frame gaps in 5 min, clean power-down), robot state on URSim, recording and crash recovery
 in simulation, data integrity under load on the development PC (C++ robot_state: 0 of ~31,000 samples
 lost per minute), and the export chain end to end on synthetic episodes. Not yet run: the D415 on USB 3,

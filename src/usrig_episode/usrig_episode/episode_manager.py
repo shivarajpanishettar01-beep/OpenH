@@ -48,10 +48,10 @@ from usrig_interfaces.srv import DescendToContact, InjectPerturbation, MoveToPos
 from usrig_common import gates
 
 from . import provenance
-from .path_editor import resolve as resolve_path
-from .plan_generator import read_csv, sha256
 from .recorder import EpisodeRecorder, RecorderError
-from .waypoints import executable_problem
+from usrig_presets.path_editor import resolve as resolve_path
+from usrig_presets.plan_generator import read_csv, sha256
+from usrig_presets.waypoints import executable_problem
 
 
 class Abort(Exception):

@@ -3,7 +3,7 @@
 <package format="3">
   <name>usrig_episode</name>
   <version>0.1.0</version>
-  <description>Episode recorder, episode_manager, plan, registration, waypoint and calibration tools.</description>
+  <description>Episode lifecycle (episode_manager, recorder, record_guard) and calibration tools (registration, hand-eye, static TF).</description>
   <maintainer email="shivarajpanishettar01@gmail.com">Shivaraj Panishettar</maintainer>
   <license>MIT</license>
   <exec_depend>rclpy</exec_depend>
@@ -17,6 +17,7 @@
   <exec_depend>usrig_interfaces</exec_depend>
   <exec_depend>usrig_common</exec_depend>
   <exec_depend>usrig_qc</exec_depend>
+  <exec_depend>usrig_presets</exec_depend>
   <test_depend>python3-pytest</test_depend>
   <export>
     <build_type>ament_python</build_type>

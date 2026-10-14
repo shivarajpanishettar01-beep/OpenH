@@ -23,6 +23,7 @@ setup(
             'robot_control = usrig_robot.robot_control:main',
             'rig_measure = usrig_robot.rig_measure:main',
             'pivot_calib = usrig_robot.pivot_calib:main',
+            'pose_monitor = usrig_robot.pose_monitor:main',
         ],
     },
 )

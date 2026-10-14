@@ -14,11 +14,12 @@ setup(
     zip_safe=True,
     maintainer='Shivaraj Panishettar',
     maintainer_email='shivarajpanishettar01@gmail.com',
-    description='Keyboard teleoperation for the ultrasound rig.',
+    description='Teleoperation mode: keyboard and SpaceMouse input, teleop_check.',
     license='MIT',
     tests_require=['pytest'],
     entry_points={'console_scripts': [
         'keyboard_teleop = usrig_teleop.keyboard_teleop:main',
         'spacemouse_teleop = usrig_teleop.spacemouse_teleop:main',
+        'teleop_check = usrig_teleop.teleop_check:main',
     ]},
 )

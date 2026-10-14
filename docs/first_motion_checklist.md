@@ -70,6 +70,15 @@ Stop the launch (Ctrl+C) before section C.
       robot_control must log the controller TCP offset, the controller payload, `controller watchdog: min ... Hz`,
       and no refusal. Every 10 s it checks the control-tick intervals and warns `control ticks: {...}` if any
       tick came later than the speedL lifetime (R8); note p99 / max / late for the capture PC.
+- [ ] Live pose in its own terminal (Enter resets the reference): `ros2 run usrig_robot pose_monitor`.
+- [ ] One-axis checks with the pose change and PASS / FAIL printed (`REAL_ROBOT_CHECKS.md`), each axis, small
+      speed, before the keyboard:
+      ```bash
+      ros2 run usrig_teleop teleop_check --axis slide_along --speed 5 --seconds 2 --back
+      ```
+      ```bash
+      ros2 run usrig_presets preset_check offset --dx 10 --back
+      ```
 - [ ] Teleop on (holding still until enabled):
       ```bash
       ros2 service call /robot/set_teleop std_srvs/srv/SetBool "{data: true}"

@@ -34,6 +34,7 @@ happen on the real arm in free air (`first_motion_checklist.md` section C) at lo
 | Episode recorder | `episode_manager.py` + `recorder.py` (one MCAP per episode, readiness gate, micrus HDF5, `record_guard`, crash recovery), `episode_qc.py`, `presession_check.py` | `P4_results.md` (5 sim episodes incl. SIGKILL), `test_episode_qc.py`, `test_common.py::test_presession_result_required_for_collection` | run with the camera and robot_control on real hardware | checklist F, then a Stage 0 session | sim; hardware blocked |
 | Dataset exporter | `stage_bags.py` → micrus `bag_to_lerobot.py` (v2.1) → `openh_export.py` (Open-H fields, incremental TCP action, 16-bit depth, calibration, splits) → LeRobot 0.6.0 v2.1→v3.0 converter | `export/pipeline_check.py`: synthetic episodes end to end, reloaded with `LeRobotDataset`, all checks pass (3 episodes incl. freedrive); `test_export_fields.py` | real episodes; Open-H `validate_formatting.py` (not in this repo) | `pipeline_check.py run`, then real Stage 0 episodes | unit, sim (synthetic); real data blocked |
 | Freedrive (kinesthetic) collection | pedal on a UR configurable input ("Freedrive"); `robot_state_cpp` / `labels.py` label samples FREEDRIVE / kinesthetic / expert from `actual_digital_input_bits` + `robot_mode`; `episode_manager collection_mode:=freedrive`; QC `freedrive_engaged`, `freedrive_speed`; export `command_valid` | `test_labels.py` (3), freedrive tests in `test_episode_qc.py` (3), synthetic freedrive episode in `pipeline_check.py`; `robot_state_cpp` read-only on URSim | pedal, gravity compensation and labels on the UR7e | `FREEDRIVE_COLLECTION_GUIDE.md` section 7 | unit, mocked, sim (synthetic); hardware blocked |
+| Mode packages and real-robot checks (14 Oct) | `usrig_teleop` (teleop_check), `usrig_presets` (waypoints, paths, plans moved from usrig_episode; preset_check), `usrig_freedrive` (labels.py moved from usrig_robot; freedrive_check), `usrig_robot pose_monitor`; `REAL_ROBOT_CHECKS.md` | `test_mode_checks.py` (8: the checks over real ROS services against robot_control on the fake robot), `test_freedrive_check.py` (4), `test_motion_check`, `test_pose_monitor_render` | running them on the UR7e | `REAL_ROBOT_CHECKS.md` | mocked; hardware blocked |
 | Operator interface | `status_console` (headless, used for collection); `dashboard.py` (PySide6, demos) | `test_stream_state.py`; offscreen start, 8 s, no errors | real streams | collection day | unit, built |
 
 ## Defects found and fixed in this audit
@@ -70,7 +71,7 @@ are ignored while a path runs and `set_teleop` is an explicit takeover; motion s
   Robot state and the base-frame twist sent to `speedL` are in the UR base frame.
 
 ## Readiness decision
-**Software tests pass; simulation remains incomplete.** Build from a fresh clone and 110 tests pass; the
+**Software tests pass; simulation remains incomplete.** Build from a fresh clone (11 packages) and 124 tests pass; the
 export chain is verified on synthetic data; recording and crash recovery were verified with the micrus
 simulator and URSim state (P4). Teleoperation and path execution are verified only against the kinematic
 mock, because the URSim control run was skipped by decision. The next level, a controlled hardware trial,

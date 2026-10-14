@@ -1,0 +1,18 @@
+<?xml version="1.0"?>
+<?xml-model href="http://download.ros.org/schema/package_format3.xsd" schematypens="http://www.w3.org/2001/XMLSchema"?>
+<package format="3">
+  <name>usrig_freedrive</name>
+  <version>0.1.0</version>
+  <description>Freedrive (kinesthetic) collection mode: the per-sample labelling rule (labels.py, mirrored in
+    usrig_robot_cpp) and freedrive_check (guided check on the real arm; never commands the robot). The UR
+    controller does the freedrive; episodes go through episode_manager (collection_mode:=freedrive).</description>
+  <maintainer email="shivarajpanishettar01@gmail.com">Shivaraj Panishettar</maintainer>
+  <license>MIT</license>
+  <exec_depend>rclpy</exec_depend>
+  <exec_depend>usrig_interfaces</exec_depend>
+  <exec_depend>usrig_common</exec_depend>
+  <test_depend>python3-pytest</test_depend>
+  <export>
+    <build_type>ament_python</build_type>
+  </export>
+</package>

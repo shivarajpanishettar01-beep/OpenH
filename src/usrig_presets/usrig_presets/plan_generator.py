@@ -1,8 +1,8 @@
 """Stage 2 plan generator: plan_v1.csv with fixed seeds, balanced and shuffled.
 
-  ros2 run usrig_episode plan_generator generate --waypoints waypoints/<phantom>.yaml \
+  ros2 run usrig_presets plan_generator generate --waypoints waypoints/<phantom>.yaml \
       --rows 400 --seed 1 --operators op1 op2 -o plan_v1.csv
-  ros2 run usrig_episode plan_generator lock --plan plan_v1.csv --session <session_dir>
+  ros2 run usrig_presets plan_generator lock --plan plan_v1.csv --session <session_dir>
 
 * start offsets: 8 directions x 2 radii (10 mm, 25 mm), plus rock / tilt / rotation in +-10 deg
 * types: 55 % success, 30 % recovery (recovery-start at most a third of it), 15 % failure
@@ -162,7 +162,7 @@ def main(argv=None):
         catalog_path = a.catalog
         if catalog_path is None:
             from ament_index_python.packages import get_package_share_directory
-            catalog_path = Path(get_package_share_directory('usrig_episode')) / 'config' / 'failure_catalog.yaml'
+            catalog_path = Path(get_package_share_directory('usrig_presets')) / 'config' / 'failure_catalog.yaml'
         with open(a.waypoints) as f:
             wp = yaml.safe_load(f)
         targets = {w['name']: w for w in wp['waypoints'] if w.get('verified')}

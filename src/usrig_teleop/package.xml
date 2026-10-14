@@ -3,13 +3,15 @@
 <package format="3">
   <name>usrig_teleop</name>
   <version>0.1.0</version>
-  <description>Keyboard teleoperation (evdev) publishing a smooth probe-frame twist.</description>
+  <description>Teleoperation mode: keyboard (evdev) and SpaceMouse input publishing a probe-frame twist to robot_control,
+    and teleop_check (one-axis teleop motion with the pose change reported).</description>
   <maintainer email="shivarajpanishettar01@gmail.com">Shivaraj Panishettar</maintainer>
   <license>MIT</license>
   <exec_depend>rclpy</exec_depend>
   <exec_depend>std_msgs</exec_depend>
   <exec_depend>geometry_msgs</exec_depend>
   <exec_depend>sensor_msgs</exec_depend>
+  <exec_depend>std_srvs</exec_depend>
   <exec_depend>usrig_interfaces</exec_depend>
   <exec_depend>usrig_common</exec_depend>
   <test_depend>python3-pytest</test_depend>

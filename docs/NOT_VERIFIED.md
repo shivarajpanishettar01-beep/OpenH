@@ -50,7 +50,8 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 
 ## Freedrive (kinesthetic) collection
 - Pedal on a configurable input set to "Freedrive": the input bit in `actual_digital_input_bits` (8 + input)
-  and freedrive behaviour on the UR7e; whether it works in Remote Control mode (Local is assumed).
+  and freedrive behaviour on the UR7e (works in Remote Control mode as well: user, 14 Oct 2026).
+  `freedrive_check` (usrig_freedrive) tests the labels, locking and drift on the arm; run it first.
 - `robot_state_cpp` with the new RTDE outputs (`actual_digital_input_bits`, `robot_mode`): runs on URSim
   5.26.1 (13 Oct 2026, read-only: 475 Hz, IDLE labels, NaN marker at 120 Hz); the FREEDRIVE label itself
   (pedal held) is tested only as pure logic (`test_labels.py`).

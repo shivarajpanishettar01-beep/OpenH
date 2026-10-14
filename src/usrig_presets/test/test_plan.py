@@ -3,7 +3,7 @@ import copy
 import pytest
 import yaml
 
-from usrig_episode import plan_generator as pg
+from usrig_presets import plan_generator as pg
 
 CATALOG = yaml.safe_load(open(__file__.replace('test/test_plan.py', 'config/failure_catalog.yaml')))
 

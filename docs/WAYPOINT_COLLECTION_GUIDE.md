@@ -31,7 +31,7 @@ that box is null).
 ## 2. Teach
 Drive the probe to the view with teleop (`TELEOPERATION_GUIDE.md`), then:
 ```bash
-ros2 run usrig_episode waypoint_teach ~/data/<SESSION_ID>
+ros2 run usrig_presets waypoint_teach ~/data/<SESSION_ID>
 ```
 For each waypoint: name, Enter to capture, organ, view name, 3-5 paraphrased instructions. Stored in
 `<waypoint_dir>/<phantom_id>.yaml`:
@@ -52,7 +52,7 @@ A taught waypoint has `verified: false` and **cannot be executed**.
 
 ## 3. Verify (makes a waypoint executable)
 ```bash
-ros2 run usrig_episode waypoint_verify ~/data/<SESSION_ID> [--only NAME ...]
+ros2 run usrig_presets waypoint_verify ~/data/<SESSION_ID> [--only NAME ...]
 ```
 For each waypoint: retract → move to the approach pose (phantom frame, via the safe height) → zero F/T →
 descend to contact at `force_n` → snapshot → NCC against the reference. `verified: true` only if
@@ -66,19 +66,19 @@ remount, TCP or payload change, run `waypoint_verify` again.
 
 ## 4. Paths (Stage 1)
 ```bash
-ros2 run usrig_episode path_editor line  NAME --through WP1 WP2 [WP3 ...] [--instruction "..."]
-ros2 run usrig_episode path_editor fan   NAME --at WP --axis tilt|rock --deg 10 --steps 5
-ros2 run usrig_episode path_editor sweep NAME --at WP --along x|y --mm 40
-ros2 run usrig_episode path_editor list
-ros2 run usrig_episode path_editor show  NAME     # nav_msgs/Path on /usrig/path_preview (RViz, frame phantom)
+ros2 run usrig_presets path_editor line  NAME --through WP1 WP2 [WP3 ...] [--instruction "..."]
+ros2 run usrig_presets path_editor fan   NAME --at WP --axis tilt|rock --deg 10 --steps 5
+ros2 run usrig_presets path_editor sweep NAME --at WP --along x|y --mm 40
+ros2 run usrig_presets path_editor list
+ros2 run usrig_presets path_editor show  NAME     # nav_msgs/Path on /usrig/path_preview (RViz, frame phantom)
 ```
 Review the ordered poses in RViz before use. Named entries must be executable waypoints; fan / sweep
 entries are poses derived from one.
 
 ## 5. Plans (Stage 2)
 ```bash
-ros2 run usrig_episode plan_generator generate --waypoints <waypoint_dir>/<phantom>.yaml --rows 400 --seed 1 --operators op1 op2 -o plan_v1.csv
-ros2 run usrig_episode plan_generator lock --plan plan_v1.csv --session ~/data/<SESSION_ID>
+ros2 run usrig_presets plan_generator generate --waypoints <waypoint_dir>/<phantom>.yaml --rows 400 --seed 1 --operators op1 op2 -o plan_v1.csv
+ros2 run usrig_presets plan_generator lock --plan plan_v1.csv --session ~/data/<SESSION_ID>
 ```
 Only verified waypoints become targets. The lock stores the plan's SHA-256 in `session.json`;
 `episode_manager` refuses a plan that is not locked or changed since.
