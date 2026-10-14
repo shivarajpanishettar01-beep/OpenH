@@ -11,8 +11,10 @@ teleoperation. Waypoint tools never talk to the robot directly.
 ## 0. Known configuration first
 - `rig.yaml`: limits, `robot.tcp_setting` (controller TCP at the probe face), `probe.type`,
   `robot.payload_kg` / `payload_cog_m`, `motion.transit_safe_height_mm`, `limits.phantom_box_m`,
-  `limits.local_tilt_cone_deg`, `waypoint_verify_min_ncc`, `registration_max_residual_mm`.
-- `session.yaml`: `session.phantom_id`, `waypoint_dir`, `path_dir`.
+  `limits.local_tilt_cone_deg`, `waypoint_verify_min_ncc`, `registration_max_residual_mm`
+  (`ros2 run usrig_robot rig_setup` for the robot and limit values).
+- `session.yaml`: `session.phantom_id`. Waypoints, paths and plans go to `~/data/waypoints`, `~/data/paths`,
+  `~/data/plans` (`DATA_LAYOUT.md`).
 - Robot and micrus running:
   ```bash
   ros2 launch usrig_bringup collect.launch.py session_id:=<SESSION_ID> control:=true teleop:=true

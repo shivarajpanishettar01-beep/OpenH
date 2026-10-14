@@ -3,8 +3,11 @@
   ros2 run usrig_qc presession_check --stage 0 --session <session_dir> \
       [--planned-hours 2] [--mb-per-s 45] [--control]
 
---mb-per-s: measured rate of one test episode (bag + HDF5); without it the most recent episode
-under the session root is used, or the disk check reports "unset".
+--mb-per-s: measured rate of one test episode (bag + HDF5); without it the most recent episode under the
+data root is used; before the first episode, a conservative estimate from the latest test2 / test3 recordings
+(docs/TESTING_STEPS.md); otherwise the disk check reports "unset".
+--no-camera: the session runs without the wrist camera (collect / test4 camera:=false): camera rows are N/A.
+episode_manager then refuses to record the camera on this check's PASS.
 
 The result (every row, PASS / FAIL, with or without --control) is written to <session>/session.json
 under presession.stage<N>. episode_manager refuses to start a real (non-sim) session without a
@@ -108,11 +111,16 @@ def main():
     ap.add_argument('--mb-per-s', type=float, default=None)
     ap.add_argument('--control', action='store_true', help='robot_control will run')
     ap.add_argument('--sim', action='store_true', help='simulated run (session.sim_root)')
+    ap.add_argument('--no-camera', action='store_true', help='session without the wrist camera (camera:=false)')
     ap.add_argument('--listen-s', type=float, default=5.0)
     ap.add_argument('--config-dir')
     a, _ = ap.parse_known_args()
     scfg = config.load_config('session', a.config_dir)
     rig = config.load_config('rig', a.config_dir)
+    if a.no_camera:
+        scfg['wrist_camera']['enabled'] = False
+        scfg['recording']['include_wrist_camera'] = False
+    camera = bool(scfg['wrist_camera'].get('enabled') and scfg['recording'].get('include_wrist_camera'))
     tab = Table()
 
     # micrus licence / USB (no public way to check the licence: run `micrus machine-id`)
@@ -222,20 +230,28 @@ def main():
                 if h5 and Path(h5).exists():
                     size += Path(h5).stat().st_size
                 mbps = size / 1e6 / ep['duration_s']
+                mb_src = f'measured from {e.parent.name}'
                 break
+        if mbps is None:
+            from usrig_common.check_recording import estimate_episode_rate
+            est = estimate_episode_rate(scfg, a.sim, camera)
+            if est:
+                mbps, mb_src = est
+    else:
+        mb_src = 'given (--mb-per-s)'
     if mbps is None or a.planned_hours is None:
         tab.add('free disk vs planned session', 'UNSET',
-                f'{free_gb:.0f} GB free; give --planned-hours and --mb-per-s (or record a test episode)')
+                f'{free_gb:.0f} GB free; give --planned-hours and --mb-per-s (or record test2 / test3 recordings)')
     else:
         need = mbps * 3600 * a.planned_hours / 1000 + scfg['session'].get('min_free_disk_gb', 50)
         tab.add('free disk vs planned session', 'PASS' if free_gb >= need else 'FAIL',
-                f'{free_gb:.0f} GB free, need {need:.0f} GB ({mbps:.1f} MB/s x {a.planned_hours} h + reserve)')
+                f'{free_gb:.0f} GB free, need {need:.0f} GB ({mbps:.1f} MB/s x {a.planned_hours} h + reserve; {mb_src})')
     p.destroy_node()
     rclpy.shutdown()
     ok = tab.print()
     Path(a.session).mkdir(parents=True, exist_ok=True)
     update_session_json(a.session, presession={f'stage{a.stage}': {
-        'pass': ok, 'control': bool(a.control), 'sim': bool(a.sim), 'checked_ns': now_ns(),
+        'pass': ok, 'control': bool(a.control), 'sim': bool(a.sim), 'camera': camera, 'checked_ns': now_ns(),
         'rows': [{'check': n, 'result': s, 'detail': d} for n, s, d in tab.rows]}})
     raise SystemExit(0 if ok else 1)
 

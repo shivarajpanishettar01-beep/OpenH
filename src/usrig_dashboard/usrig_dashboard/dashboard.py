@@ -324,11 +324,12 @@ def main(args=None):
     sl.addWidget(lbl_sess, 1)
     tabs.addTab(sess, 'Session')
 
-    for title, text in (('Teach', 'Teach waypoints:  ros2 run usrig_episode waypoint_teach <session>\n'
-                                  'Verify:            ros2 run usrig_episode waypoint_verify <session>\n'
-                                  'Paths (Stage 1):   ros2 run usrig_episode path_editor --help'),
-                        ('Plan', 'Generate:  ros2 run usrig_episode plan_generator generate --help\n'
-                                 'Lock:      ros2 run usrig_episode plan_generator lock --plan plan_v1.csv --session <session>')):
+    for title, text in (('Teach', 'Teach waypoints:  ros2 run usrig_presets waypoint_teach ~/data/sessions/<session>\n'
+                                  'Verify:            ros2 run usrig_presets waypoint_verify ~/data/sessions/<session>\n'
+                                  'Paths (Stage 1):   ros2 run usrig_presets path_editor --help'),
+                        ('Plan', 'Generate:  ros2 run usrig_presets plan_generator generate --help   (-> ~/data/plans/)\n'
+                                 'Lock:      ros2 run usrig_presets plan_generator lock --plan ~/data/plans/<plan>.csv '
+                                 '--session ~/data/sessions/<session>')):
         w = QtWidgets.QLabel(text)
         w.setTextInteractionFlags(QtCore.Qt.TextSelectableByMouse)
         w.setAlignment(QtCore.Qt.AlignTop)

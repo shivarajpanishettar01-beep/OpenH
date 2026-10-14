@@ -282,16 +282,15 @@ them, run test 4 with `control:=false` and freedrive or the pendant.
 
 **4.1 Pre-session check (terminal 2, with the launch from 4.2 running)**
 ```bash
-ros2 run usrig_qc presession_check --stage 0 --session ~/data/sessions/<ID> --planned-hours 1 --mb-per-s <rate>
+ros2 run usrig_qc presession_check --stage 0 --session ~/data/sessions/<ID> --planned-hours 1
 ```
-Add `--control` if robot_control runs. Every row must be PASS or N/A. `episode_manager` refuses a real
-session without this PASS (12 h validity).
+Add `--control` if robot_control runs, and `--no-camera` if you run without the camera (`camera:=false`). Every
+row must be PASS or N/A. `episode_manager` refuses a real session without this PASS (12 h validity), and refuses
+to record the camera on a `--no-camera` PASS.
 
-`--mb-per-s` is the data rate of one episode, used for the disk check. Before the first episode, estimate
-it: add the MB/s that `bag_check` printed for your test 2 and test 3 recordings, then add about 3 MB/s for
-the micrus HDF5. (Simulation without the camera: about 7 MB/s for bag and HDF5 together. The uncompressed
-D415 colour and depth add up to about 45 MB/s.) Once an episode exists, the check measures the rate from the
-latest episode itself and `--mb-per-s` can be left out.
+The disk row needs the data rate of an episode. Once an episode exists, the check measures it from the latest
+episode itself. Before the first episode it uses a conservative estimate from your latest test 2 and test 3
+recordings (the row says which). `--mb-per-s <rate>` overrides it.
 
 **4.2 Start everything (terminal 1)**
 Teleop (robot_control, keyboard):

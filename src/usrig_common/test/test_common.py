@@ -112,3 +112,34 @@ def test_every_python_file_compiles():
     assert len(files) > 50
     for f in files:
         compile(f.read_text(), str(f), 'exec')      # SyntaxError fails the test; nothing is written
+
+
+def test_episode_rate_estimate_from_test_recordings(tmp_path):
+    import yaml
+    from usrig_common.check_recording import estimate_episode_rate
+    scfg = {'session': {'root': str(tmp_path), 'sim_root': str(tmp_path / 'sim')}}
+
+    def rec(name, mb, seconds):
+        d = tmp_path / 'checks' / name
+        d.mkdir(parents=True)
+        (d / 'metadata.yaml').write_text(yaml.safe_dump(
+            {'rosbag2_bagfile_information': {'duration': {'nanoseconds': int(seconds * 1e9)}}}))
+        (d / 'x_0.mcap').write_bytes(b'0' * int(mb * 1e6))
+    assert estimate_episode_rate(scfg) is None                       # nothing recorded yet
+    rec('test2_micrus_robot_20261020_100000', 40, 10)                # 4 MB/s
+    assert estimate_episode_rate(scfg, camera=True) is None           # camera recorded: test3 needed too
+    r, why = estimate_episode_rate(scfg, camera=False)
+    assert abs(r - 8.0) < 0.1 and 'x2' in why
+    rec('test3_camera_robot_20261020_110000', 300, 10)               # 30 MB/s
+    r, _ = estimate_episode_rate(scfg, camera=True)
+    assert abs(r - 38.0) < 0.2
+    assert estimate_episode_rate(scfg, sim=True, camera=False) is None   # sim and real never mix
+
+
+def test_presession_without_camera_does_not_cover_camera_episodes():
+    from usrig_common.gates import presession_ok
+    H = int(3.6e12)
+    j = {'presession': {'stage0': {'pass': True, 'control': False, 'camera': False, 'checked_ns': 100 * H, 'rows': []}}}
+    assert presession_ok(j, 0, False, 101 * H, 12, camera=False)[0]
+    ok, why = presession_ok(j, 0, False, 101 * H, 12, camera=True)
+    assert not ok and '--no-camera' in why

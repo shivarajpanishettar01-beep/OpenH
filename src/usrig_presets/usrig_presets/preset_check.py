@@ -5,7 +5,7 @@
   ros2 run usrig_presets preset_check save NAME          # store the current TCP pose as a test preset
   ros2 run usrig_presets preset_check go NAME [--speed 10] [--yes]
   ros2 run usrig_presets preset_check list
-  ros2 run usrig_presets preset_check waypoint NAME --session ~/data/<SESSION_ID> [--yes]
+  ros2 run usrig_presets preset_check waypoint NAME --session ~/data/sessions/<SESSION_ID> [--yes]
 
 offset: relative move (mm, deg; probe frame by default: x along the array, y across, z into tissue).
 save / go: free-space test presets in the robot base frame (<root>/presets/base_presets.yaml; --sim: under

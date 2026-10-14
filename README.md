@@ -15,14 +15,14 @@ authority (`robot_control`, which freedrive never uses), one recorder and one ep
 | `src/usrig_interfaces` | `RobotState`, `EpisodeEvent`, `ControlStatus` msgs; `MoveToPose`, `DescendToContact`, `InjectPerturbation`, `RunPath` srvs |
 | `src/usrig_common` | config + null-limit refusal, geometry (no FK), constant-speed paths, Kabsch, stage gates, CLI tool node, motion-check helpers |
 | `src/usrig_robot_cpp` | `robot_state_cpp`: lossless 500 Hz RTDE state (ur_client_library), the recorded robot data |
-| `src/usrig_robot` | `robot_control` (only node that moves the robot; safety envelope, controller watchdog, FAULT/ack, services), Python `robot_state` fallback, `rig_measure`, `pose_monitor` (live pose and its change) |
+| `src/usrig_robot` | `robot_control` (only node that moves the robot; safety envelope, controller watchdog, FAULT/ack, services), Python `robot_state` fallback, `rig_setup` (guided entry of the limits), `rig_measure`, `pose_monitor` (live pose and its change) |
 | `src/usrig_teleop` | **teleoperation mode**: `keyboard_teleop` (Ctrl hold-to-move, commands), `spacemouse_teleop` (proportional 6-DoF, hold-to-move), fail-safe on device loss; `teleop_check` |
 | `src/usrig_presets` | **preset mode**: `waypoint_teach/verify`, `path_editor` (Stage 1), `plan_generator` + `failure_catalog.yaml` (Stage 2); `preset_check` (offset / save / go / waypoint moves) |
 | `src/usrig_freedrive` | **freedrive mode**: sample labelling rule (`labels.py`, mirrored in `robot_state_cpp`); `freedrive_check` (guided, never commands) |
 | `src/usrig_episode` | `episode_manager` (the collection lifecycle for every mode: stages 0/1/2 and freedrive, crash-safe recorder, resume), `register_phantom`, `handeye_calib`, `rig_static_tf` |
-| `src/usrig_qc` | `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
+| `src/usrig_qc` | `rig_status` (what is set up / connected), `bag_check` (test recordings), `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
 | `src/usrig_dashboard` | dashboard (demos only), `annotator` (offline expert labelling) |
-| `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files |
+| `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files incl. the staged tests `test1_robot` ... `test4_full_system` |
 | `export/` | `lerobot_rig.yaml` (bag_to_lerobot config), `stage_bags.py`, `depth_export.py`, `openh_export.py` |
 | `tools/temporal_calib.py` | ultrasound / D415 latency from a sinusoidal compress test |
 | `docs/` | capture-PC setup, calibration, rig limits, collection-day commands, data integrity, proposal alignment, P0-P2 results, NOT VERIFIED list, open decisions |
@@ -99,8 +99,9 @@ ros2 run usrig_robot rig_measure pose
 ```
 
 **8. Safety limits:** every limit in `rig.yaml` is `null` until filled from your measurements and
-protocol (see [`docs/rig_limits.md`](docs/rig_limits.md); `rig_measure box`, `tilt-axis` and
-`force-noise` help). `robot_control` refuses to start while any is null and names each one.
+protocol (see [`docs/rig_limits.md`](docs/rig_limits.md)). Enter them with `ros2 run usrig_robot rig_setup`
+(it measures the box, tilt axis, payload and force noise, and checks the values against each other).
+`robot_control` refuses to start while any is null and names each one.
 Then [`docs/first_motion_checklist.md`](docs/first_motion_checklist.md) on the real arm (no URSim step: decided 13 Oct 2026).
 
 **9. Before each session:**
@@ -133,7 +134,7 @@ The whole export chain is checked on synthetic episodes with `python export/pipe
 - micrus is never modified; it is driven only through its CLI and ROS 2 interface.
 
 ## Status
-Builds from a fresh clone (11 packages); 144 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
+Builds from a fresh clone (11 packages); 146 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
 (27.35 Hz, 0 frame gaps in 5 min, clean power-down), robot state on URSim, recording and crash recovery
 in simulation, data integrity under load on the development PC (C++ robot_state: 0 of ~31,000 samples
 lost per minute), and the export chain end to end on synthetic episodes. Not yet run: the D415 on USB 3,

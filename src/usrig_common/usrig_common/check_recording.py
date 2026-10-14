@@ -39,6 +39,44 @@ def check_dir(scfg, test_name, sim=False):
     return data_dir(scfg, 'checks', sim) / f'{test_name}_{time.strftime("%Y%m%d_%H%M%S")}'
 
 
+def recording_rate(bag_dir):
+    """(MB/s, seconds) of a recorded bag from its size and metadata.yaml duration, or None."""
+    meta = Path(bag_dir) / 'metadata.yaml'
+    if not meta.exists():
+        return None
+    info = yaml.safe_load(meta.read_text()).get('rosbag2_bagfile_information', {})
+    dur = (info.get('duration') or {}).get('nanoseconds', 0) * 1e-9
+    if dur < 5.0:
+        return None
+    size = sum(f.stat().st_size for f in Path(bag_dir).rglob('*') if f.is_file())
+    return size / 1e6 / dur, dur
+
+
+def estimate_episode_rate(scfg, sim=False, camera=True):
+    """Conservative MB/s of one episode (bag + micrus HDF5) from the latest test recordings, for the disk check
+    before any episode exists: test2 (robot + ultrasound) counted twice (its ultrasound part again stands in for
+    the HDF5), plus test3 (robot + camera) when the camera is recorded. Returns (MB/s, explanation) or None."""
+    root = data_dir(scfg, 'checks', sim)
+
+    def latest(name):
+        for d in sorted(root.glob(f'{name}_*'), reverse=True):
+            r = recording_rate(d)
+            if r:
+                return r[0], d.name
+        return None
+    t2 = latest('test2_micrus_robot')
+    if t2 is None:
+        return None
+    rate, used = 2 * t2[0], [f'{t2[1]} x2']
+    if camera:
+        t3 = latest('test3_camera_robot')
+        if t3 is None:
+            return None
+        rate += t3[0]
+        used.append(t3[1])
+    return rate, 'estimated (conservative) from ' + ' + '.join(used)
+
+
 def record_cmd(scfg, topics, out_dir):
     """ros2 bag record command (MCAP, the session.yaml writer options, micrus topics recorded reliably)."""
     rec = scfg['recording']

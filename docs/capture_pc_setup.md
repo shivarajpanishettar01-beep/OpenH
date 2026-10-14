@@ -64,6 +64,16 @@ names and fix `wrist_camera.rs_params` if they differ; check the exposure units 
 Then restart without `auto:=true` and continue P1b (`stream_check --camera --duration 600`, the 60 s
 MCAP test, depth at contact, hand-eye).
 
+## 6. After setup
+In every terminal: `cd ~/OpenH && source scripts/env.sh`. Then:
+```bash
+ros2 run usrig_qc rig_status
+```
+It lists, per staged test, what is still to set or to connect. Fill the robot and limit values with
+`ros2 run usrig_robot rig_setup`, then follow `docs/TESTING_STEPS.md` (test 1 robot, test 2 ultrasound + robot,
+test 3 camera + robot, test 4 everything). Check the export environment once with
+`python export/pipeline_check.py run` (needs `scripts/setup_env.sh --with-export`).
+
 ## P1b status on the development PC (13 Oct 2026)
 - D415 serial 211422060364, firmware 5.17.0.10; librealsense2 2.58.4, realsense2_camera 4.58.4,
   rosbag2_storage_mcap 0.15.17.
