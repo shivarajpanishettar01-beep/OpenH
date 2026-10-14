@@ -351,7 +351,27 @@ def build_window(ros, scfg=None, rig=None):
                 'Robot may move', 'Starting lets episode_manager move the robot (approach, descend) when a waypoint '
                 'or stage needs it. Area clear and e-stop at hand?'):
             return
+        if not starting and 'outcome' in c.waiting and not (c.episode or {}).get('outcome'):
+            # QC requires an outcome event: an episode stopped without one fails the 'events' check
+            pick = win.ask_outcome()
+            if pick is None:
+                return
+            if pick != 'none':
+                ros.send({'cmd': 'outcome', 'value': pick})
         ros.send({'cmd': 'start_stop'})
+
+    def ask_outcome():
+        """'success' | 'recovered' | 'fail' | 'none' (stop without one) | None (cancel)."""
+        box = QtWidgets.QMessageBox(win)
+        box.setWindowTitle('Outcome before stopping')
+        box.setText('No outcome is set for this episode. QC fails an episode without one.')
+        picks = {box.addButton(t, QtWidgets.QMessageBox.ButtonRole.AcceptRole): v
+                 for t, v in (('Success', 'success'), ('Recovered', 'recovered'), ('Fail', 'fail'))}
+        anyway = box.addButton('Stop without outcome', QtWidgets.QMessageBox.ButtonRole.DestructiveRole)
+        box.addButton(QtWidgets.QMessageBox.StandardButton.Cancel)
+        box.exec()
+        b = box.clickedButton()
+        return picks.get(b) or ('none' if b is anyway else None)
 
     def do_discard():
         if confirm('Discard episode', 'Discard this episode? It is stopped and kept on disk as outcome "discard".'):
@@ -1011,6 +1031,7 @@ def build_window(ros, scfg=None, rig=None):
     central.setFocusPolicy(Qt.StrongFocus)
     central.setFocus()
 
+    win.ask_outcome = ask_outcome                  # replaceable in tests (modal dialog)
     load_paths()
     return win, refresh
 

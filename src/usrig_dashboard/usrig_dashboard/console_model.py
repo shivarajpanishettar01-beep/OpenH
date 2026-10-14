@@ -108,6 +108,8 @@ def allowed(action, c: Ctx):
             return no_mgr
         if c.ep_state != 'recording':
             return False, 'only while recording'
+        if action == 'pause' and c.session.get('stage') == 1 and c.session.get('collection_mode') == 'robot':
+            return False, 'Stage 1 paths run to a fixed time budget: use Discard'
         if action == 'pause' and c.paused:
             return False, 'already paused'
         if action == 'resume' and not c.paused:

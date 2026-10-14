@@ -110,8 +110,13 @@ sample gaps. Pause therefore keeps recording and instead (1) makes the robot hol
 teleop input is ignored and the held samples are labelled source *none*, not expert), (2) writes a
 `pause` event into the bag at the start and end of the span, and (3) stores the spans in `episode.json`
 as `pauses` (seconds from the start), `pauses_ns` and `paused_s`. A pause still open at Stop is closed
-there and the hold released. The time caps (`stage0.max_duration_s`, `stage2.cap_s`) count wall time,
-including pauses. In freedrive collection there is no robot hold: release the pedal while paused.
+there and the hold released. The time caps (`stage0.max_duration_s`, `stage2.cap_s`) do not count paused
+time, so a pause never ends an episode. Pause is not offered in Stage 1: a path runs to a fixed time budget,
+so use Discard instead. In freedrive collection there is no robot hold: release the pedal while paused.
+
+**Stop asks for an outcome.** QC fails an episode without an outcome event, so Stop on an episode with no
+outcome asks for Success, Recovered or Fail first (or stops without one, or cancels). The B key alone does
+not ask: set the outcome with 1 / 2 / 3 before B.
 
 Whether the exporter should drop paused spans or keep them as non-expert steps is an open decision
 (`OPEN_DECISIONS.md` item 19); the bag and `episode.json` hold what either choice needs.

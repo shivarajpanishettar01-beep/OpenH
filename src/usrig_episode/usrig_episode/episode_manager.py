@@ -184,6 +184,9 @@ class EpisodeManager(Node):
         """Operator pause / resume (ep_lock held). Recording continues; the span is marked and the robot holds."""
         if self.pause_log is None or ep.get('t_start_ns') is None:
             return
+        if pause and getattr(self, 'stage', None) == 1 and getattr(self, 'collection_mode', 'robot') == 'robot':
+            self.get_logger().warn('pause is not used in Stage 1 (the path runs to a fixed time budget): use discard')
+            return
         changed = self.pause_log.pause(t) if pause else self.pause_log.resume(t)
         if not changed:
             return
@@ -282,12 +285,16 @@ class EpisodeManager(Node):
         return r
 
     def wait_cmd(self, wanted, timeout=None):
-        """Block until one of the wanted commands arrives; returns it (or None on timeout)."""
-        t_end = None if timeout is None else time.monotonic() + timeout
+        """Block until one of the wanted commands arrives; returns it (or None on timeout).
+        ``timeout``: seconds, or a function returning the seconds left (re-evaluated while waiting)."""
+        t_end = None if timeout is None or callable(timeout) else time.monotonic() + timeout
         self.waiting_for = set(wanted)
         try:
             while rclpy.ok():
-                left = None if t_end is None else t_end - time.monotonic()
+                if callable(timeout):
+                    left = timeout()
+                else:
+                    left = None if t_end is None else t_end - time.monotonic()
                 if left is not None and left <= 0:
                     return None
                 try:
@@ -299,6 +306,14 @@ class EpisodeManager(Node):
             raise Abort('shutdown')
         finally:
             self.waiting_for = set()
+
+    def _cap_left(self, cap_s, t_ref_ns):
+        """Seconds left of an episode time cap counted from t_ref_ns, not counting paused time: a pause must
+        not end the episode (Stage 2 cap_s equals the longest planned scan)."""
+        now = now_ns()
+        with self.ep_lock:
+            paused = self.pause_log.total_s(now) if self.pause_log else 0.0
+        return cap_s - ((now - t_ref_ns) * 1e-9 - paused)
 
     def _drain(self):
         while not self.cmds.empty():
@@ -510,11 +525,11 @@ class EpisodeManager(Node):
                     self._zero_and_descend(self._taught_force(wp))
                     self.call('teleop', SetBool.Request(data=True))
                 self._start_event(ep)
-                c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=cap)
+                left = lambda: self._cap_left(cap, ep['t_start_ns'])  # noqa: E731
+                c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=left)
                 while c is not None and c['cmd'] == 'outcome':
                     ep['outcome'] = c['value']
-                    c = self.wait_cmd({'start_stop', 'discard', 'outcome'},
-                                      timeout=max(0.0, cap - (now_ns() - ep['t_start_ns']) * 1e-9))
+                    c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=left)
                 if c is None:
                     ep['notes'] = (ep['notes'] + '\nstopped by stage0.max_duration_s').strip()
                 elif c['cmd'] == 'discard':
@@ -548,11 +563,11 @@ class EpisodeManager(Node):
             try:
                 self._begin_recording(ep)          # includes the free-air hold (F/T offset window)
                 self._start_event(ep)
-                c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=cap)
+                left = lambda: self._cap_left(cap, ep['t_start_ns'])  # noqa: E731
+                c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=left)
                 while c is not None and c['cmd'] == 'outcome':
                     ep['outcome'] = c['value']
-                    c = self.wait_cmd({'start_stop', 'discard', 'outcome'},
-                                      timeout=max(0.0, cap - (now_ns() - ep['t_start_ns']) * 1e-9))
+                    c = self.wait_cmd({'start_stop', 'discard', 'outcome'}, timeout=left)
                 if c is None:
                     ep['notes'] = (ep['notes'] + '\nstopped by stage0.max_duration_s').strip()
                 elif c['cmd'] == 'discard':
@@ -666,7 +681,8 @@ class EpisodeManager(Node):
                 if row['disturbance_kind'] not in ('', 'none'):
                     pert = threading.Thread(target=self._perturb_at, args=(row, ep), daemon=True)
                     pert.start()
-                c = self.wait_cmd({'outcome', 'discard'}, timeout=cap)
+                t_scan = now_ns()
+                c = self.wait_cmd({'outcome', 'discard'}, timeout=lambda: self._cap_left(cap, t_scan))
                 if c is None:
                     ep['outcome'] = 'fail' if row['type'] == 'failure' else 'discard'
                     ep['notes'] = 'cap reached without outcome key'

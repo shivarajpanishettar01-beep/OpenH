@@ -19,6 +19,12 @@ def test_episode_buttons_follow_what_episode_manager_waits_for():
     assert not ok('outcome', c) and not ok('pause', c) and not ok('note', c)
 
 
+def test_no_pause_in_stage1_paths():
+    st = dict(REC_S2, session={'robot_control': True, 'stage': 1, 'collection_mode': 'robot'})
+    ok_, why = cm.allowed('pause', cm.Ctx(st, robot_mode=1, control_running=True))
+    assert not ok_ and 'Discard' in why
+
+
 def test_pause_resume_toggle_and_prompt():
     st = dict(REC_S2, episode={'number': 7, 'paused': True})
     c = cm.Ctx(st, robot_mode=3, control_running=True)

@@ -126,3 +126,21 @@ def test_without_robot_control_motion_is_disabled(app):
         assert not btn(win, t).isEnabled(), t
     assert btn(win, 'Start episode').isEnabled()
     win.close()
+
+
+def test_stop_without_outcome_asks_for_one(app):
+    """QC fails an episode without an outcome event: Stop asks first (or stops anyway / cancels)."""
+    ros, win, refresh = make(app, REC)
+    win.ask_outcome = lambda: 'recovered'
+    btn(win, 'Stop episode').click()
+    assert ros.sent[-2:] == [{'cmd': 'outcome', 'value': 'recovered'}, {'cmd': 'start_stop'}]
+    win.ask_outcome = lambda: None                                   # cancel
+    n = len(ros.sent)
+    btn(win, 'Stop episode').click()
+    assert len(ros.sent) == n
+    ros.status = dict(REC, episode=dict(REC['episode'], outcome='success'))
+    refresh()
+    win.ask_outcome = lambda: (_ for _ in ()).throw(AssertionError('must not ask when an outcome is set'))
+    btn(win, 'Stop episode').click()
+    assert ros.sent[-1] == {'cmd': 'start_stop'}
+    win.close()

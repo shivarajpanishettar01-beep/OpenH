@@ -63,3 +63,17 @@ def test_episode_manager_pause_marks_and_holds_robot():
     events.clear()
     EpisodeManager._set_paused(fake, {'t_start_ns': None}, True, 9 * S)  # not recording yet: ignored
     assert events == []
+
+
+def test_time_cap_does_not_count_paused_time():
+    """A pause must not end the episode: Stage 2 cap_s equals the longest planned scan."""
+    import threading
+    from usrig_episode.episode_manager import EpisodeManager
+    from usrig_common.timeutil import now_ns
+    t0 = now_ns() - 25 * S                                   # scanning for 25 s ...
+    p = es.PauseLog()
+    p.pause(t0 + 5 * S)
+    p.resume(t0 + 15 * S)                                    # ... of which 10 s paused
+    fake = types.SimpleNamespace(pause_log=p, ep_lock=threading.Lock())
+    left = EpisodeManager._cap_left(fake, 30.0, t0)
+    assert 14.5 < left < 15.5                                # 30 - (25 - 10)
