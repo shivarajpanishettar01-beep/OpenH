@@ -160,7 +160,10 @@ def prompt(c: Ctx):
         return 'Robot in FAULT: check the cause, then Acknowledge fault'
     st, w = c.ep_state, c.waiting
     if c.paused:
-        return 'PAUSED: recording continues, robot holds. Resume to go on'
+        if c.session.get('robot_control'):
+            return 'PAUSED: recording continues, robot holds. Resume to go on'
+        # episode_manager sends the hold only with robot_control (freedrive: the arm is guided by hand)
+        return 'PAUSED: recording continues, robot NOT held (no robot_control): release the pedal, keep the probe still. Resume to go on'
     if st == 'idle' and 'start_stop' in w:
         return 'Ready: probe in free air, then Start episode'
     if st == 'idle' and 'next' in w:

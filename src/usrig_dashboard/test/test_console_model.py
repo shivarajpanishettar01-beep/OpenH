@@ -32,6 +32,15 @@ def test_pause_resume_toggle_and_prompt():
     assert cm.prompt(c).startswith('PAUSED')
 
 
+def test_pause_prompt_says_the_robot_holds_only_with_robot_control():
+    """episode_manager sends the hold only with robot_control; without it (freedrive) nothing holds the arm."""
+    st = dict(REC_S2, episode={'number': 7, 'paused': True})
+    assert 'robot holds' in cm.prompt(cm.Ctx(st, robot_mode=3, control_running=True))
+    st = dict(st, session=dict(st['session'], robot_control=False, collection_mode='freedrive'))
+    p = cm.prompt(cm.Ctx(st, robot_mode=None, control_running=False))
+    assert p.startswith('PAUSED') and 'robot holds' not in p and 'not held' in p.lower()
+
+
 def test_manual_motion_only_when_idle_and_not_faulted():
     c = cm.Ctx(REC_S2, robot_mode=3, control_running=True)
     assert not ok('goto', c) and 'episode is in progress' in cm.allowed('goto', c)[1]

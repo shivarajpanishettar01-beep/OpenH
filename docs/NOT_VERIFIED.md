@@ -61,7 +61,12 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 ## Operator console (14 Oct 2026)
 - Checked under ROS 2 Humble (15 Oct): tests with a scripted ROS side, an offscreen render (Stage 2, episode 7
   waiting for an outcome), and the real `ConsoleRos` fed by a fake publisher (status / control / state received,
-  buttons gated). Not yet with the real episode_manager and robot_control. CPU use on the capture PC with the scanner,
+  buttons gated), and against the real episode_manager in simulation (15 Oct: micrus --simulate, qc_monitor,
+  rig_static_tf, a stand-in /robot/state; Stage 0 without robot_control: Start, View reached, Pause, Resume,
+  Success, Stop -> bag events, episode.json pauses, QC, back to idle). Not yet with robot_control or the real
+  arm (no robot on the dev PC), nor Stages 1-2 / freedrive from the console. In that run one of 597 ultrasound
+  frames was missing from the bag but present in the micrus HDF5 (recorder at normal priority: no rtprio limit on
+  the dev PC); QC flagged it. Check on the capture PC with docs/capture_pc_setup.md applied. CPU use on the capture PC with the scanner,
   D415 and UR7e running (data_integrity.md runner, with and without the console); every robot action from the
   console on the real arm; the terminal emulator used by "Launch collection".
 - `/episode/status` with TRANSIENT_LOCAL durability under Fast DDS (`config/fastdds_rig.xml`).

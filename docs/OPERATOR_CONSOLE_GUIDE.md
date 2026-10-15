@@ -48,7 +48,8 @@ terminal, detached (`setsid`), so closing or crashing the console stops nothing.
 phantom and whether `robot_control` runs; a live date and clock; the recording indicator (red
 `● REC · Ep 7 · 0:23`, amber `PAUSED`, blue while starting or finishing, grey when idle); *Acknowledge
 fault* and *PROTECTIVE STOP*. The protective stop asks `robot_control` to stop the UR7e; the pendant
-emergency stop remains the primary stop.
+emergency stop remains the primary stop. Without `robot_control` (freedrive collection, `control:=false`) the button
+is grey: the console cannot stop the arm then, only the pendant can.
 
 **Prompt line.** One sentence saying what the rig expects next, for example "Ready: probe in free air,
 then Start episode" or "Recording: when done press Success / Recovered / Fail (or Discard)". It turns red

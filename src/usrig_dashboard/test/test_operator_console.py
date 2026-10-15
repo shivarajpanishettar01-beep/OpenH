@@ -144,3 +144,14 @@ def test_stop_without_outcome_asks_for_one(app):
     btn(win, 'Stop episode').click()
     assert ros.sent[-1] == {'cmd': 'start_stop'}
     win.close()
+
+
+def test_disabled_protective_stop_does_not_look_active(app):
+    """Without robot_control the console cannot stop the arm: the button must not look like a live red stop."""
+    ros, win, refresh = make(app, IDLE, control=False)
+    b = btn(win, 'PROTECTIVE STOP')
+    assert not b.isEnabled() and 'pendant' in b.toolTip()
+    img = b.grab().toImage()
+    c = img.pixelColor(img.width() // 2, img.height() // 4)
+    assert not (c.red() > 150 and c.green() < 90 and c.blue() < 90), (c.red(), c.green(), c.blue())
+    win.close()

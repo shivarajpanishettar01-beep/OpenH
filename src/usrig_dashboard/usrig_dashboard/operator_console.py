@@ -13,7 +13,7 @@ stream decimated (1 message in 25 decoded), so it can run during collection. Des
   keyboard regardless of focus, so a focused button would be pressed twice (Space = view reached).
 * It is not the parent of capture processes: collections are launched in their own terminal, detached;
   closing the console stops nothing.
-* Pause: the robot holds and the span is marked in the bag and episode.json; recording continues (see
+* Pause: the robot holds (with robot_control) and the span is marked in the bag and episode.json; recording continues (see
   usrig_episode/episode_status.py for why).
 """
 import json
@@ -218,6 +218,7 @@ QPushButton#warn { background: #b26a00; color: white; border-color: #b26a00; }
 QPushButton#bad { background: #a83232; color: white; border-color: #a83232; }
 QPushButton#primary:disabled, QPushButton#good:disabled, QPushButton#warn:disabled, QPushButton#bad:disabled { background: #cfd4db; color: #8a919b; border-color: #cfd4db; }
 QPushButton#pstop { background: #c62828; color: white; font-weight: 700; font-size: 15px; padding: 10px 18px; border: 2px solid #8e1b1b; }
+QPushButton#pstop:disabled { background: #cfd4db; color: #8a919b; border-color: #b0b6bf; }
 QLabel#rec { font-size: 18px; font-weight: 700; padding: 6px 14px; border-radius: 6px; }
 QLabel#prompt { font-size: 15px; font-weight: 600; padding: 8px 10px; border-radius: 4px; }
 QLabel#big { font-size: 26px; font-weight: 700; }
@@ -387,7 +388,7 @@ def build_window(ros, scfg=None, rig=None):
     b_ss = button('Start episode', 'start_stop', do_start_stop, 'primary', 'starts / stops the recording of an episode (B)')
     rl.addWidget(b_ss, 0, 0, 1, 2)
     rl.addWidget(button('Pause', 'pause', lambda: ros.send({'cmd': 'pause'}), 'warn',
-                        'robot holds; the span is marked, recording continues'), 0, 2)
+                        'robot holds (with robot_control); the span is marked, recording continues'), 0, 2)
     rl.addWidget(button('Resume', 'resume', lambda: ros.send({'cmd': 'resume'}), 'good'), 0, 3)
     rl.addWidget(button('Success', 'outcome', lambda: ros.send({'cmd': 'outcome', 'value': 'success'}), 'good', '1'), 1, 0)
     rl.addWidget(button('Recovered', 'outcome', lambda: ros.send({'cmd': 'outcome', 'value': 'recovered'}), 'good', '2'), 1, 1)
