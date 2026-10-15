@@ -59,7 +59,9 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
   with the handle above the sensor.
 
 ## Operator console (14 Oct 2026)
-- Checked offscreen with scripted states and on a ROS stand-in only. CPU use on the capture PC with the scanner,
+- Checked under ROS 2 Humble (15 Oct): tests with a scripted ROS side, an offscreen render (Stage 2, episode 7
+  waiting for an outcome), and the real `ConsoleRos` fed by a fake publisher (status / control / state received,
+  buttons gated). Not yet with the real episode_manager and robot_control. CPU use on the capture PC with the scanner,
   D415 and UR7e running (data_integrity.md runner, with and without the console); every robot action from the
   console on the real arm; the terminal emulator used by "Launch collection".
 - `/episode/status` with TRANSIENT_LOCAL durability under Fast DDS (`config/fastdds_rig.xml`).

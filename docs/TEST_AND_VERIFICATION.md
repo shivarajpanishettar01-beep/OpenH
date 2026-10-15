@@ -28,7 +28,7 @@ git clone ~/OpenH /tmp/clean && cd /tmp/clean && env -i HOME=$HOME USER=$USER PA
 |---|---|---|
 | fresh clone + `scripts/build.sh` in an empty environment | exit 0, 9 packages, 30 s | warnings only: CMake "cannot generate a safe runtime search path" (conda vs system libraries, harmless) |
 | same clone + `scripts/test.sh` | 83 passed (before this audit's additions) | |
-| `scripts/test.sh` (final) | **153 passed**, ~99 s | 21 files; fresh clone of 14 Oct: 11 packages build, all pass |
+| `scripts/test.sh` (final) | **184 passed**, ~106 s | 26 files, ROS 2 Humble, 15 Oct (incl. the 31 review / operator console tests; the 11 review regression tests each fail on the code before the fix) |
 | `pyflakes src export tools` | clean (after removing 6 unused imports) | |
 | `ros2 launch usrig_bringup {robot,micrus,wrist_camera,collect}.launch.py --show-args` | all parse; arguments listed | |
 | `dashboard` offscreen (`QT_QPA_PLATFORM=offscreen`, no topics) | ran 8 s, no exception | |
@@ -68,6 +68,14 @@ tested stale code. Fixed: it now puts `src/` first on `PYTHONPATH` (`IMPLEMENTAT
 | phantom-frame moves via safe height, phantom box, local cone | `test_phantom_*` | mocked | pass |
 | collection refused without a passing pre-session check | `test_presession_result_required_for_collection` | unit | pass |
 | simulated / synthetic data never exported with real data | `test_stage_bags_refuses_sim_sessions`, `test_synthetic_pipeline_check_episodes_never_mix` | unit | pass |
+| lift perturbation cut short → force setpoint restored | `test_lift_setpoint_restored_when_perturbation_is_cut_short` | mocked | pass |
+| rotated phantom box never re-adds motion out of the base box | `test_rotated_phantom_box_never_reintroduces_motion_out_of_the_base_box` | unit (random search) | pass |
+| fan / path outside the local tilt cone refused before moving; cone cleared by the next move | `test_run_path_outside_local_tilt_cone_refused_before_moving`, `test_move_clears_previous_local_tilt_cone`, `test_check_targets_local_cone_only_when_asked` | mocked / unit | pass |
+| fault acknowledge refused on a stale state | `test_ack_refused_while_state_is_stale` | mocked | pass |
+| held teleop not labelled expert | `test_held_teleop_is_not_labelled_expert` | mocked | pass |
+| keyboard teleop needs a dedicated device | `test_motion_needs_a_dedicated_keyboard_device` | mocked | pass |
+| taught force and waypoint-centred tilt cone used in Stages 0-2 | `test_taught_force_is_the_descent_setpoint`, `test_move_centres_local_cone_on_the_waypoint_not_the_start_pose`, `test_path_editor_fan_records_its_centre_waypoint` | mocked | pass |
+| console: buttons disabled when the rig would refuse; nothing takes keyboard focus | `test_operator_console.py`, `test_console_model.py` | offscreen | pass |
 
 ## Export end to end (synthetic, `export/pipeline_check.py`)
 Two synthetic episodes (success, recovery-mid), 3.84 s each, every recorded topic with known values:

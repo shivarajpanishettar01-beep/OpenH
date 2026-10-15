@@ -213,11 +213,10 @@ QPushButton { padding: 6px 10px; border-radius: 4px; border: 1px solid #8c96a6; 
 QPushButton:hover:enabled { background: #e3e9f2; }
 QPushButton:disabled { color: #9aa1ab; background: #eceef1; border-color: #cfd4db; }
 QPushButton#primary { background: #1f5fae; color: white; border-color: #1f5fae; font-weight: 600; }
-QPushButton#primary:disabled { background: #9db4d3; border-color: #9db4d3; }
 QPushButton#good { background: #2e7d32; color: white; border-color: #2e7d32; }
 QPushButton#warn { background: #b26a00; color: white; border-color: #b26a00; }
 QPushButton#bad { background: #a83232; color: white; border-color: #a83232; }
-QPushButton#good:disabled, QPushButton#warn:disabled, QPushButton#bad:disabled { background: #cfd4db; color: #8a919b; border-color: #cfd4db; }
+QPushButton#primary:disabled, QPushButton#good:disabled, QPushButton#warn:disabled, QPushButton#bad:disabled { background: #cfd4db; color: #8a919b; border-color: #cfd4db; }
 QPushButton#pstop { background: #c62828; color: white; font-weight: 700; font-size: 15px; padding: 10px 18px; border: 2px solid #8e1b1b; }
 QLabel#rec { font-size: 18px; font-weight: 700; padding: 6px 14px; border-radius: 6px; }
 QLabel#prompt { font-size: 15px; font-weight: 600; padding: 8px 10px; border-radius: 4px; }
