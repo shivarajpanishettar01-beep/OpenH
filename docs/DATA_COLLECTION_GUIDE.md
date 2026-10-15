@@ -66,6 +66,12 @@ Keys: `TELEOPERATION_GUIDE.md`. Progress against the 10 h commitment:
 ```bash
 ros2 run usrig_qc collection_progress
 ```
+Schedule to a deadline (remaining hours per phantom -> collection days, one phantom per day; yield and the
+recorded share of rig time are measured from your sessions after 10 episodes, assumptions until then):
+```bash
+ros2 run usrig_qc collection_plan --by 2026-12-01 --hours-per-day 2.5 --goal vascular_4vein=1.5 central_line_gen2=1.0
+```
+(`--goal` for an intermediate milestone; without it the session.yaml targets.)
 
 ## 6. Episode lifecycle
 | Step | Who | What is written |
@@ -119,6 +125,16 @@ Re-run on any episode:
 ```bash
 ros2 run usrig_qc episode_qc ~/data/sessions/<SESSION_ID>/ep_0001
 ```
+
+## 8b. Label agreement (expert annotation QA)
+When two or more annotators have labelled the same episodes in the `annotator` (each with their own
+annotator id):
+```bash
+ros2 run usrig_qc label_agreement ~/data/sessions/S1 ~/data/sessions/S2
+```
+Cohen's kappa (two raters) or Fleiss' kappa (more) for phases, g_t intervals and gestures (sampled at 10 Hz),
+and for failure class / outcome / motion quality (quadratic-weighted) from each annotator's own rating.
+Automated and QA-rejected labels are ignored. The acceptance threshold is yours.
 
 ## 9. End of session
 1. Ctrl+C the episode manager, then the launch (micrus freezes and powers down on SIGINT).

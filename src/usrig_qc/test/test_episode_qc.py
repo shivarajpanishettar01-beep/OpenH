@@ -188,3 +188,60 @@ def test_rig_status_with_nothing_configured():
     assert status['robot.ip'] == SET                       # null ip: no network probe, a SET row
     assert status['rig.yaml limits (robot_control)'] == SET
     assert all(st in ('ok', SET, CONNECT, 'info') for _, _, st, _ in table)
+
+
+def test_collection_plan_capacity_and_schedule():
+    import datetime as dt
+    from usrig_qc.collection_plan import available_days, plan
+    days = available_days(dt.date(2026, 10, 19), dt.date(2026, 11, 2), {'mon', 'tue', 'wed', 'thu', 'fri'},
+                          {dt.date(2026, 10, 22)})
+    assert len(days) == 9 and dt.date(2026, 10, 22) not in days            # 2 weeks of weekdays minus 1
+    prog = {'phantoms': {'a': {'hours': 0.5}, 'b': {'hours': 0.0}}}
+    r = plan(prog, {'a': 1.5, 'b': 1.0}, days, 2.5, 0.8, 0.4, 25.0, 0.2)
+    assert abs(r['remaining_recorded_h']['a'] - 1.0) < 1e-9
+    assert abs(r['rig_hours_total'] - 2.0 / 0.32) < 1e-6 and r['on_track']   # 6.25 rig h of 22.5
+    assert abs(sum(s['recorded_h'] for s in r['schedule']) - 2.0) < 1e-6
+    assert {s['phantom'] for s in r['schedule']} == {'a', 'b'} and not r['unscheduled_recorded_h']
+    short = plan(prog, {'a': 20.0, 'b': 0.0}, days[:2], 2.5, 0.8, 0.4, 25.0, 0.2)
+    assert not short['on_track'] and short['unscheduled_recorded_h']['a'] > 0
+
+
+def test_collection_plan_measures_rates_from_real_episodes(tmp_path):
+    from usrig_qc.collection_plan import measured_rates
+    s = tmp_path / 'sessions' / 'S1'
+    S = 10**9
+    for i in range(12):
+        d = s / f'ep_{i:04d}'
+        d.mkdir(parents=True)
+        kept = i % 4 != 0                                            # 9 of 12 kept
+        d.joinpath('episode.json').write_text(json.dumps({
+            'outcome': 'success' if kept else 'discard', 'qc': {'pass': kept},
+            't_start_ns': i * 100 * S, 't_end_ns': i * 100 * S + 25 * S}))
+    y, rec, n = measured_rates(tmp_path)
+    assert n == 12 and abs(y - 0.75) < 1e-9
+    assert abs(rec - 9 * 25 / (11 * 100 + 25)) < 1e-9
+
+
+def test_label_agreement_two_raters(tmp_path, capsys):
+    from usrig_common import annotation as A
+    from usrig_qc.label_agreement import main
+    S = 10**9
+    for i, (bob_onset, q_alice, q_bob) in enumerate(((2.0, 4, 4), (2.5, 3, 4), (2.0, 5, 5))):
+        d = tmp_path / 'S1' / f'ep_{i:04d}'
+        d.mkdir(parents=True)
+        (d / 'episode.json').write_text(json.dumps({'t_start_ns': 0, 't_end_ns': 10 * S}))
+        ann = A.new_annotation({'episode_id': f'e{i}'})
+        a, b = A.AnnotationEditor(ann, 'alice', 'expert'), A.AnnotationEditor(ann, 'bob', 'expert')
+        a.add_segment('status_intervals', 'failure', 2 * S, 5 * S)
+        b.add_segment('status_intervals', 'failure', int(bob_onset * S), 5 * S)
+        a.set_label('motion_quality', q_alice)
+        b.set_label('motion_quality', q_bob)
+        if i == 0:                                 # an automated label never counts
+            ann['status_intervals'].append({'status': 'recovery', 't0_ns': 0, 't1_ns': S, 'provenance': 'automated'})
+        (d / 'annotation.json').write_text(A.dumps(ann))
+    main([str(tmp_path / 'S1'), '--json', str(tmp_path / 'a.json')])
+    res = {r['label']: r for r in json.loads((tmp_path / 'a.json').read_text())}
+    st = res['status_intervals']
+    assert st['episodes'] == 3 and abs(st['percent_agreement'] - (300 - 5) / 300) < 1e-9 and st['kappa'] > 0.9
+    assert res['motion_quality']['episodes'] == 3 and 0 < res['motion_quality']['kappa'] < 1
+    assert res['phases']['episodes'] == 0 and res['phases']['kappa'] is None

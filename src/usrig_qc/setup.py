@@ -25,6 +25,8 @@ setup(
         'camera_autolock = usrig_qc.camera_autolock:main',
         'auto_annotate = usrig_qc.auto_annotate:main',
         'collection_progress = usrig_qc.collection_progress:main',
+        'collection_plan = usrig_qc.collection_plan:main',
+        'label_agreement = usrig_qc.label_agreement:main',
         'status_console = usrig_qc.status_console:main',
         'bag_check = usrig_qc.bag_check:main',
         'rig_status = usrig_qc.rig_status:main',

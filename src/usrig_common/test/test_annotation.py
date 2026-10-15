@@ -76,3 +76,26 @@ def test_editor_rules(tmp_path):
     assert saved['history'] == [{'annotator': 'dr_x', 'role': 'expert', 'saved_ns': 123}]
     ed.delete_segment('gestures', 1)
     assert len(ann['gestures']) == 1
+
+
+def test_agreement_statistics_known_values():
+    from usrig_common.agreement import cohen_kappa, fleiss_kappa, landis_koch, percent_agreement
+    a, b = [1, 1, 0, 0], [1, 0, 0, 0]
+    assert percent_agreement(a, b) == 0.75 and abs(cohen_kappa(a, b) - 0.5) < 1e-12
+    assert cohen_kappa([1, 2, 3], [1, 2, 3]) == 1.0
+    # weighted: a near miss on an ordinal scale costs less than a far miss
+    near = cohen_kappa([1, 2, 3, 4, 5], [1, 2, 3, 4, 4], weights='quadratic')
+    far = cohen_kappa([1, 2, 3, 4, 5], [1, 2, 3, 4, 1], weights='quadratic')
+    assert near > far
+    # Fleiss (1971) style check: perfect agreement -> 1; two raters equals Cohen-like chance correction
+    assert fleiss_kappa([['x', 'x', 'x'], ['y', 'y', 'y']]) == 1.0
+    assert abs(fleiss_kappa([['a', 'a'], ['a', 'b'], ['b', 'b'], ['b', 'b']]) - 0.4666666) < 1e-6
+    assert landis_koch(0.5) == 'moderate' and landis_koch(0.9) == 'almost perfect'
+
+
+def test_editor_keeps_every_annotators_episode_label():
+    ann = A.new_annotation({'episode_id': 'e1', 'instruction': 'x'})
+    A.AnnotationEditor(ann, 'alice', 'expert').set_label('motion_quality', 4)
+    A.AnnotationEditor(ann, 'bob', 'expert').set_label('motion_quality', 3)
+    assert ann['motion_quality']['value'] == 3 and ann['motion_quality']['annotator'] == 'bob'
+    assert {k: v['value'] for k, v in ann['ratings']['motion_quality'].items()} == {'alice': 4, 'bob': 3}

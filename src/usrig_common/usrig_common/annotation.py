@@ -243,6 +243,9 @@ class AnnotationEditor:
             if name == 'motion_quality':
                 value = int(value)
             self.ann[name] = label(value, self.role, annotator=self.who, **extra)
+        # every annotator's own value is kept for inter-rater agreement (the field above is the latest)
+        self.ann.setdefault('ratings', {}).setdefault(name, {})[self.who] = (
+            None if value in (None, '') else {'value': value, 'role': self.role})
         self.dirty = True
 
     def add_narration(self, t_ns, text):

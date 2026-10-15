@@ -20,7 +20,7 @@ authority (`robot_control`, which freedrive never uses), one recorder and one ep
 | `src/usrig_presets` | **preset mode**: `waypoint_teach/verify`, `path_editor` (Stage 1), `plan_generator` + `failure_catalog.yaml` (Stage 2); `preset_check` (offset / save / go / waypoint moves) |
 | `src/usrig_freedrive` | **freedrive mode**: sample labelling rule (`labels.py`, mirrored in `robot_state_cpp`); `freedrive_check` (guided, never commands) |
 | `src/usrig_episode` | `episode_manager` (the collection lifecycle for every mode: stages 0/1/2 and freedrive, crash-safe recorder, resume), `register_phantom`, `handeye_calib`, `rig_static_tf` |
-| `src/usrig_qc` | `rig_status` (what is set up / connected), `bag_check` (test recordings), `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
+| `src/usrig_qc` | `rig_status` (what is set up / connected), `bag_check` (test recordings), `qc_monitor`, `episode_qc` (from bag stamps), `presession_check`, `stream_check`, `collection_plan` (schedule to a deadline), `label_agreement` (inter-rater kappa), `status_console` (headless operator view), `auto_annotate`, `collection_progress`, `camera_autolock` |
 | `src/usrig_dashboard` | dashboard (demos only), `annotator` (offline expert labelling) |
 | `src/usrig_bringup` | `config/session.yaml`, `config/rig.yaml` (all safety limits null), `config/keymap.yaml`; launch files incl. the staged tests `test1_robot` ... `test4_full_system` |
 | `export/` | `lerobot_rig.yaml` (bag_to_lerobot config), `stage_bags.py`, `depth_export.py`, `openh_export.py` |
@@ -134,7 +134,7 @@ The whole export chain is checked on synthetic episodes with `python export/pipe
 - micrus is never modified; it is driven only through its CLI and ROS 2 interface.
 
 ## Status
-Builds from a fresh clone (11 packages); 148 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
+Builds from a fresh clone (11 packages); 153 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
 (27.35 Hz, 0 frame gaps in 5 min, clean power-down), robot state on URSim, recording and crash recovery
 in simulation, data integrity under load on the development PC (C++ robot_state: 0 of ~31,000 samples
 lost per minute), and the export chain end to end on synthetic episodes. Not yet run: the D415 on USB 3,
