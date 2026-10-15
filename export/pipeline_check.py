@@ -212,7 +212,8 @@ def write_session(root):
         (d / 'annotation.json').write_text(json.dumps(ann, indent=1))
         (d / 'task.txt').write_text(instr)
         extra = ({'collection_mode': 'freedrive', 'grip': 'wrist_handle', 'force_label_valid': True}
-                 if eid in KINESTHETIC else {})
+                 if eid in KINESTHETIC else {'collection_mode': 'robot'})
+        extra.update({'operator_id': 'op_synthetic', 'phantom_id': 'vascular_4vein', 'rig_git_commit': 'synthetic'})
         (d / 'episode.json').write_text(json.dumps({**extra,
             'episode_id': eid, 'session_id': 'SYNTHETIC_session', 'type': typ, 'stage': stage,
             'instruction': instr, 'outcome': 'recovered' if fail else 'success', 'qc': {'pass': True},
@@ -232,15 +233,15 @@ def run(a):
         shutil.rmtree(work)
     work.mkdir(parents=True)
     t_start = time.monotonic()
-    print(f'[1/5] synthetic episodes -> {work}')
+    print(f'[1/6] synthetic episodes -> {work}')
     sess = write_session(work)
 
-    print('[2/5] stage_bags.py --pipeline-check')
+    print('[2/6] stage_bags.py --pipeline-check')
     staging = work / 'staging'
     sh([sys.executable, str(HERE / 'stage_bags.py'), '--sessions', str(sess), '--include-stage0', '--include-stage1',
         '--pipeline-check', '-o', str(staging)])
 
-    print('[3/5] bag_to_lerobot.py (v2.1)')
+    print('[3/6] bag_to_lerobot.py (v2.1)')
     conv = os.environ.get('BAG_TO_LEROBOT')
     if not conv or not Path(conv).exists():
         sys.exit('BAG_TO_LEROBOT not set or missing (source scripts/env.sh)')
@@ -250,7 +251,7 @@ def run(a):
     lengths = {json.loads(x)['episode_index']: json.loads(x)['length']
                for x in (v21 / 'meta' / 'episodes.jsonl').read_text().splitlines() if x.strip()}
 
-    print('[4/5] openh_export.py --pipeline-check (LeRobot 0.6.0 env)')
+    print('[4/6] openh_export.py --pipeline-check (LeRobot 0.6.0 env)')
     rig = yaml.safe_load((REPO / 'src/usrig_bringup/config/rig.yaml').read_text())
     rig.setdefault('probe', {})['type'] = 'SYNTHETIC-PROBE'
     rig.setdefault('calibration', {})['prob_cali_mtx'] = np.eye(4).tolist()
@@ -267,8 +268,31 @@ def run(a):
          'length': lengths[s['episode_index']]} for s in srcs],
         'us_time_offset_s': -0.020, 'image_offset_s': -0.020, 'depth_offset_s': 0.0}
     (work / 'truth.json').write_text(json.dumps(truth, indent=1))
-    print('[5/5] reload and compare (LeRobot 0.6.0 env)')
+    print('[5/6] reload and compare (LeRobot 0.6.0 env)')
     sh([py312, str(Path(__file__).resolve()), 'verify', '--dataset', str(out), '--truth', str(work / 'truth.json')])
+    print('[6/6] dataset card + checksum manifest (release_card.py)')
+    sh([py312, str(HERE / 'release_card.py'), '--dataset', str(out)])
+    card = (out / 'README.md').read_text()
+    prov = [json.loads(x) for x in (out / 'meta' / 'provenance.jsonl').read_text().splitlines() if x.strip()]
+    problems = [what for ok, what in (
+        ('SYNTHETIC PIPELINE-CHECK DATA' in card, 'card has the SYNTHETIC banner'),
+        (f'- Episodes: {len(EPISODES)} ' in card, 'card episode count'),
+        ("'freedrive': 1" in card and "'robot': 2" in card, 'card counts the collection modes'),
+        ('Operators: 1; sessions: 1' in card, 'card counts operators / sessions'),
+        ('prob_cali_mtx.json`: present' in card, 'card sees the calibration files'),
+        (len(prov) == len(EPISODES) and {x['episode_id'] for x in prov} == {e[0] for e in EPISODES}, 'provenance.jsonl rows'),
+    ) if not ok]
+    sh([py312, str(HERE / 'release_card.py'), '--dataset', str(out), '--check'])
+    victim = out / 'meta' / 'annotations.jsonl'
+    keep = victim.read_bytes()
+    victim.write_bytes(keep + b' ')
+    tampered = subprocess.run([py312, str(HERE / 'release_card.py'), '--dataset', str(out), '--check'],
+                              capture_output=True, text=True)
+    victim.write_bytes(keep)
+    if tampered.returncode == 0 or 'changed: meta/annotations.jsonl' not in tampered.stdout:
+        problems.append('manifest did not catch a modified file')
+    if problems:
+        sys.exit(f'PIPELINE CHECK FAILED (card / manifest): {problems}')
     print(f'PIPELINE CHECK PASSED in {time.monotonic() - t_start:.0f} s ({out})')
     if not a.keep:
         shutil.rmtree(work)
@@ -306,7 +330,7 @@ def verify(a):
     feats = info.features if hasattr(info, 'features') else info['features']
     meta = out / 'meta'
     for f in ('calibration/prob_cali_mtx.json', 'calibration/wrist_cali_mtx.json', 'calibration/camera_intrinsics.json',
-              'annotations.jsonl', 'README.md'):
+              'annotations.jsonl', 'provenance.jsonl'):
         check((meta / f).exists(), f'meta/{f} survives the v3.0 conversion')
     raw_info = json.loads((meta / 'info.json').read_text())
     ann = [json.loads(x) for x in (meta / 'annotations.jsonl').read_text().splitlines() if x.strip()] \

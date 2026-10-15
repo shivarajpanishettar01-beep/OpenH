@@ -35,7 +35,8 @@ Meta:
   meta/calibration/camera_intrinsics.json, wrist_cali_mtx.json, prob_cali_mtx.json
   meta/annotations.jsonl                 full annotation.json per episode (provenance + QA status)
   info.json splits: train / recovery / failure / test (contiguous, from stage_bags.py)
-  meta/README.md from openh_README_template.md
+  meta/provenance.jsonl                  per episode: session, phantom, operator, type, mode, capture PC, commit, offsets
+  README.md + MANIFEST.sha256           afterwards with export/release_card.py (dataset card from the data itself)
 Then LeRobot's own v2.1 -> v3.0 converter, if this LeRobot version ships it (checked, not assumed),
 and Open-H's validate_formatting.py (not in this repo: NOT VERIFIED).
 """
@@ -60,6 +61,13 @@ def read_jsonl(p):
 
 def write_jsonl(p, rows):
     Path(p).write_text(''.join(json.dumps(r) + '\n' for r in rows))
+
+
+# per-episode provenance kept in meta/provenance.jsonl (the dataset card is built from it, no bags needed)
+PROVENANCE_KEYS = ('episode_id', 'session_id', 'phantom_id', 'operator_id', 'type', 'stage', 'outcome',
+                   'collection_mode', 'grip', 'failure_mode', 'staging_method', 'instruction', 'duration_s',
+                   'capture_host', 'rig_git_commit', 'micrus_version', 'robot_tcp_setting', 'time_offsets_s',
+                   'synthetic_pipeline_check')
 
 
 def stats_of(arr):
@@ -96,7 +104,7 @@ def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic,
 
 
 # Files the LeRobot v2.1 -> v3.0 converter does not keep (it rebuilds meta/): copied back afterwards.
-EXTRA_META = ('calibration', 'annotations.jsonl', 'README.md', 'modality.json', 'micrus_sources.jsonl')
+EXTRA_META = ('calibration', 'annotations.jsonl', 'provenance.jsonl', 'modality.json', 'micrus_sources.jsonl')
 
 
 def carry_meta(work, custom_info):
@@ -208,6 +216,7 @@ def main():
                if 'tcp_x' in state_names else list(range(6, 13)))
 
     new_features, annotations, intrinsics, wrist_cali = {}, [], None, None
+    provenance = []
     for pf in sorted(work.glob('data/chunk-*/episode_*.parquet')):
         t = pq.read_table(pf)
         ep_index = int(t.column('episode_index')[0].as_py())
@@ -319,6 +328,9 @@ def main():
                 else:
                     new_features[k] = feature_of(t.column(k), pa)
         annotations.append({'episode_index': ep_index, 'episode_id': epj.get('episode_id'), **ann})
+        provenance.append({'episode_index': ep_index, 'split': o['split'],
+                           **{k: epj.get(k) for k in PROVENANCE_KEYS},
+                           'session_sim': bool(sess.get('sim')), 'n_steps': n})
         print(f'episode {ep_index}: {n} steps, split {o["split"]}, type {o["type"]}, '
               f'status {dict(zip(*np.unique(status, return_counts=True)))}')
 
@@ -328,6 +340,7 @@ def main():
         info['pipeline_check'] = 'SYNTHETIC data from export/pipeline_check.py: not a real dataset'
     write_jsonl(meta / 'episodes_stats.jsonl', [ep_stats[k] for k in sorted(ep_stats)])
     write_jsonl(meta / 'annotations.jsonl', annotations)
+    write_jsonl(meta / 'provenance.jsonl', provenance)
     F.write_json(meta / 'calibration' / 'camera_intrinsics.json', intrinsics)
     F.write_json(meta / 'calibration' / 'prob_cali_mtx.json',
                  {'prob_cali_mtx': prob_cali, 'frame': 'probe w.r.t. end-effector'})
@@ -348,9 +361,6 @@ def main():
         splits[name] = (lo, hi)
     info['splits'] = {k: f'{lo}:{hi}' for k, (lo, hi) in splits.items()}
     (meta / 'info.json').write_text(json.dumps(info, indent=4))
-    tmpl = HERE / 'openh_README_template.md'
-    if tmpl.exists():
-        shutil.copy(tmpl, meta / 'README.md')
 
     if a.skip_convert:
         print(f'v2.1 with Open-H fields in {work}; conversion skipped')

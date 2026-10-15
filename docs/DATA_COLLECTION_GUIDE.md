@@ -155,7 +155,16 @@ Needs `probe.type` and `calibration.prob_cali_mtx` in `rig.yaml`. Action = incre
 executed probe-frame twist is kept as `observation.meta.commanded_twist`, with
 `observation.meta.command_valid` false where nothing was commanded (freedrive, robot_control off: twist
 and setpoint are 0 there); wrist depth is a lossless 16-bit PNG in mm. Freedrive episodes (type
-`kinesthetic`) go to the train split; `--exclude-kinesthetic` on `stage_bags.py` leaves them out. Then Open-H's `validate_formatting.py` (not in this repo).
+`kinesthetic`) go to the train split; `--exclude-kinesthetic` on `stage_bags.py` leaves them out.
+
+Dataset card and checksums (every number from the data: hours per phantom against the targets, episode types,
+modes, operators, label provenance, calibration present / missing, capture PCs, code commits, known
+limitations):
+```bash
+~/miniconda3/envs/openh-export/bin/python export/release_card.py --dataset ~/datasets/iitmandi_us
+```
+writes `README.md` and `MANIFEST.sha256` into the dataset; `--check` verifies the manifest after copying or
+uploading. Then Open-H's `validate_formatting.py` (not in this repo).
 
 The whole chain is checked on synthetic episodes with known ground truth (no hardware, ~25 s):
 ```bash

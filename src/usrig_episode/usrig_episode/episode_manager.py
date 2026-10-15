@@ -283,7 +283,7 @@ class EpisodeManager(Node):
         ep_id = f'{self.session_id}_ep_{idx:04d}'
         ep = {
             'episode_id': ep_id, 'episode_dir': f'ep_{idx:04d}', 'session_id': self.session_id, 'sim': self.sim,
-            'stage': self.stage, 'plan_row': None, 'seed': None,
+            'stage': self.stage, 'plan_row': None, 'seed': None, 'collection_mode': self.collection_mode,
             'mode': 'B' if self.stage == 2 and not self.adhoc else 'A',
             'operator_id': self.operator_id, 'phantom_id': self.phantom_id,
             'phantom_placement': self.scfg['session'].get('phantom_placement'),
