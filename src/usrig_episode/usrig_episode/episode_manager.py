@@ -150,15 +150,33 @@ class EpisodeManager(Node):
             raise RuntimeError(f'stage {self.stage} gate has not passed: {json.dumps(g)}')
         if self.control and self.stage > 0:
             config.require_limits(self.rig)
-        if not self.sim:
-            ok, why = gates.presession_ok(read_json(self.sdir / 'session.json'), self.stage, self.control, now_ns(),
-                                          self.scfg['session'].get('presession_max_age_h', 12), self.camera_recorded)
-            if not ok:
-                raise RuntimeError(f'refusing to collect: {why}')
+        # Pre-session gate at Start, not here: the check needs this launch's streams running, so refusing at
+        # start-up meant launch -> exit -> check -> relaunch for every new session.
+        self.presession_problem = None
+        if not self._presession_ready():
+            self.get_logger().warn(f'no episode starts until the pre-session check passes: {self.presession_problem}')
 
         self.create_timer(0.5, self._publish_status, callback_group=cb)
         self.worker = threading.Thread(target=self._run_stage, name='stage', daemon=True)
         self.worker.start()
+
+    def _presession_ready(self):
+        """A passing, recent pre-session check for this stage in session.json (re-read every time: the operator
+        runs the check while this node is up). Sets presession_problem for the console."""
+        if self.sim:
+            self.presession_problem = None
+            return True
+        ok, why = gates.presession_ok(read_json(self.sdir / 'session.json'), self.stage, self.control, now_ns(),
+                                      self.scfg['session'].get('presession_max_age_h', 12), self.camera_recorded)
+        self.presession_problem = None if ok else why
+        return ok
+
+    def _wait_presession(self):
+        """Block until the pre-session check passes; the operator runs it, then presses Start."""
+        while rclpy.ok() and not self._presession_ready():
+            self.get_logger().error(f'refusing to collect: {self.presession_problem}. Run the pre-session check, '
+                                    'then press Start')
+            self.wait_cmd({'start_stop'})
 
     # ------------------------------------------------------------------ operator console status
     def _finished_episodes(self):
@@ -175,7 +193,8 @@ class EpisodeManager(Node):
             payload = es.status_payload(
                 session={'session_id': self.session_id, 'stage': self.stage, 'collection_mode': self.collection_mode,
                          'robot_control': self.control, 'operator_id': self.operator_id,
-                         'phantom_id': self.phantom_id, 'sim': self.sim, 'session_dir': str(self.sdir)},
+                         'phantom_id': self.phantom_id, 'sim': self.sim, 'session_dir': str(self.sdir),
+                         'presession_problem': self.presession_problem},
                 ep=self.ep, pause_log=self.pause_log, waiting_for=self.waiting_for, finishing=self.finishing,
                 last_ep=self.last_ep, counts=self.counts, plan=self.plan_info, now_ns=now_ns())
         self.pub_status.publish(String(data=json.dumps(payload, default=str)))
@@ -497,6 +516,7 @@ class EpisodeManager(Node):
     # ------------------------------------------------------------------ stages
     def _run_stage(self):
         try:
+            self._wait_presession()
             if self.collection_mode == 'freedrive':
                 self._freedrive()
                 return
@@ -514,6 +534,9 @@ class EpisodeManager(Node):
             self.get_logger().info('Stage 0: press B (start_stop) to start an episode')
             self._drain()
             self.wait_cmd({'start_stop'})
+            if not self._presession_ready():
+                self.get_logger().error(f'episode not started: {self.presession_problem}')
+                continue
             ep = self._new_episode(type='shakedown')
             try:
                 wp_name = self.scfg['stage0'].get('approach_waypoint')
@@ -555,6 +578,9 @@ class EpisodeManager(Node):
                                    'the arm; B again to stop')
             self._drain()
             self.wait_cmd({'start_stop'})
+            if not self._presession_ready():
+                self.get_logger().error(f'episode not started: {self.presession_problem}')
+                continue
             if self.count_publishers('/robot/control_status') > 0:
                 self.get_logger().error('robot_control is running: stop it for freedrive collection (episode not started)')
                 continue

@@ -92,3 +92,15 @@ def test_formatting():
                               'verify': {'ncc': 0.81234}}], lambda w, r: None, {})
     assert rows[0] == {'name': 'a', 'view': 'vein / long', 'force_n': 3.21, 'verified': True, 'ncc': 0.812,
                        'status': 'ready'}
+
+
+def test_presession_command_passes_planned_hours():
+    """Without --planned-hours the disk row is UNSET and UNSET fails: the console's check never passed."""
+    pc = cm.presession_command(0, '/d', control=False, planned_hours=2.5)
+    assert pc[pc.index('--planned-hours') + 1] == '2.5'
+
+
+def test_prompt_names_the_presession_problem():
+    st = dict(IDLE_S0, session=dict(IDLE_S0['session'], presession_problem='no pre-session check for stage 0'))
+    p = cm.prompt(cm.Ctx(st, robot_mode=0, control_running=False))
+    assert 'pre-session' in p and 'Start' in p

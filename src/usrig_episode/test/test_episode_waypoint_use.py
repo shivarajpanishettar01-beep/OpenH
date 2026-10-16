@@ -54,3 +54,29 @@ def test_path_editor_fan_records_its_centre_waypoint(tmp_path, monkeypatch):
     paths = yaml.safe_load((tmp_path / 'data' / 'paths' / 'ph1.yaml').read_text())['paths']
     assert paths['liver_fan']['center'] == 'liver'
     assert 'center' not in paths['l1']
+
+
+def _fake_manager(tmp_path, session_json):
+    import json as _j
+    import types as _t
+    (tmp_path / 'session.json').write_text(_j.dumps(session_json))
+    logs = []
+    log = _t.SimpleNamespace(error=logs.append, warn=logs.append, info=logs.append)
+    return _t.SimpleNamespace(sim=False, sdir=tmp_path, stage=0, control=False, camera_recorded=False,
+                              scfg={'session': {'presession_max_age_h': 12}}, presession_problem=None,
+                              get_logger=lambda: log, logs=logs)
+
+
+def test_missing_presession_check_blocks_start_instead_of_killing_the_manager(tmp_path):
+    """episode_manager used to exit at start-up without a passing check; the check needs the launch's streams
+    running, so every new session needed launch -> exit -> check -> relaunch. Now the gate is at Start."""
+    import time as _time
+    fake = _fake_manager(tmp_path, {})
+    assert EpisodeManager._presession_ready(fake) is False
+    assert 'no pre-session check' in fake.presession_problem
+    fake2 = _fake_manager(tmp_path, {'presession': {'stage0': {'pass': True, 'control': False, 'camera': False,
+                                                               'checked_ns': _time.time_ns()}}})
+    assert EpisodeManager._presession_ready(fake2) is True and fake2.presession_problem is None
+    fake2.sim = True
+    (tmp_path / 'session.json').write_text('{}')
+    assert EpisodeManager._presession_ready(fake2) is True                    # simulation: no check needed

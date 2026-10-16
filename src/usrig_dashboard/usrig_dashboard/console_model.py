@@ -159,6 +159,8 @@ def prompt(c: Ctx):
     if c.fault:
         return 'Robot in FAULT: check the cause, then Acknowledge fault'
     st, w = c.ep_state, c.waiting
+    if st == 'idle' and c.session.get('presession_problem'):
+        return f'Blocked: {c.session["presession_problem"]}. Run the Pre-session check (Session tab), then Start'
     if c.paused:
         if c.session.get('robot_control'):
             return 'PAUSED: recording continues, robot holds. Resume to go on'
@@ -211,8 +213,10 @@ def launch_command(mode, session_id, *, session_json, sim=False, camera=True, in
     return ['ros2', 'launch', 'usrig_bringup', 'collect.launch.py'] + [f'{k}:={fmt(v)}' for k, v in args.items()]
 
 
-def presession_command(stage, session_dir, *, control, sim=False, camera=True):
+def presession_command(stage, session_dir, *, control, sim=False, camera=True, planned_hours=None):
     cmd = ['ros2', 'run', 'usrig_qc', 'presession_check', '--stage', str(stage), '--session', str(session_dir)]
+    if planned_hours:
+        cmd += ['--planned-hours', f'{float(planned_hours):g}']      # without it the disk row is UNSET (= fail)
     if control:
         cmd.append('--control')
     if sim:

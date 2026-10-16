@@ -718,6 +718,12 @@ def build_window(ros, scfg=None, rig=None):
     s_sim.setChecked(bool(ros.sim))
     s_cam = QtWidgets.QCheckBox('wrist camera')
     s_cam.setChecked(True)
+    s_hours = QtWidgets.QDoubleSpinBox()
+    s_hours.setRange(0.0, 12.0)
+    s_hours.setSingleStep(0.5)
+    s_hours.setValue(0.0)
+    s_hours.setSpecialValueText('set the planned hours (disk check)')
+    s_hours.setFocusPolicy(Qt.ClickFocus)
     for w in (s_mode, s_input, s_oper, s_phantom, s_sim, s_cam):
         w.setFocusPolicy(Qt.NoFocus)
     id_row = QtWidgets.QHBoxLayout()
@@ -736,6 +742,7 @@ def build_window(ros, scfg=None, rig=None):
     sf.addRow('Session id', id_row)
     sf.addRow('', s_sim)
     sf.addRow('', s_cam)
+    sf.addRow('Planned hours', s_hours)
     sl.addLayout(sf)
     lbl_cmd = QtWidgets.QLabel()
     lbl_cmd.setWordWrap(True)
@@ -793,9 +800,12 @@ def build_window(ros, scfg=None, rig=None):
     def do_presession():
         if not s_id.text().strip():
             return ros.note('set a session id first')
+        if not s_hours.value() and not s_sim.isChecked():
+            return ros.note('set the planned hours first (the disk check needs them)')
         m = cm.COLLECTION_MODES[s_mode.currentData()]
         run_check(cm.presession_command(m['stage'] or 0, sess_dir_for_form(), control=m['control'],
-                                        sim=s_sim.isChecked(), camera=s_cam.isChecked()), 'presession_check')
+                                        sim=s_sim.isChecked(), camera=s_cam.isChecked(),
+                                        planned_hours=s_hours.value() or None), 'presession_check')
 
     def do_launch():
         c = collect_cmd()
@@ -803,7 +813,7 @@ def build_window(ros, scfg=None, rig=None):
             return ros.note('set a session id first')
         m = cm.COLLECTION_MODES[s_mode.currentData()]
         if m['control'] and not confirm('Start the robot nodes', 'This starts robot_control (the arm can be commanded). '
-                                        'Area clear, e-stop at hand, pre-session check passed?'):
+                                        'Area clear, e-stop at hand? (Then run the Pre-session check; episodes start only after it passes.)'):
             return
         term = cm.terminal_command(c, cm.env_script_path(), title=f'usrig {s_id.text().strip()}')
         if term is None:
