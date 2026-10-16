@@ -5,9 +5,13 @@
   ros2 run usrig_presets plan_generator lock --plan plan_v1.csv --session <session_dir>
 
 * start offsets: 8 directions x 2 radii (10 mm, 25 mm), plus rock / tilt / rotation in +-10 deg
-* types: 55 % success, 30 % recovery (recovery-start at most a third of it), 15 % failure
-  (optional --contact-frac of contact-establishment taken from success)
-* every recovery / failure row gets an FM ID and a staging method from failure_catalog.yaml
+* types: 55 % success, 30 % recovery (recovery-start at most a third of it), 15 % failure by default
+  (--fail-frac / --recovery-frac; optional --contact-frac of contact-establishment taken from success).
+  Stage 2 is the only source of failure / recovery episodes, so its share is above the dataset-wide
+  targets.failure_recovery_fraction; the generator prints both.
+* every recovery / failure row gets an FM ID and a staging method from failure_catalog.yaml, drawn from
+  the shuffled product targets x methods, so every method appears at every target as rows allow
+  (--exclude-fm drops failure modes that do not apply to this phantom)
 * 3-5 paraphrased instructions per target (from the waypoint file); a second operator on at
   least 20 % of rows
 * the plan is locked by storing its SHA-256 in session.json before collection
@@ -33,9 +37,12 @@ RADII_MM = (10.0, 25.0)
 ANGLE_RANGE_DEG = 10.0
 
 
-def type_counts(n, contact_frac=0.0):
-    n_fail = round(0.15 * n)
-    n_rec = round(0.30 * n)
+FAIL_TYPES = ('recovery-start', 'recovery-mid', 'failure')
+
+
+def type_counts(n, contact_frac=0.0, fail_frac=0.15, recovery_frac=0.30):
+    n_fail = round(fail_frac * n)
+    n_rec = round(recovery_frac * n)
     n_rec_start = n_rec // 3
     n_contact = round(contact_frac * n)
     n_succ = n - n_fail - n_rec - n_contact
@@ -59,13 +66,14 @@ def _null_in(x):
 
 
 def generate(targets, n_rows, seed, operators, catalog, contact_frac=0.0, onset_range=(5.0, 15.0),
-             second_operator_frac=0.2):
+             second_operator_frac=0.2, fail_frac=0.15, recovery_frac=0.30, exclude_fm=()):
     rng = np.random.default_rng(seed)
     for name, t in targets.items():
         k = len(t.get('instructions') or [])
         if not 3 <= k <= 5:
             raise ValueError(f'target {name}: needs 3-5 instructions, has {k}')
-    counts = type_counts(n_rows, contact_frac)
+    catalog = {fm: spec for fm, spec in catalog.items() if fm not in set(exclude_fm or ())}
+    counts = type_counts(n_rows, contact_frac, fail_frac, recovery_frac)
     types = [t for t, c in counts.items() for _ in range(c)]
 
     fm_methods = [(fm, m) for fm, spec in catalog.items() for m in spec['methods']]
@@ -73,9 +81,24 @@ def generate(targets, n_rows, seed, operators, catalog, contact_frac=0.0, onset_
     rows = []
     target_names = sorted(targets)
     offsets = [(r, d) for r in RADII_MM for d in range(DIRECTIONS)]
-    fm_i = 0
+    # failure / recovery rows: (target, failure mode, method) from the product, shuffled one block at a time:
+    # inside a block every method meets every target once, so failure mode and target are not confounded
+    # (two cyclic counters tied each method to one target whenever the target count divided the method count)
+    n_fm_rows = sum(t in FAIL_TYPES for t in types)
+    if n_fm_rows and not fm_methods:
+        raise ValueError('no failure modes left (all excluded) for the failure / recovery rows')
+    combos = [(t, fm, m) for fm, m in fm_methods for t in target_names]
+    pool = []
+    while len(pool) < n_fm_rows:
+        pool += [combos[k] for k in rng.permutation(len(combos))]
+    fm_i = n_plain = 0
     for i, typ in enumerate(types):
-        target = target_names[i % len(target_names)]
+        if typ in FAIL_TYPES:
+            target, fm, method = pool[fm_i]
+            fm_i += 1
+        else:
+            target = target_names[n_plain % len(target_names)]
+            n_plain += 1
         r, d = offsets[(i // len(target_names)) % len(offsets)]
         ang = 2 * math.pi * d / DIRECTIONS
         row = {'type': typ, 'target': target,
@@ -88,9 +111,7 @@ def generate(targets, n_rows, seed, operators, catalog, contact_frac=0.0, onset_
                'disturbance_delta': '', 'disturbance_onset_s': '', 'disturbance_duration_s': ''}
         instr = list(targets[target]['instructions'])
         row['instruction'] = instr[int(rng.integers(len(instr)))]
-        if typ in ('recovery-start', 'recovery-mid', 'failure'):
-            fm, method = fm_methods[fm_i % len(fm_methods)]
-            fm_i += 1
+        if typ in FAIL_TYPES:
             spec = catalog[fm]['methods'][method]
             row['failure_mode'], row['staging_method'] = fm, method
             if fm == 'FM-12':
@@ -152,6 +173,9 @@ def main(argv=None):
     g.add_argument('--seed', type=int, required=True)
     g.add_argument('--operators', nargs='+', required=True)
     g.add_argument('--contact-frac', type=float, default=0.0)
+    g.add_argument('--fail-frac', type=float, default=0.15)
+    g.add_argument('--recovery-frac', type=float, default=0.30)
+    g.add_argument('--exclude-fm', nargs='*', default=[], help='failure modes that do not apply to this phantom')
     g.add_argument('-o', '--output', default=None,
                    help='default: <root>/plans/plan_<phantom>_<rows>rows_seed<seed>.csv')
     g.add_argument('--sim', action='store_true', help='simulation data (session.sim_root)')
@@ -172,7 +196,8 @@ def main(argv=None):
         if not targets:
             sys.exit('no verified waypoints in ' + a.waypoints)
         try:
-            rows = generate(targets, a.rows, a.seed, a.operators, load_catalog(catalog_path), a.contact_frac)
+            rows = generate(targets, a.rows, a.seed, a.operators, load_catalog(catalog_path), a.contact_frac,
+                            fail_frac=a.fail_frac, recovery_frac=a.recovery_frac, exclude_fm=a.exclude_fm)
         except ValueError as e:
             sys.exit(str(e))
         if a.output is None:
@@ -188,6 +213,11 @@ def main(argv=None):
         for r in rows:
             c[r['type']] = c.get(r['type'], 0) + 1
         print(f'wrote {len(rows)} rows to {a.output}: {c}')
+        from usrig_common import config as _cfg
+        tgt = (_cfg.load_config('session', a.config_dir).get('targets') or {}).get('failure_recovery_fraction')
+        share = sum(v for k, v in c.items() if k in FAIL_TYPES) / max(1, len(rows))
+        print(f'failure / recovery share of this plan {share:.0%}; dataset-wide target {tgt} (all stages and modes: '
+              'check with collection_progress)')
     else:
         from usrig_common.session import update_session_json
         h = sha256(a.plan)

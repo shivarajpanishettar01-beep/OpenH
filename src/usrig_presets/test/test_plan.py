@@ -50,3 +50,33 @@ def test_null_magnitudes_refuse():
 def test_targets_need_3_to_5_instructions():
     with pytest.raises(ValueError, match='3-5 instructions'):
         pg.generate({'t': {'instructions': ['a']}}, 10, 1, ['op1'], filled_catalog())
+
+
+@pytest.mark.parametrize('n_targets', [2, 3, 4, 6])
+def test_failure_modes_are_not_tied_to_one_target(n_targets):
+    """Two cyclic counters (target, failure mode) tied each staging method to one target when the target count
+    divided the number of methods: failure mode and target were confounded in the data."""
+    targets = {f't{i}': {'instructions': ['a', 'b', 'c']} for i in range(n_targets)}
+    rows = pg.generate(targets, 600, 3, ['op1'], filled_catalog())
+    by_method = {}
+    for r in rows:
+        if r['failure_mode']:
+            by_method.setdefault((r['failure_mode'], r['staging_method']), []).append(r['target'])
+    for key, tgts in by_method.items():
+        assert len(set(tgts)) >= min(n_targets, len(tgts)), (key, tgts)
+
+
+def test_excluded_failure_modes_need_no_magnitudes():
+    """An imaging-only phantom excludes the insertion failure mode; its null magnitudes must not block the plan."""
+    c = filled_catalog()
+    fm = sorted(c)[0]
+    for m in c[fm]['methods'].values():
+        if m.get('kind', 'none') != 'none':
+            m['delta'] = [None]
+    rows = pg.generate(TARGETS, 100, 1, ['op1'], c, exclude_fm=[fm])
+    assert fm not in {r['failure_mode'] for r in rows}
+
+
+def test_type_fractions_are_configurable():
+    c = pg.type_counts(400, fail_frac=0.05, recovery_frac=0.15)
+    assert c['failure'] == 20 and c['recovery-start'] + c['recovery-mid'] == 60
