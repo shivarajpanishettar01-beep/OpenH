@@ -56,6 +56,32 @@ def step_label_sources(ann, t_steps_ns):
     return {k: v[1] for k, v in A.resolve_steps(ann, [int(x) for x in t_steps_ns]).items()}
 
 
+def failure_class(epj, ann, catalog=None):
+    """(class, provenance) of a failure / recovery episode: the resolved label (merged annotation), else the
+    class of the plan's FM id (automated). ('', '') for other episode types or when nothing gives one."""
+    if epj.get('type') not in A.FAILURE_TYPES:
+        return '', ''
+    lab = ann.get('failure_class') or {}
+    if lab.get('value') and lab.get('qa_status') != 'rejected':
+        return lab['value'], lab.get('provenance') or 'automated'
+    fc = A.failure_class_for(epj.get('failure_mode'), catalog)
+    return (fc, 'automated') if fc else ('', '')
+
+
+def failure_class_problems(episodes, catalog=None):
+    """[(episode.json, merged annotation)] -> one message per failure / recovery episode without a valid class."""
+    out = []
+    for epj, ann in episodes:
+        if epj.get('type') not in A.FAILURE_TYPES:
+            continue
+        fc, _ = failure_class(epj, ann, catalog)
+        if fc not in A.FAILURE_CLASSES:
+            out.append(f'{epj.get("episode_id")}: type {epj.get("type")}, failure_mode {epj.get("failure_mode")}, '
+                       f'failure class {fc!r} (needs one of {A.FAILURE_CLASSES}: label it in the annotator '
+                       'or map the FM id)')
+    return out
+
+
 def sample_hold(stamps_ns, t_steps_ns):
     """Index of the latest sample stamped at or before each step (-1 if none)."""
     st = np.asarray(stamps_ns, np.int64)

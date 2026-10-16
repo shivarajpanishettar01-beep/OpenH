@@ -57,6 +57,23 @@ def test_step_labels_resolver_drops_rejected_and_prefers_expert():
                    'gesture': ['automated', 'trainee', 'automated']}
 
 
+def test_failure_class_from_failure_mode_and_missing_class_is_an_error():
+    """P2-17: failure / recovery episodes need one of the four classes; the plan FM id gives it automatically,
+    a human label wins, and an episode without any is reported (the export then stops)."""
+    exp = {'failure_class': {'value': 'observation_degradation', 'provenance': 'expert', 'qa_status': 'unreviewed'}}
+    assert F.failure_class({'type': 'recovery-mid', 'failure_mode': 'FM-05'}, {}) == ('target_view_loss', 'automated')
+    assert F.failure_class({'type': 'failure', 'failure_mode': 'FM-05'}, exp) == ('observation_degradation', 'expert')
+    assert F.failure_class({'type': 'success'}, {}) == ('', '')
+    probs = F.failure_class_problems([
+        ({'episode_id': 'a', 'type': 'recovery-start', 'failure_mode': None}, {}),
+        ({'episode_id': 'b', 'type': 'failure', 'failure_mode': 'FM-SYN'}, {}),
+        ({'episode_id': 'c', 'type': 'failure', 'failure_mode': None},
+         {'failure_class': {'value': 'probe_slip', 'provenance': 'expert'}}),
+        ({'episode_id': 'd', 'type': 'failure', 'failure_mode': 'FM-01'}, {}),
+        ({'episode_id': 'e', 'type': 'success'}, {})])
+    assert [p.split(':')[0] for p in probs] == ['a', 'b', 'c']
+
+
 def test_png16_is_lossless():
     d = np.random.default_rng(0).integers(0, 65535, (48, 64), dtype=np.uint16)
     assert np.array_equal(F.unpng16(F.png16(d)), d)

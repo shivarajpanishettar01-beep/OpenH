@@ -33,7 +33,9 @@ Per step (added to every episode parquet and to meta/info.json):
   observation.meta.action_is_expert      bool
   observation.meta.stage                 int64
   observation.meta.failure_mode          string      plan failure-mode id
-  observation.meta.failure_class         string      one of the four proposal failure classes
+  observation.meta.failure_class         string      one of the four proposal failure classes on failure / recovery
+                                                     episodes (resolved label, else from the plan FM id); the
+                                                     export stops if such an episode has none
   instruction.text                       string
 Meta:
   meta/calibration/camera_intrinsics.json, wrist_cali_mtx.json, prob_cali_mtx.json
@@ -173,6 +175,8 @@ def main():
     ap.add_argument('--out', required=True)
     ap.add_argument('--rig-config', default=str(HERE.parent / 'src/usrig_bringup/config/rig.yaml'))
     ap.add_argument('--session-config', default=str(HERE.parent / 'src/usrig_bringup/config/session.yaml'))
+    ap.add_argument('--failure-catalog', default=str(HERE.parent / 'src/usrig_presets/config/failure_catalog.yaml'),
+                    help='FM ids; a failure_class key on an entry overrides the PROPOSED table in annotation.py')
     ap.add_argument('--us-topic', default='/micrus/bmode')
     ap.add_argument('--us-time-offset-s', type=float, default=None,
                     help='default: rig.yaml calibration.ultrasound_time_offset_s (PLACEHOLDER until P9c)')
@@ -208,11 +212,20 @@ def main():
     work = out.parent / (out.name + '_v21_work')
     if out.exists() or work.exists():
         sys.exit(f'{out} or {work} exists')
+    order = json.loads(Path(a.order).read_text())
+    catalog = yaml.safe_load(Path(a.failure_catalog).read_text()) if Path(a.failure_catalog).exists() else None
+    # every failure / recovery episode needs one of the four failure classes (checked before writing anything)
+    staged = []
+    for o in order['episodes']:
+        epj = json.loads((Path(o['bag']) / 'episode.json').read_text())
+        staged.append((epj, F.A.load_merged(o['bag'], episode=epj)))
+    probs = F.failure_class_problems(staged, catalog)
+    if probs:
+        sys.exit('failure / recovery episodes without a failure class:\n  ' + '\n  '.join(probs))
     shutil.copytree(src, work)
     meta = work / 'meta'
     info = json.loads((meta / 'info.json').read_text())
     sources = {s['episode_index']: s for s in read_jsonl(meta / 'micrus_sources.jsonl')}
-    order = json.loads(Path(a.order).read_text())
     by_bag = {str(Path(e['bag']).resolve()): e for e in order['episodes']}
     ep_stats = {e['episode_index']: e for e in read_jsonl(meta / 'episodes_stats.jsonl')}
     state_names = (info['features'].get('observation.state') or {}).get('names') or []
@@ -265,7 +278,7 @@ def main():
         command_valid = ~np.isnan(old_action).any(axis=1) & (src != 5)
         old_action[~command_valid, :] = 0.0
         act = F.delta_actions(state[:, tcp_idx], a.action_frame)
-        fc = (ann.get('failure_class') or {}).get('value') or ''
+        fc, fc_src = F.failure_class(epj, ann, catalog)
         cols = {
             'action': pa.array(act.astype(np.float32).tolist(), pa.list_(pa.float32(), 6)),
             'observation.meta.commanded_twist': pa.array(old_action[:, :6].astype(np.float32).tolist(),
@@ -338,7 +351,8 @@ def main():
         annotations.append({'episode_index': ep_index, 'episode_id': epj.get('episode_id'), **F.A.public(ann)})
         provenance.append({'episode_index': ep_index, 'split': o['split'],
                            **{k: epj.get(k) for k in PROVENANCE_KEYS},
-                           'session_sim': bool(sess.get('sim')), 'n_steps': n})
+                           'session_sim': bool(sess.get('sim')), 'n_steps': n,
+                           'failure_class': fc or None, 'failure_class_source': fc_src or None})
         print(f'episode {ep_index}: {n} steps, split {o["split"]}, type {o["type"]}, '
               f'status {dict(zip(*np.unique(status, return_counts=True)))}')
 

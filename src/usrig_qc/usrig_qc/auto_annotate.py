@@ -3,7 +3,9 @@
   ros2 run usrig_qc auto_annotate <session>/ep_0001 [--config-dir DIR]
 
 Writes <ep>/annotation.json: phase segments (from phase events), gesture segments (from teleop
-key events), failure / recovery status intervals (g_t), task and outcome. Everything written
+key events), failure / recovery status intervals (g_t), task, outcome, and for failure / recovery
+episodes the failure class from the plan's FM id (annotation.FM_FAILURE_CLASS, PROPOSED; a
+`failure_class` in failure_catalog.yaml overrides it). Everything written
 here has provenance "automated". Labels with any other provenance already in the file
 (expert / trainee / model_assisted, from before per-annotator files) are kept untouched; the
 annotator writes annotation.<annotator>.json, which this never touches.
@@ -18,7 +20,18 @@ from usrig_common import config
 from .episode_qc import read_bag, stamp_ns
 
 
-def auto_annotate(ep_dir, episode, keymap, write=True):
+def load_catalog():
+    """failure_catalog.yaml from the usrig_presets package (None if not installed: the table in annotation.py)."""
+    try:
+        import yaml
+        from ament_index_python.packages import get_package_share_directory
+        p = Path(get_package_share_directory('usrig_presets')) / 'config' / 'failure_catalog.yaml'
+        return yaml.safe_load(p.read_text())
+    except Exception:
+        return None
+
+
+def auto_annotate(ep_dir, episode, keymap, write=True, catalog=None):
     ep_dir = Path(ep_dir)
     data, _ = read_bag(ep_dir, ['/episode/events', '/operator/command'])
     events = [(stamp_ns(m), m.kind, json.loads(m.value or '{}')) for _, m in data['/episode/events']]
@@ -44,7 +57,12 @@ def auto_annotate(ep_dir, episode, keymap, write=True):
     for layer in ('phases', 'gestures', 'status_intervals'):
         kept = [x for x in ann.get(layer, []) if x.get('provenance') != 'automated']
         ann[layer] = kept + auto[layer]
-    for single in ('task', 'outcome'):
+    # failure class of a failure / recovery episode from its plan FM id (PROPOSED mapping, annotation.py)
+    fm = episode.get('failure_mode')
+    needs = episode.get('type') in A.FAILURE_TYPES and fm
+    fc = A.failure_class_for(fm, catalog if catalog is not None else load_catalog()) if needs else None
+    auto['failure_class'] = A.label(fc, 'automated', failure_mode=fm) if fc else None
+    for single in ('task', 'outcome', 'failure_class'):
         if ann.get(single) is None or ann[single].get('provenance') == 'automated':
             ann[single] = auto[single]
     A.validate(ann)

@@ -48,6 +48,7 @@ EPISODES = [  # (episode_id, type, stage, instruction, failure interval s, recov
     ('ep_0003', 'kinesthetic', 0, 'Guide the probe to the long-axis view by hand', None, None),
 ]
 KINESTHETIC = {'ep_0003'}      # freedrive: no command (NaN marker on /robot/cmd_executed), no setpoint
+FAILURE_CLASS = 'target_view_loss'   # expert label of ep_0002 (its FM-SYN id maps to no class)
 
 
 # ------------------------------------------------------------------------------- ground truth
@@ -203,12 +204,14 @@ def write_session(root):
         eid, typ, stage, instr, fail, rec = ep
         d = sess / eid
         write_bag(d, ep)
-        ann = {'status_intervals': [], 'phases': [{'phase': 'search', 't0_ns': T0_NS, 't1_ns': None}], 'gestures': []}
+        ann = {'status_intervals': [], 'phases': [{'phase': 'target_localisation', 't0_ns': T0_NS, 't1_ns': None}],
+               'gestures': []}
         if fail:
             ann['status_intervals'] = [
                 {'status': 'failure', 't0_ns': T0_NS + int(fail[0] * 1e9), 't1_ns': T0_NS + int(fail[1] * 1e9)},
                 {'status': 'recovery', 't0_ns': T0_NS + int(rec[0] * 1e9), 't1_ns': T0_NS + int(rec[1] * 1e9)}]
-            ann['failure_class'] = {'value': 'probe_slip'}
+            ann['failure_class'] = {'value': FAILURE_CLASS, 'provenance': 'expert', 'qa_status': 'unreviewed',
+                                    'annotator': 'synthetic'}
         (d / 'annotation.json').write_text(json.dumps(ann, indent=1))
         (d / 'task.txt').write_text(instr)
         extra = ({'collection_mode': 'freedrive', 'grip': 'wrist_handle', 'force_label_valid': True}
@@ -335,7 +338,7 @@ def verify(a):
     raw_info = json.loads((meta / 'info.json').read_text())
     ann = [json.loads(x) for x in (meta / 'annotations.jsonl').read_text().splitlines() if x.strip()] \
         if (meta / 'annotations.jsonl').exists() else []
-    check(len(ann) == len(EPISODES) and any(a.get('failure_class', {}).get('value') == 'probe_slip' for a in ann),
+    check(len(ann) == len(EPISODES) and any((a.get('failure_class') or {}).get('value') == FAILURE_CLASS for a in ann),
           'annotations.jsonl content')
     for k in ('action', 'observation.state', 'observation.images.ultrasound', 'observation.images.wrist_camera',
               'observation.images.wrist_depth', 'observation.meta.status', 'observation.meta.host_stamp_ns',
@@ -417,6 +420,8 @@ def verify(a):
                 fails.append(f'ep {e["episode_id"]} step {k}: status {item["observation.meta.status"]} != {want}')
             if item['observation.meta.status_source'] != ('' if want == 'nominal' else 'automated'):
                 fails.append(f'ep {e["episode_id"]} step {k}: status source {item["observation.meta.status_source"]!r}')
+            if item['observation.meta.failure_class'] != (FAILURE_CLASS if ep_fail else ''):
+                fails.append(f'ep {e["episode_id"]} step {k}: failure class {item["observation.meta.failure_class"]!r}')
         check(abs(float(ds[gidx]['timestamp']) - 0.0) < 1e-6 and
               abs(float(ds[gidx + n - 1]['timestamp']) - (n - 1) / truth['fps']) < 1e-4, f'{e["episode_id"]}: timestamps')
         check(ds[gidx]['instruction.text'] in [x[3] for x in EPISODES], f'{e["episode_id"]}: instruction text')
@@ -425,7 +430,7 @@ def verify(a):
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')
     check(worst['us_px'] <= 3.0, f'ultrasound frame selection + pixels (h264), max error {worst["us_px"]:.2f} grey levels')
     per_step = [f for f in fails if ' step ' in f]
-    check(not per_step, f'per-step force setpoint / expert flag / command_valid / host stamp / depth / status + source: '
+    check(not per_step, f'per-step force setpoint / expert flag / command_valid / host stamp / depth / status + source / failure class: '
                         f'{len(per_step)} mismatches {per_step[:3]}')
     # LeRobot query with history, as a training loader would use it
     q = LeRobotDataset(f'local/{out.name}', root=out, video_backend='pyav',

@@ -36,10 +36,29 @@ COMMAND_GESTURE = {'force_up': 'compress', 'force_down': 'decompress'}
 # Proposal section 6: four failure classes (task failure and safety state are never conflated).
 FAILURE_CLASSES = ['task_performance_failure', 'observation_degradation', 'target_view_loss',
                    'safety_relevant_interaction_state']
+# Staged failure modes (failure_catalog.yaml FM ids) -> failure class. PROPOSED: the catalog has no class
+# field yet and the mapping waits for the failure-mode / safety protocol (OPEN_DECISIONS); a `failure_class`
+# key on a catalog entry overrides this table. FM-04, 08-11 are never staged.
+FM_FAILURE_CLASS = {
+    'FM-01': 'observation_degradation',            # coupling loss: the image degrades in place
+    'FM-02': 'safety_relevant_interaction_state',  # lift-off: the contact state changes
+    'FM-03': 'safety_relevant_interaction_state',  # force at the band limit (never staged beyond it)
+    'FM-05': 'target_view_loss',                   # out of plane
+    'FM-06': 'target_view_loss',                   # wrong view
+    'FM-07': 'observation_degradation',            # shadowing
+    'FM-12': 'task_performance_failure',           # wrong / ambiguous instruction
+}
+FAILURE_TYPES = ('failure', 'recovery-start', 'recovery-mid')   # episode types that need a failure class
 STATUS = ['nominal', 'failure', 'recovery']
 PROVENANCE = ['expert', 'trainee', 'model_assisted', 'automated']
 QA_STATUS = ['unreviewed', 'flagged', 'accepted', 'rejected']
 QUALITY_TIERS = {5: 'expert', 4: 'expert', 3: 'intermediate', 2: 'novice', 1: 'novice'}
+
+
+def failure_class_for(failure_mode, catalog=None):
+    """Failure class of a plan FM id: the catalog entry's `failure_class` if it has one, else FM_FAILURE_CLASS."""
+    fc = ((catalog or {}).get(failure_mode) or {}).get('failure_class')
+    return fc or FM_FAILURE_CLASS.get(failure_mode)
 
 
 def label(value, provenance, qa_status='unreviewed', **extra):

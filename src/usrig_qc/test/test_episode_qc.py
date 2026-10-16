@@ -156,6 +156,19 @@ def test_auto_annotate_from_bag(tmp_path):
     assert ann['outcome']['value'] == 'success' and ann['task']['value'] == 'centre the vessel'
 
 
+def test_auto_annotate_failure_class_from_plan_failure_mode(tmp_path):
+    """P2-17: a failure / recovery episode gets its failure class from the plan's FM id (automated)."""
+    from usrig_qc.auto_annotate import auto_annotate
+    write_bag(tmp_path / 'ep_0010')
+    keymap = yaml.safe_load((REPO / 'src/usrig_bringup/config/keymap.yaml').read_text())
+    ep = dict(EP, episode_id='e10', instruction='x', type='recovery-mid', failure_mode='FM-05')
+    ann = auto_annotate(tmp_path / 'ep_0010', ep, keymap)
+    assert ann['failure_class']['value'] == 'target_view_loss' and ann['failure_class']['provenance'] == 'automated'
+    # re-run after the episode was corrected to a success: the automated class goes away
+    ann = auto_annotate(tmp_path / 'ep_0010', dict(ep, type='success', failure_mode=None), keymap)
+    assert ann['failure_class'] is None
+
+
 def test_lost_robot_samples_fail(tmp_path):
     write_bag(tmp_path / 'ep_0005', drop_robot=(800, 801, 802, 1500))
     r = run_episode_qc(tmp_path / 'ep_0005', EP, *config())
