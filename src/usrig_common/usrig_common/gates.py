@@ -23,6 +23,14 @@ def _qc_pass(ep):
     return qc.get('pass') is True
 
 
+def plan_rows_done(session_root, plan_sha):
+    """Rows of the plan with this SHA-256 that have a kept, QC-passed episode in ANY session under the root
+    (a plan spans many sessions; progress kept per session restarted it at row 0 every day)."""
+    return {int(e['plan_row']) for e in load_episodes(session_root)
+            if e.get('plan_sha256') == plan_sha and e.get('plan_row') is not None
+            and e.get('outcome') != 'discard' and _qc_pass(e)}
+
+
 def gate01(session_cfg, episodes):
     need = get_path(session_cfg, 'gate01.min_consecutive_qc_pass')
     speeds = get_path(session_cfg, 'gate01.key_speeds_chosen')

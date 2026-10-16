@@ -682,69 +682,94 @@ class EpisodeManager(Node):
         if lock.get('sha256') != sha256(plan_file):
             raise Abort('plan is not locked for this session (plan_generator lock) or changed since')
         rows = read_csv(plan_file)
+        sha = lock['sha256']
         prog_path = self.sdir / 'plan_progress.json'
         cap = float(s2['cap_s'])
-        for row in rows:
-            prog = read_json(prog_path)
-            self.plan_info = {'file': str(plan_file), 'rows': len(rows), 'current_row': row['row'],
-                              'done': sum(1 for v in prog.values() if v.get('status') == 'done'),
-                              'redo': sum(1 for v in prog.values() if v.get('status') == 'redo')}
-            if prog.get(row['row'], {}).get('status') == 'done':
-                continue
-            off = [float(row[k] or 0) for k in ('off_dx_mm', 'off_dy_mm', 'off_dz_mm',
-                                                 'off_rock_deg', 'off_tilt_deg', 'off_rot_deg')]
-            ep = self._new_episode(plan_row=int(row['row']), seed=int(row['seed']), target=row['target'],
-                                   type=row['type'], instruction=row['instruction'], start_offset=off,
-                                   operator_id=row['operator_id'], failure_mode=row['failure_mode'] or None,
-                                   staging_method=row['staging_method'] or None)
-            self.get_logger().info(f'row {row["row"]}: {row["type"]} {row["target"]} '
-                                   f'"{row["instruction"]}" operator {row["operator_id"]}')
-            try:
-                target = self._waypoint(row['target'])
-                T_start = target['T'] @ self._offset_T(off)
-                self._move(self._approach_pose(T_start), cone_T=target['T'])
-                self._begin_recording(ep)
-                self._zero_and_descend(self._taught_force(target))
-                self._start_event(ep)
-                self.event('phase', {'phase': 'search'})
-                self._drain()
-                self.call('teleop', SetBool.Request(data=True))
-                pert = None
-                if row['disturbance_kind'] not in ('', 'none'):
-                    pert = threading.Thread(target=self._perturb_at, args=(row, ep), daemon=True)
-                    pert.start()
-                t_scan = now_ns()
-                c = self.wait_cmd({'outcome', 'discard'}, timeout=lambda: self._cap_left(cap, t_scan))
-                if c is None:
-                    ep['outcome'] = 'fail' if row['type'] == 'failure' else 'discard'
-                    ep['notes'] = 'cap reached without outcome key'
-                elif c['cmd'] == 'discard':
-                    ep['outcome'] = 'discard'
-                else:
-                    ep['outcome'] = {'recovered': 'recovered', 'success': 'success', 'fail': 'fail'}[c['value']]
-                    if ep['outcome'] in ('success', 'recovered'):
-                        self.event('phase', {'phase': 'hold', 'hold_s': s2['success_hold_s']})
-                        self.call('teleop', SetBool.Request(data=False))
-                        time.sleep(float(s2['success_hold_s']))
-            except (Abort, RecorderError) as e:
-                self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
+        # progress spans sessions (gates.plan_rows_done); rows that failed QC or were discarded get a second pass
+        for pass_no in (1, 2):
+            pending = self._pending_rows(rows, sha)
+            if not pending:
+                break
+            if pass_no == 2:
+                self.get_logger().info(f'second pass: {len(pending)} row(s) to redo')
+            for row in pending:
+                self._stage2_row(row, rows, sha, prog_path, cap, s2)
+        self.plan_info = dict(self.plan_info or {}, next_row=None)
+        self.get_logger().info(f'plan complete ({len(self._pending_rows(rows, sha))} row(s) still not done)')
+
+    def _pending_rows(self, rows, sha):
+        done = gates.plan_rows_done(self.root, sha)
+        prog = read_json(self.sdir / 'plan_progress.json')
+        done |= {int(k) for k, v in prog.items() if v.get('status') == 'done'}
+        return [r for r in rows if int(r['row']) not in done]
+
+    def _stage2_row(self, row, rows, sha, prog_path, cap, s2):
+        prog = read_json(prog_path)
+        n_done = len(rows) - len(self._pending_rows(rows, sha))
+        self.plan_info = {'file': str(self.scfg['stage2']['plan_file']), 'rows': len(rows),
+                          'current_row': row['row'], 'done': n_done,
+                          'redo': sum(1 for v in prog.values() if v.get('status') == 'redo'),
+                          'next_row': es.row_summary(row)}
+        # the operator sees the row (and stages a manual failure) before anything moves
+        self.get_logger().info(f'next row {row["row"]}: {row["type"]} {row["target"]} "{row["instruction"]}"'
+                               + (f' failure {row["failure_mode"]} / {row["staging_method"]}' if row['failure_mode'] else '')
+                               + ': press N to start it')
+        self.wait_cmd({'next'})
+        self.plan_info['next_row'] = None
+        off = [float(row[k] or 0) for k in ('off_dx_mm', 'off_dy_mm', 'off_dz_mm',
+                                             'off_rock_deg', 'off_tilt_deg', 'off_rot_deg')]
+        # the session operator is who operated; the plan's assignment is kept for balance checks
+        ep = self._new_episode(plan_row=int(row['row']), seed=int(row['seed']), target=row['target'],
+                               type=row['type'], instruction=row['instruction'], start_offset=off,
+                               planned_operator_id=row['operator_id'], plan_sha256=sha,
+                               failure_mode=row['failure_mode'] or None,
+                               staging_method=row['staging_method'] or None)
+        if row['operator_id'] != self.operator_id:
+            self.get_logger().warn(f'row {row["row"]} was planned for {row["operator_id"]}; '
+                                   f'recorded as operated by {self.operator_id}')
+        try:
+            target = self._waypoint(row['target'])
+            T_start = target['T'] @ self._offset_T(off)
+            self._move(self._approach_pose(T_start), cone_T=target['T'])
+            self._begin_recording(ep)
+            self._zero_and_descend(self._taught_force(target))
+            self._start_event(ep)
+            self.event('phase', {'phase': 'search'})
+            self._drain()
+            self.call('teleop', SetBool.Request(data=True))
+            pert = None
+            if row['disturbance_kind'] not in ('', 'none'):
+                pert = threading.Thread(target=self._perturb_at, args=(row, ep), daemon=True)
+                pert.start()
+            t_scan = now_ns()
+            c = self.wait_cmd({'outcome', 'discard'}, timeout=lambda: self._cap_left(cap, t_scan))
+            if c is None:
+                ep['outcome'] = 'fail' if row['type'] == 'failure' else 'discard'
+                ep['notes'] = 'cap reached without outcome key'
+            elif c['cmd'] == 'discard':
                 ep['outcome'] = 'discard'
-                ep['notes'] = f'aborted: {e}'
-            finally:
-                if ep.get('t_bag_ready_ns'):
-                    ep = self._finish(ep)
-                else:
-                    self._close_unstarted(ep)
-                self._safe_retract()
-            ok = ep.get('outcome') != 'discard' and (ep.get('qc') or {}).get('pass') is True
-            prog = read_json(prog_path)
-            prog[row['row']] = {'status': 'done' if ok else 'redo', 'episode_id': ep['episode_id']}
-            write_json_atomic(prog_path, prog)
-            if not ok:
-                self.get_logger().warn(f'row {row["row"]} marked for redo')
-            self.get_logger().info('press N for the next row')
-            self.wait_cmd({'next'})
-        self.get_logger().info('plan complete')
+            else:
+                ep['outcome'] = {'recovered': 'recovered', 'success': 'success', 'fail': 'fail'}[c['value']]
+                if ep['outcome'] in ('success', 'recovered'):
+                    self.event('phase', {'phase': 'hold', 'hold_s': s2['success_hold_s']})
+                    self.call('teleop', SetBool.Request(data=False))
+                    time.sleep(float(s2['success_hold_s']))
+        except (Abort, RecorderError) as e:
+            self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
+            ep['outcome'] = 'discard'
+            ep['notes'] = f'aborted: {e}'
+        finally:
+            if ep.get('t_bag_ready_ns'):
+                ep = self._finish(ep)
+            else:
+                self._close_unstarted(ep)
+            self._safe_retract()
+        ok = ep.get('outcome') != 'discard' and (ep.get('qc') or {}).get('pass') is True
+        prog = read_json(prog_path)
+        prog[row['row']] = {'status': 'done' if ok else 'redo', 'episode_id': ep['episode_id']}
+        write_json_atomic(prog_path, prog)
+        if not ok:
+            self.get_logger().warn(f'row {row["row"]} marked for redo')
 
     def _perturb_at(self, row, ep):
         onset = float(row['disturbance_onset_s'] or 0)

@@ -107,6 +107,13 @@ def last_summary(ep):
             'qc_failed': qc.get('failed', [])}
 
 
+def row_summary(row):
+    """What the operator must know before a plan row starts (staging a failure needs mode and method)."""
+    return {'row': int(row['row']), 'type': row.get('type'), 'target': row.get('target'),
+            'failure_mode': row.get('failure_mode') or None, 'staging_method': row.get('staging_method') or None,
+            'disturbance_kind': row.get('disturbance_kind') or None, 'instruction': row.get('instruction')}
+
+
 def status_payload(*, session, ep, pause_log, waiting_for, finishing, last_ep, counts, plan, now_ns):
     """The /episode/status message (a dict; published as JSON)."""
     cur = None

@@ -169,6 +169,10 @@ def prompt(c: Ctx):
     if st == 'idle' and 'start_stop' in w:
         return 'Ready: probe in free air, then Start episode'
     if st == 'idle' and 'next' in w:
+        nr = (c.status.get('plan') or {}).get('next_row')
+        if nr:
+            stage = (f' · {nr["failure_mode"]} / {nr["staging_method"]}: stage it' if nr.get('failure_mode') else '')
+            return f'Next: row {nr["row"]} {nr["type"]} · {nr["target"]}{stage}, then Next row'
         return 'Episode done: check the result, then Next row'
     if st == 'recording' and 'outcome' in w and 'start_stop' in w:
         return 'Recording: scan, set an outcome if needed, then Stop episode'

@@ -104,3 +104,11 @@ def test_prompt_names_the_presession_problem():
     st = dict(IDLE_S0, session=dict(IDLE_S0['session'], presession_problem='no pre-session check for stage 0'))
     p = cm.prompt(cm.Ctx(st, robot_mode=0, control_running=False))
     assert 'pre-session' in p and 'Start' in p
+
+
+def test_prompt_shows_the_next_plan_row_before_it_starts():
+    """Failure mode and staging method were never shown: manual staging (gel removed, ...) was guesswork."""
+    st = dict(IDLE_S0, waiting_for=['next'], plan={'rows': 40, 'next_row': {
+        'row': 12, 'type': 'failure', 'target': 'IJV_long', 'failure_mode': 'FM-03', 'staging_method': 'gel_removed'}})
+    p = cm.prompt(cm.Ctx(st, robot_mode=0, control_running=True))
+    assert 'row 12' in p and 'FM-03' in p and 'gel_removed' in p

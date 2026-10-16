@@ -94,3 +94,27 @@ def test_start_refused_while_robot_state_uses_another_registration(tmp_path, mon
     assert EpisodeManager._presession_ready(fake) is True
     monkeypatch.setattr(registration_sync, 'matches', lambda node, T: (None, 'not running'))
     assert EpisodeManager._presession_ready(fake) is True          # no robot_state: the bag readiness gate stops it
+
+
+def test_plan_progress_spans_sessions(tmp_path):
+    """Plan progress was per session: each new session (new id daily) restarted the plan at row 0."""
+    import json as _j
+    import types as _t
+    from usrig_common import gates
+    root = tmp_path / 'data'
+
+    def ep(session, row, outcome='success', qc=True, sha='abc'):
+        d = root / 'sessions' / session / f'ep_{row:04d}'
+        d.mkdir(parents=True)
+        (d / 'episode.json').write_text(_j.dumps({'plan_sha256': sha, 'plan_row': row, 'outcome': outcome,
+                                                  'qc': {'pass': qc}}))
+    ep('S1', 1)
+    ep('S1', 2, qc=False)                    # failed QC: redo
+    ep('S2', 3, outcome='discard')
+    ep('S2', 4, sha='other')                 # another plan
+    assert gates.plan_rows_done(root, 'abc') == {1}
+    sdir = root / 'sessions' / 'S3'
+    sdir.mkdir(parents=True)
+    fake = _t.SimpleNamespace(root=root, sdir=sdir)
+    rows = [{'row': str(i)} for i in range(1, 6)]
+    assert [r['row'] for r in EpisodeManager._pending_rows(fake, rows, 'abc')] == ['2', '3', '4', '5']
