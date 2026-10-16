@@ -72,7 +72,10 @@ recorded share of rig time are measured from your sessions after 10 episodes, as
 ```bash
 ros2 run usrig_qc collection_plan --by 2026-12-01 --hours-per-day 2.5 --goal vascular_4vein=1.5 central_line_gen2=1.0
 ```
-(`--goal` for an intermediate milestone; without it the session.yaml targets.)
+(`--goal` for an intermediate milestone; without it the session.yaml targets.) Both count exactly the episodes
+`stage_bags` exports (one rule, `usrig_common/export_rules.py`: Stage 0 / 1 only with `--include-stage0` /
+`--include-stage1`, freedrive at any stage unless `--exclude-kinesthetic`), each as `duration_s - paused_s`;
+the dataset card counts the same time (in-episode, unpaused steps). Pass the same options as to `stage_bags`.
 
 ## 6. Episode lifecycle
 | Step | Who | What is written |

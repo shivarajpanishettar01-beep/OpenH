@@ -296,6 +296,8 @@ def run(a):
     problems = [what for ok, what in (
         ('SYNTHETIC PIPELINE-CHECK DATA' in card, 'card has the SYNTHETIC banner'),
         (f'- Episodes: {len(EPISODES)} ' in card, 'card episode count'),
+        (f'= {round(sum(WINDOW_S[1] - WINDOW_S[0] - sum(p1 - p0 for p0, p1 in PAUSES_S.get(e[0], [])) for e in EPISODES) * FPS)}'
+         ' steps at' in card, 'card hours = sum of (duration_s - paused_s), as collection_progress counts'),
         ("'freedrive': 1" in card and "'robot': 2" in card, 'card counts the collection modes'),
         ('Operators: 1; sessions: 1' in card, 'card counts operators / sessions'),
         ('prob_cali_mtx.json`: present' in card, 'card sees the calibration files'),

@@ -2,11 +2,13 @@
 
   ros2 run usrig_qc collection_plan --by 2026-12-01 --hours-per-day 2.5 [--days mon tue wed thu fri]
       [--goal vascular_4vein=1.5 central_line_gen2=1.0] [--start 2026-10-20] [--blocked 2026-11-05 ...]
-      [--yield 0.8] [--recorded-fraction 0.4] [--json plan.json]
+      [--yield 0.8] [--recorded-fraction 0.4] [--include-stage0] [--include-stage1] [--exclude-kinesthetic]
+      [--json plan.json]
 
 Remaining recorded hours per phantom = goal (default: session.yaml `phantoms.<id>.target_hours`; --goal for an
-intermediate milestone such as the 1 Dec sample) minus what collection_progress counts (real, kept, QC-passed
-episodes). Turning recorded hours into hours at the rig needs two rates:
+intermediate milestone such as the 1 Dec sample) minus what collection_progress counts (exactly what the export
+takes, export_rules.exportable, as duration minus pauses; --include-stage0 / 1, --exclude-kinesthetic as for
+stage_bags). Turning recorded hours into hours at the rig needs two rates:
   yield              kept episodes / all real episodes (discards, QC failures)
   recorded fraction  recorded episode time / time at the rig in a session (setup, approach, retract, QC)
 Both are MEASURED from your real sessions once there are at least 10 episodes; until then the defaults (or
@@ -20,31 +22,36 @@ import math
 from pathlib import Path
 
 from usrig_common import config
+from usrig_common.export_rules import NEVER, exportable, recorded_s
 from usrig_common.session import data_root, episode_files
 
-from .collection_progress import progress
+from .collection_progress import add_export_args, export_opts, progress
 
 DEFAULT_YIELD, DEFAULT_RECORDED_FRACTION = 0.8, 0.4      # assumptions until measured (printed as such)
 DAYS = ['mon', 'tue', 'wed', 'thu', 'fri', 'sat', 'sun']
 MIN_EPISODES_TO_MEASURE = 10
 
 
-def measured_rates(root):
-    """(yield, recorded_fraction, n_episodes) from real episodes, or (None, None, n) when too few."""
+def measured_rates(root, **opts):
+    """(yield, recorded_fraction, n_episodes) from real episodes, or (None, None, n) when too few. Kept and
+    recorded time follow the export rule (export_rules.exportable, recorded_s = duration - pauses); episodes of a
+    stage / type the export leaves out (opts) are not in the yield but their rig time stays in the span."""
     by_session, n_all, n_kept = {}, 0, 0
     for f in episode_files(root):
         e = json.loads(f.read_text())
-        if e.get('sim') or e.get('synthetic_pipeline_check'):
+        kept, why = exportable(e, **opts)
+        if why in NEVER:
             continue
-        n_all += 1
-        kept = e.get('outcome') != 'discard' and (e.get('qc') or {}).get('pass') is True
-        n_kept += kept
         s = by_session.setdefault(f.parent.parent.name, {'t0': [], 't1': [], 'rec': 0.0})
         if e.get('t_start_ns') is not None and e.get('t_end_ns') is not None:
             s['t0'].append(e['t_start_ns'])
             s['t1'].append(e['t_end_ns'])
             if kept:
-                s['rec'] += (e['t_end_ns'] - e['t_start_ns']) * 1e-9
+                s['rec'] += recorded_s(e)
+        if why in ('stage0', 'stage1', 'kinesthetic'):
+            continue
+        n_all += 1
+        n_kept += kept
     if n_all < MIN_EPISODES_TO_MEASURE:
         return None, None, n_all
     span = sum((max(s['t1']) - min(s['t0'])) * 1e-9 for s in by_session.values() if s['t0'])
@@ -99,17 +106,18 @@ def main(argv=None):
                     help=f'recorded / rig time (default {DEFAULT_RECORDED_FRACTION} until measured)')
     ap.add_argument('--config-dir')
     ap.add_argument('--json')
+    add_export_args(ap)
     a = ap.parse_args(argv)
     scfg = config.load_config('session', a.config_dir)
     root = data_root(scfg, False)
-    prog = progress(scfg, root)
+    prog = progress(scfg, root, **export_opts(a))
     goals = {p: float((v or {}).get('target_hours') or 0) for p, v in (scfg.get('phantoms') or {}).items()}
     for g in a.goal:
         k, v = g.split('=')
         if k not in goals:
             raise SystemExit(f'unknown phantom {k} (session.yaml phantoms: {sorted(goals)})')
         goals[k] = float(v)
-    m_yld, m_rec, n = measured_rates(root)
+    m_yld, m_rec, n = measured_rates(root, **export_opts(a))
     yld = a.yld or m_yld or DEFAULT_YIELD
     rec = a.recorded_fraction or m_rec or DEFAULT_RECORDED_FRACTION
     src_y = 'given' if a.yld else ('MEASURED' if m_yld else 'ASSUMPTION')

@@ -8,7 +8,8 @@ order). Writes a staging folder of symlinks:
 * Synthetic pipeline-check episodes (synthetic_pipeline_check: true, written by pipeline_check.py)
   are refused unless --pipeline-check, which in turn refuses every episode that is not synthetic.
 * Stage 0 episodes are excluded unless --include-stage0; Stage 1 unless --include-stage1
-  (open decision 6); discards and episodes whose QC failed are always excluded.
+  (open decision 6); discards and episodes whose QC failed are always excluded. The rule is
+  usrig_common.export_rules.exportable, shared with collection_progress / collection_plan.
 * Freedrive (kinesthetic) episodes are expert demonstrations: included whatever their stage, in the
   train split, unless --exclude-kinesthetic.
 * Every bag must have messages on every topic bag_to_lerobot reads (--converter-config) and, with
@@ -21,11 +22,14 @@ Prints the episode ranges per split and type; openh_export.py reads <out>_order.
 """
 import argparse
 import json
+import sys
 from pathlib import Path
 
 import yaml
 
 HERE = Path(__file__).resolve().parent
+sys.path.insert(0, str(HERE.parent / 'src' / 'usrig_common'))
+from usrig_common.export_rules import exportable  # noqa: E402
 
 TYPE_ORDER = ['success', 'kinesthetic', 'shakedown', 'scripted', 'contact-establishment', 'recovery-start',
               'recovery-mid', 'failure']
@@ -75,12 +79,8 @@ def collect(sessions, a, required=None, skipped=None):
             if e.get('sim'):
                 raise SystemExit(f'{f}: simulated episode (sim: true): never exported')
             check_synthetic(e, a.pipeline_check, f)
-            if e.get('outcome') == 'discard' or not (e.get('qc') or {}).get('pass'):
-                continue
-            if e.get('type') == 'kinesthetic':         # freedrive: kept whatever its stage
-                if a.exclude_kinesthetic:
-                    continue
-            elif (e.get('stage') == 0 and not a.include_stage0) or (e.get('stage') == 1 and not a.include_stage1):
+            # the same rule collection_progress / collection_plan count hours with (freedrive kept at any stage)
+            if not exportable(e, a.include_stage0, a.include_stage1, not a.exclude_kinesthetic, a.pipeline_check)[0]:
                 continue
             miss = missing_topics(f.parent, required) if required else []
             if miss:

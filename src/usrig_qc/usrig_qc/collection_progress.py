@@ -1,41 +1,51 @@
 """Progress against the Open-H V2 commitment: hours per phantom, episode lengths, and the share of
-failure / recovery episodes. Counts only real (non-sim), non-discarded, QC-passed episodes.
+failure / recovery episodes. Counts exactly the episodes the export takes (usrig_common.export_rules,
+the rule stage_bags uses: real, kept, QC-passed; Stage 0 / 1 only with --include-stage0 / 1; freedrive
+at any stage unless --exclude-kinesthetic), each as duration_s - paused_s.
 
-  ros2 run usrig_qc collection_progress [--config-dir DIR] [--json out.json]
+  ros2 run usrig_qc collection_progress [--include-stage0] [--include-stage1] [--exclude-kinesthetic]
+      [--config-dir DIR] [--json out.json]
 """
 import argparse
 import json
 from pathlib import Path
 
 from usrig_common import config
+from usrig_common.export_rules import FAILURE_RECOVERY_TYPES, REASONS, exportable, recorded_s
 from usrig_common.session import data_root, episode_files
 
-FAILURE_RECOVERY_TYPES = {'recovery-start', 'recovery-mid', 'failure'}
+
+def add_export_args(ap):
+    """The stage_bags selection options, so progress / plan count what that export will contain."""
+    ap.add_argument('--include-stage0', action='store_true')
+    ap.add_argument('--include-stage1', action='store_true')
+    ap.add_argument('--exclude-kinesthetic', action='store_true')
 
 
-def progress(scfg, root=None):
+def export_opts(a):
+    return {'include_stage0': a.include_stage0, 'include_stage1': a.include_stage1,
+            'include_kinesthetic': not a.exclude_kinesthetic}
+
+
+def progress(scfg, root=None, **opts):
+    """opts: exportable() options (stage_bags defaults when omitted)."""
     root = Path(root) if root else data_root(scfg, False)
     phantoms = scfg.get('phantoms') or {}
     tgt = scfg.get('targets') or {}
     lo, hi = (tgt.get('episode_s') or [None, None])
     rows = {p: {'hours': 0.0, 'episodes': 0, 'failure_recovery': 0, 'outside_length': 0} for p in phantoms}
-    skipped = {'sim': 0, 'discard': 0, 'qc_fail': 0, 'unknown_phantom': 0}
+    skipped = {**{k: 0 for k in REASONS}, 'unknown_phantom': 0}
     for f in episode_files(root):
         e = json.loads(f.read_text())
-        if e.get('sim'):
-            skipped['sim'] += 1
-            continue
-        if e.get('outcome') == 'discard':
-            skipped['discard'] += 1
-            continue
-        if not (e.get('qc') or {}).get('pass'):
-            skipped['qc_fail'] += 1
+        ok, why = exportable(e, **opts)
+        if not ok:
+            skipped[why] += 1
             continue
         r = rows.get(e.get('phantom_id'))
         if r is None:
             skipped['unknown_phantom'] += 1
             continue
-        d = float(e.get('duration_s') or 0)
+        d = recorded_s(e)
         r['hours'] += d / 3600
         r['episodes'] += 1
         r['failure_recovery'] += e.get('type') in FAILURE_RECOVERY_TYPES
@@ -55,8 +65,9 @@ def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('--config-dir')
     ap.add_argument('--json')
+    add_export_args(ap)
     a, _ = ap.parse_known_args()
-    p = progress(config.load_config('session', a.config_dir))
+    p = progress(config.load_config('session', a.config_dir), **export_opts(a))
     for name, r in p['phantoms'].items():
         print(f'{name:20s} {r["hours"]:6.2f} / {r["target_hours"]} h  {r["episodes"]:5d} episodes  '
               f'failure/recovery {r["failure_recovery"]}  stage-2 length outside range {r["outside_length"]}')

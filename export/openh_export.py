@@ -373,6 +373,7 @@ def main():
         provenance.append({'episode_index': ep_index, 'split': o['split'],
                            **{k: epj.get(k) for k in PROVENANCE_KEYS},
                            'session_sim': bool(sess.get('sim')), 'n_steps': n,
+                           'n_steps_episode': int((in_episode & ~paused).sum()),      # what the card counts as hours
                            'failure_class': fc or None, 'failure_class_source': fc_src or None,
                            'time_offsets_used_s': offsets,
                            'calibration_sources': {k: v[1] for k, v in calib[sid].items()}})

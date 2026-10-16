@@ -156,6 +156,38 @@ def test_step_flags_mark_pre_roll_pause_and_last_action():
     assert F.step_flags([0, S], 0, 9 * S, [])[2].tolist() == [True, False]     # last step: zero action, invalid
 
 
+def test_hours_counted_the_same_by_progress_stage_bags_and_card(tmp_path):
+    """P2-20: collection_progress (and so collection_plan) counts exactly the episodes stage_bags exports, as
+    duration_s - paused_s; the card counts in-episode, unpaused steps, not the whole bag."""
+    import argparse
+    import json
+    import stage_bags as SB
+    from usrig_qc.collection_progress import progress
+    w = {'duration_s': 25.0, 'paused_s': 0.0, 'phantom_id': 'ph'}
+    sess = _staged_session(tmp_path / 'data' / 'sessions', [
+        ('ep_0001', 'scripted', 0, [], w), ('ep_0002', 'scripted', 1, [], w),
+        ('ep_0003', 'success', 2, [], dict(w, paused_s=5.0)), ('ep_0004', 'kinesthetic', 0, [], dict(w, duration_s=20.0)),
+        ('ep_0005', 'success', 2, [], dict(w, outcome='discard')), ('ep_0006', 'failure', 2, [], dict(w, qc={'pass': False}))])
+    ns = argparse.Namespace(include_stage0=False, include_stage1=False, exclude_kinesthetic=False, pipeline_check=False)
+    staged = sorted(e['episode_id'] for e in SB.collect([sess], ns))
+    p = progress({'phantoms': {'ph': {'target_hours': 6}}, 'targets': {}}, tmp_path / 'data')
+    assert staged == ['ep_0003', 'ep_0004'] and p['episodes'] == len(staged)
+    assert abs(p['total_hours'] * 3600 - (20.0 + 20.0)) < 1e-6
+    import pyarrow as pa
+    import pyarrow.parquet as pq
+    import release_card as RC
+    ds = tmp_path / 'ds'
+    (ds / 'meta').mkdir(parents=True)
+    (ds / 'data' / 'chunk-000').mkdir(parents=True)
+    (ds / 'meta' / 'info.json').write_text(json.dumps({'fps': 10, 'features': {}}))
+    (ds / 'meta' / 'provenance.jsonl').write_text(json.dumps({'phantom_id': 'ph', 'n_steps': 10, 'n_steps_episode': 6}))
+    pq.write_table(pa.table({'episode_index': [0] * 10, 'observation.meta.in_episode': [False] * 2 + [True] * 8,
+                             'observation.meta.paused': [False] * 4 + [True] * 2 + [False] * 4}),
+                   ds / 'data' / 'chunk-000' / 'episode_000000.parquet')
+    s = RC.summarize(ds, {})
+    assert abs(s['hours'] * 3600 - 0.6) < 1e-9 and abs(s['hours_phantom']['ph'] * 3600 - 0.6) < 1e-9
+
+
 def test_png16_is_lossless():
     d = np.random.default_rng(0).integers(0, 65535, (48, 64), dtype=np.uint16)
     assert np.array_equal(F.unpng16(F.png16(d)), d)
