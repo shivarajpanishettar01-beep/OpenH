@@ -85,18 +85,20 @@ class Teleop(Motion):
         super().__init__()
         self.ctl = ctl
         self.force_on = in_contact
+        self.input_lost = False        # deadman fired: the zero command is not the operator's action
 
     @property
     def source(self):
-        return ST.SOURCE_NONE if self.ctl.held() else ST.SOURCE_TELEOP
+        return ST.SOURCE_NONE if self.ctl.held() or self.input_lost else ST.SOURCE_TELEOP
 
     @property
     def expert(self):
-        return not self.ctl.held()
+        return not (self.ctl.held() or self.input_lost)
 
     def step(self, ctx):
         tw, t_ns = self.ctl.latest_twist()
-        if tw is None or (now_ns() - t_ns) * 1e-9 > self.ctl.lim.deadman_s:
+        self.input_lost = tw is None or (now_ns() - t_ns) * 1e-9 > self.ctl.lim.deadman_s
+        if self.input_lost:
             ctx['flags'] |= safety.FLAG_DEADMAN
             return np.zeros(3), np.zeros(3)
         if self.ctl.held():
@@ -471,6 +473,11 @@ class RobotControlNode(Node):
             with self.status.lock:
                 self.status.mode = ST.MODE_FAULT
                 self.status.safety_flags |= flags
+                # the stop is nobody's action: without this the last motion's TELEOP / expert labels
+                # stayed on every sample of the FAULT
+                self.status.action_source = ST.SOURCE_NONE
+                self.status.action_is_expert = False
+                self.status.force_setpoint_n = 0.0
             m, self.motion = self.motion, Idle()
         try:
             self.backend.stop()
@@ -592,6 +599,7 @@ class RobotControlNode(Node):
             # keep /robot/control_status alive: robot_state_cpp would otherwise relabel the samples
             # (IDLE / freedrive) while robot_control still owns the robot
             self._publish_status()
+            self._publish_cmd(now_ns())
             return
         T = geometry.pose_from_ur(s.tcp_pose)
         hard = safety.hard_violations(self.lim, T, s.wrench, s.tcp_speed)
@@ -603,6 +611,7 @@ class RobotControlNode(Node):
         if self.status.mode == ST.MODE_FAULT:
             self.v_prev, self.w_prev = np.zeros(3), np.zeros(3)
             self._publish_status(s.stamp_ns)
+            self._publish_cmd(s.stamp_ns)          # nothing executed: zero, not a gap (a gap holds the last twist)
             return
 
         with self.motion_lock:
@@ -610,6 +619,7 @@ class RobotControlNode(Node):
         if self._check_contact(m, T, s.wrench, s.stamp_ns):
             self.v_prev, self.w_prev = np.zeros(3), np.zeros(3)
             self._publish_status(s.stamp_ns)
+            self._publish_cmd(s.stamp_ns)
             return
         ctx = {'T': T, 'wrench': s.wrench, 'tcp_speed': s.tcp_speed, 'dt': dt,
                'stamp_ns': s.stamp_ns, 'flags': 0}
@@ -631,10 +641,13 @@ class RobotControlNode(Node):
             self.status.force_setpoint_n = self.force_setpoint if m.force_on else 0.0
 
         self._publish_status(s.stamp_ns)
+        self._publish_cmd(s.stamp_ns, *geometry.twist_base_to_probe(T, v, w))
+
+    def _publish_cmd(self, stamp_ns, vp=(0.0, 0.0, 0.0), wp=(0.0, 0.0, 0.0)):
+        """/robot/cmd_executed (probe frame) on every tick, zero when nothing is executed."""
         msg = TwistStamped()
-        msg.header.stamp = stamp_from_ns(s.stamp_ns)
+        msg.header.stamp = stamp_from_ns(stamp_ns)
         msg.header.frame_id = 'probe'
-        vp, wp = geometry.twist_base_to_probe(T, v, w)
         (msg.twist.linear.x, msg.twist.linear.y, msg.twist.linear.z) = map(float, vp)
         (msg.twist.angular.x, msg.twist.angular.y, msg.twist.angular.z) = map(float, wp)
         self.pub_cmd.publish(msg)

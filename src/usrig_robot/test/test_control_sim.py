@@ -762,3 +762,52 @@ def test_move_clears_previous_local_tilt_cone(sim):
     assert res.success, res.message
     assert node.lim.local_axis is None
     node.destroy_node()
+
+
+def _teleop_on(node):
+    from std_srvs.srv import SetBool
+    assert node._srv_teleop(SetBool.Request(data=True), SetBool.Response()).success
+    drive(node, 0.1, v=(0.002, 0, 0))
+    snap = node.status.snapshot()
+    assert snap[3] == rc.ST.SOURCE_TELEOP and snap[4] is True
+
+
+def test_fault_samples_are_not_labelled_expert(sim):
+    """A FAULT used to keep the last motion's labels (TELEOP / expert) for every sample of the stop."""
+    node, robot = sim()
+    _teleop_on(node)
+    robot.extra_force = np.array([0.0, 0.0, 25.0])   # above max_contact_force_n -> FAULT
+    drive(node, 0.1)
+    fsp, mode, flags, src, expert = node.status.snapshot()
+    assert mode == rc.ST.MODE_FAULT
+    assert src == rc.ST.SOURCE_NONE and expert is False and fsp == 0.0
+    node.destroy_node()
+
+
+def test_cmd_executed_keeps_coming_during_fault(sim):
+    """No /robot/cmd_executed during a FAULT made a converter hold the last teleop velocity as the action."""
+    node, robot = sim()
+    _teleop_on(node)
+    sent = []
+    orig = node.pub_cmd.publish
+    node.pub_cmd.publish = lambda m: (sent.append(m), orig(m))
+    robot.extra_force = np.array([0.0, 0.0, 25.0])
+    time.sleep(0.05)
+    assert node.status.mode == rc.ST.MODE_FAULT
+    n0 = len(sent)
+    time.sleep(0.2)
+    during = sent[n0:]
+    assert len(during) >= 10
+    assert all(m.twist.linear.x == m.twist.linear.y == m.twist.linear.z == 0.0 for m in during)
+    node.destroy_node()
+
+
+def test_deadman_zero_is_not_an_expert_action(sim):
+    """Lost teleop input (no twist within the deadman time): the zero command is not the operator's action."""
+    node, robot = sim()
+    _teleop_on(node)
+    time.sleep(0.4)                                    # deadman_timeout_s = 0.2 in this RIG
+    fsp, mode, flags, src, expert = node.status.snapshot()
+    assert flags & rc.safety.FLAG_DEADMAN
+    assert src == rc.ST.SOURCE_NONE and expert is False
+    node.destroy_node()
