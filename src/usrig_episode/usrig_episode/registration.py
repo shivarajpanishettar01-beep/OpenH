@@ -54,7 +54,11 @@ def _register(node, a):
     import time as _time
     _time.sleep(0.5)
     pub.publish(String(data=_json.dumps({'cmd': 'reload_registration'})))
-    print('asked robot_control to reload the registration (phantom box active)')
+    print('asked robot_control to reload the registration (phantom box active) and rig_static_tf to republish it')
+    # robot_state computes the recorded tcp_phantom from its T_base_phantom parameter: set it on the running node
+    from usrig_common import registration_sync
+    ok, msg = registration_sync.push(node, T)
+    print(f'robot_state tcp_phantom: {"updated" if ok else "NOT updated"} ({msg})')
 
 
 def main():

@@ -187,6 +187,26 @@ public:
       throw std::runtime_error("robot_ip parameter is empty (rig.yaml robot.ip / ursim_ip)");
     }
     set_phantom(T);
+    // register_phantom sets this parameter on the running node (a registration made after the launch used to be
+    // ignored: tcp_phantom stayed the base pose until a restart, while robot_control already used the new box)
+    param_cb_ = add_on_set_parameters_callback([this](const std::vector<rclcpp::Parameter>& ps) {
+      rcl_interfaces::msg::SetParametersResult r;
+      r.successful = true;
+      for (const auto& prm : ps) {
+        if (prm.get_name() != "T_base_phantom") {
+          continue;
+        }
+        const auto v = prm.as_double_array();
+        if (!v.empty() && v.size() != 16) {
+          r.successful = false;
+          r.reason = "T_base_phantom must have 16 values (row-major 4x4) or be empty";
+          return r;
+        }
+        set_phantom(v);
+        RCLCPP_INFO(get_logger(), "phantom registration %s", v.empty() ? "cleared" : "updated");
+      }
+      return r;
+    });
 
     auto qos = rclcpp::QoS(rclcpp::KeepLast(500)).reliable();  // 1 s at 500 Hz
     pub_state_ = create_publisher<RobotState>("/robot/state", qos);
@@ -249,18 +269,24 @@ private:
   {
     if (T.size() == 16) {
       // store the inverse of T_base_phantom (rigid): R^T, -R^T t
+      Mat4 inv{};
       const double R[9] = {T[0], T[1], T[2], T[4], T[5], T[6], T[8], T[9], T[10]};
       const double t[3] = {T[3], T[7], T[11]};
       for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
-          inv_phantom_[i * 4 + j] = R[j * 3 + i];
+          inv[i * 4 + j] = R[j * 3 + i];
         }
-        inv_phantom_[i * 4 + 3] = -(R[0 * 3 + i] * t[0] + R[1 * 3 + i] * t[1] + R[2 * 3 + i] * t[2]);
+        inv[i * 4 + 3] = -(R[0 * 3 + i] * t[0] + R[1 * 3 + i] * t[1] + R[2 * 3 + i] * t[2]);
       }
-      inv_phantom_[12] = inv_phantom_[13] = inv_phantom_[14] = 0.0;
-      inv_phantom_[15] = 1.0;
+      inv[12] = inv[13] = inv[14] = 0.0;
+      inv[15] = 1.0;
+      std::lock_guard<std::mutex> lk(phantom_mtx_);   // the reader thread uses it every sample
+      inv_phantom_ = inv;
       have_phantom_ = true;
-    } else if (!T.empty()) {
+    } else if (T.empty()) {
+      std::lock_guard<std::mutex> lk(phantom_mtx_);
+      have_phantom_ = false;
+    } else {
       throw std::runtime_error("T_base_phantom must have 16 values");
     }
   }
@@ -411,17 +437,24 @@ private:
       m->wrench[i] = force[i];
     }
     fill_pose(m->tcp_base, xyz, quat);
-    if (have_phantom_) {
+    Mat4 inv_phantom{};
+    bool have_phantom = false;
+    {
+      std::lock_guard<std::mutex> lk(phantom_mtx_);
+      inv_phantom = inv_phantom_;
+      have_phantom = have_phantom_;
+    }
+    if (have_phantom) {
       const auto R = quat_to_rot(quat);
       std::array<double, 9> Rp{};
       double p[3];
       for (int i = 0; i < 3; ++i) {
         for (int j = 0; j < 3; ++j) {
-          Rp[i * 3 + j] = inv_phantom_[i * 4 + 0] * R[0 * 3 + j] + inv_phantom_[i * 4 + 1] * R[1 * 3 + j] +
-                          inv_phantom_[i * 4 + 2] * R[2 * 3 + j];
+          Rp[i * 3 + j] = inv_phantom[i * 4 + 0] * R[0 * 3 + j] + inv_phantom[i * 4 + 1] * R[1 * 3 + j] +
+                          inv_phantom[i * 4 + 2] * R[2 * 3 + j];
         }
-        p[i] = inv_phantom_[i * 4 + 0] * xyz[0] + inv_phantom_[i * 4 + 1] * xyz[1] +
-               inv_phantom_[i * 4 + 2] * xyz[2] + inv_phantom_[i * 4 + 3];
+        p[i] = inv_phantom[i * 4 + 0] * xyz[0] + inv_phantom[i * 4 + 1] * xyz[1] +
+               inv_phantom[i * 4 + 2] * xyz[2] + inv_phantom[i * 4 + 3];
       }
       fill_pose(m->tcp_phantom, p, rot_to_quat(Rp));
     } else {
@@ -538,6 +571,8 @@ public:
   std::atomic<bool> have_status_{false};
   Mat4 inv_phantom_{};
   bool have_phantom_ = false;
+  std::mutex phantom_mtx_;
+  rclcpp::node_interfaces::OnSetParametersCallbackHandle::SharedPtr param_cb_;
   long samples_ = 0, repeated_ = 0, gaps_ = 0, lost_ = 0;
   std::atomic<long> read_failures_{0};
   std::atomic<long> field_failures_{0};   // samples with an RTDE output missing (never published)

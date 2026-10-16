@@ -36,6 +36,21 @@ class RigStaticTf(Node):
         self.declare_parameter('base_frame', 'base')
         self.declare_parameter('flange_frame', 'flange')
         self.declare_parameter('camera_frame', 'wrist_camera')
+        self.br = StaticTransformBroadcaster(self)
+        self.publish()
+        # register_phantom announces a new registration: publish it now (it was read only at start-up)
+        from std_msgs.msg import String
+        self.create_subscription(String, '/operator/command', self._on_cmd, 10)
+
+    def _on_cmd(self, msg):
+        import json
+        try:
+            if json.loads(msg.data).get('cmd') == 'reload_registration':
+                self.publish()
+        except (ValueError, AttributeError):
+            pass
+
+    def publish(self):
         rig = config.load_config('rig', self.get_parameter('config_dir').value or None)
         sj = self.get_parameter('session_json').value
         sess = read_json(sj) if sj else {}
@@ -46,9 +61,9 @@ class RigStaticTf(Node):
         cam = sess.get('wrist_cam_cali_mtx') or config.get_path(rig, 'calibration.wrist_cam_cali_mtx')
         if cam is not None:
             tfs.append(_tf(self.get_parameter('flange_frame').value, self.get_parameter('camera_frame').value, cam))
-        self.br = StaticTransformBroadcaster(self)
         if tfs:
             self.br.sendTransform(tfs)
+        self.tfs = tfs
         self.get_logger().info(f'published {len(tfs)} static transform(s)')
 
 

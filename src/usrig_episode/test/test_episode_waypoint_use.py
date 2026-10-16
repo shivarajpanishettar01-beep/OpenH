@@ -80,3 +80,17 @@ def test_missing_presession_check_blocks_start_instead_of_killing_the_manager(tm
     fake2.sim = True
     (tmp_path / 'session.json').write_text('{}')
     assert EpisodeManager._presession_ready(fake2) is True                    # simulation: no check needed
+
+
+def test_start_refused_while_robot_state_uses_another_registration(tmp_path, monkeypatch):
+    """A registration made after the launch left /robot/state.tcp_phantom = the base pose until a restart."""
+    from usrig_common import registration_sync
+    T = [[1, 0, 0, 0.5], [0, 1, 0, 0], [0, 0, 1, 0], [0, 0, 0, 1]]
+    fake = _fake_manager(tmp_path, {'phantom_registration': {'T_base_phantom': T}})
+    fake.sim = True
+    monkeypatch.setattr(registration_sync, 'matches', lambda node, T: (False, 'robot_state has no phantom registration'))
+    assert EpisodeManager._presession_ready(fake) is False and 'register_phantom' in fake.presession_problem
+    monkeypatch.setattr(registration_sync, 'matches', lambda node, T: (True, 'ok'))
+    assert EpisodeManager._presession_ready(fake) is True
+    monkeypatch.setattr(registration_sync, 'matches', lambda node, T: (None, 'not running'))
+    assert EpisodeManager._presession_ready(fake) is True          # no robot_state: the bag readiness gate stops it

@@ -71,13 +71,18 @@ class RobotStateNode(Node):
         self.freedrive_input = None if fd is None else int(fd)
         self._nocmd_n = 0
 
-        # Phantom registration (identity until P5 writes it into session.json).
+        # Phantom registration (identity until register_phantom writes it into session.json). Also a live
+        # parameter, like robot_state_cpp: register_phantom sets it on the running node.
         self.T_phantom_base = np.eye(4)
+        from rclpy.parameter import Parameter
+        self.declare_parameter('T_base_phantom', Parameter.Type.DOUBLE_ARRAY)
+        self.add_on_set_parameters_callback(self._on_params)
         sj = self.get_parameter('session_json').value
         if sj:
             reg = read_json(sj).get('phantom_registration', {})
             if 'T_base_phantom' in reg:
-                self.T_phantom_base = geometry.inv(np.array(reg['T_base_phantom']))
+                self.set_parameters([Parameter('T_base_phantom', Parameter.Type.DOUBLE_ARRAY,
+                                               [float(x) for x in np.asarray(reg['T_base_phantom'], float).reshape(16)])])
 
         # Depth 500 = 1 s at 500 Hz: a briefly busy subscriber (the bag recorder) does not lose samples.
         qos = QoSProfile(depth=500, reliability=ReliabilityPolicy.RELIABLE,
@@ -183,6 +188,17 @@ class RobotStateNode(Node):
     def get_latest(self):
         with self.latest_lock:
             return self.latest
+
+    def _on_params(self, params):
+        from rcl_interfaces.msg import SetParametersResult
+        for p in params:
+            if p.name != 'T_base_phantom':
+                continue
+            v = list(p.value or [])
+            if v and len(v) != 16:
+                return SetParametersResult(successful=False, reason='T_base_phantom needs 16 values or none')
+            self.T_phantom_base = geometry.inv(np.array(v, float).reshape(4, 4)) if v else np.eye(4)
+        return SetParametersResult(successful=True)
 
     def _log_stats(self):
         st = self.reader.take_stats()

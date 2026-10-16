@@ -163,11 +163,17 @@ class EpisodeManager(Node):
     def _presession_ready(self):
         """A passing, recent pre-session check for this stage in session.json (re-read every time: the operator
         runs the check while this node is up). Sets presession_problem for the console."""
-        if self.sim:
-            self.presession_problem = None
-            return True
-        ok, why = gates.presession_ok(read_json(self.sdir / 'session.json'), self.stage, self.control, now_ns(),
-                                      self.scfg['session'].get('presession_max_age_h', 12), self.camera_recorded)
+        sess = read_json(self.sdir / 'session.json')
+        ok, why = (True, None) if self.sim else gates.presession_ok(
+            sess, self.stage, self.control, now_ns(), self.scfg['session'].get('presession_max_age_h', 12),
+            self.camera_recorded)
+        T = (sess.get('phantom_registration') or {}).get('T_base_phantom')
+        if ok and T is not None:
+            # the recorded tcp_phantom comes from robot_state's own copy of the registration
+            from usrig_common import registration_sync
+            same, msg = registration_sync.matches(self, T)
+            if same is False:
+                ok, why = False, f'{msg}: run register_phantom again (it updates robot_state) or restart the launch'
         self.presession_problem = None if ok else why
         return ok
 
