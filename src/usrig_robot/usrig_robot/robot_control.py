@@ -795,6 +795,11 @@ class RobotControlNode(Node):
         if req.kind not in ('translate', 'rotate', 'lift') or req.duration_s <= 0:
             res.success, res.message = False, 'kind must be translate|rotate|lift, duration > 0'
             return res
+        if not self.in_contact or not isinstance(self.motion, Teleop):
+            # a perturbation runs in force mode along the probe axis: in free air nothing pushes back and
+            # the probe is driven down (the box clip cannot limit a force-controlled axis)
+            res.success, res.message = False, 'perturbation needs the probe in contact (descend first)'
+            return res
         onset = now_ns()
         res.onset_ns = onset
         self._event('perturbation', {'kind': req.kind, 'delta': list(req.delta),

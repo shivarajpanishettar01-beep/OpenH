@@ -858,3 +858,26 @@ def test_refused_command_faults(sim):
     drive(node, 0.1, v=(0.002, 0, 0))
     assert node.status.mode == rc.ST.MODE_FAULT
     node.destroy_node()
+
+
+def test_perturbation_refused_in_free_air(sim):
+    """Perturbations run in force mode; in free air that drove the probe down along z (box clip can't limit z)."""
+    from usrig_interfaces.srv import InjectPerturbation
+    node, robot = sim()
+    z0 = robot.T[2, 3]
+    req = InjectPerturbation.Request(kind='translate', delta=[0.002, 0.0, 0.0], duration_s=0.3)
+    res = node._srv_perturb(req, InjectPerturbation.Response())
+    assert not res.success and 'contact' in res.message
+    assert abs(robot.T[2, 3] - z0) < 1e-4
+    assert not [k for k, v in node.events if k == 'perturbation']        # nothing recorded as a disturbance
+    node.destroy_node()
+
+
+def test_perturbation_runs_in_contact(sim):
+    from usrig_interfaces.srv import DescendToContact, InjectPerturbation
+    node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+    assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+    req = InjectPerturbation.Request(kind='translate', delta=[0.002, 0.0, 0.0], duration_s=0.3)
+    res = node._srv_perturb(req, InjectPerturbation.Response())
+    assert res.success, res.message
+    node.destroy_node()
