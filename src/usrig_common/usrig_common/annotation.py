@@ -6,9 +6,15 @@ every label. Automatic labels (provenance "automated") are derived from what the
   * phase segments from /episode/events phase events,
   * gesture segments from teleop key events on /operator/command,
   * g_t (nominal / failure / recovery) from failure-onset and recovery events.
-Expert / trainee / model-assisted labels are added later in <ep>/annotation.json.
+Files per episode: <ep>/annotation.json holds the automated layers (auto_annotate rewrites it) and
+any human entries written before per-annotator files existed. Every expert / trainee /
+model-assisted annotator writes only <ep>/annotation.<annotator>.json (own segments, narration,
+episode labels, and QA decisions on other entries). load_merged() combines them for the annotator,
+the export and label_agreement, so concurrent raters never overwrite each other.
 """
 import json
+import re
+from pathlib import Path
 
 SCHEMA_VERSION = 1
 
@@ -236,19 +242,138 @@ def validate(ann):
     return True
 
 
+def public(ann):
+    """Without the merge bookkeeping (keys starting with '_')."""
+    if isinstance(ann, dict):
+        return {k: public(v) for k, v in ann.items() if not str(k).startswith('_')}
+    if isinstance(ann, list):
+        return [public(x) for x in ann]
+    return ann
+
+
 def dumps(ann):
-    return json.dumps(ann, indent=2)
+    return json.dumps(public(ann), indent=2)
 
 
 LAYERS = {'phases': ('phase', PHASES), 'gestures': ('gesture', GESTURES), 'status_intervals': ('status', STATUS)}
+EPISODE_LABELS = ('task', 'failure_class', 'motion_quality', 'intent', 'outcome')
+BASE_FILE = 'annotation.json'
+_ANNOTATOR_ID = re.compile(r'^[A-Za-z0-9_-]+$')
+# same-role QA disagreement on one entry: the more conservative decision wins
+QA_CONFLICT = ['rejected', 'flagged', 'accepted', 'unreviewed']
+
+
+def annotator_file(ep_dir, annotator_id):
+    """<ep>/annotation.<annotator>.json: the only file an annotator writes."""
+    if not annotator_id or not _ANNOTATOR_ID.match(str(annotator_id)):
+        raise ValueError(f'annotator id {annotator_id!r}: letters, digits, _ and - only')
+    return Path(ep_dir) / f'annotation.{annotator_id}.json'
+
+
+def annotator_files(ep_dir):
+    return sorted(p for p in Path(ep_dir).glob('annotation.*.json')
+                  if _ANNOTATOR_ID.match(p.name[len('annotation.'):-len('.json')]))
+
+
+def entry_ref(layer, e):
+    """What identifies an entry across files and auto_annotate re-runs (its value, span and author)."""
+    if layer == 'narration':
+        return {'text': e.get('text'), 't_ns': e.get('t_ns'), 'annotator': e.get('annotator')}
+    return {'value': e.get(LAYERS[layer][0]), 't0_ns': e.get('t0_ns'), 't1_ns': e.get('t1_ns'),
+            'provenance': e.get('provenance') or 'automated', 'annotator': e.get('annotator')}
+
+
+def _reviews(e):
+    """{annotator: {'qa_status', 'role'}}; a QA status set in place by an older annotator (qa_by) counts too."""
+    rv = dict(e.get('qa_reviews') or {})
+    if not rv and e.get('qa_by') and e.get('qa_status', 'unreviewed') != 'unreviewed':
+        rv[e['qa_by']] = {'qa_status': e['qa_status'], 'role': e.get('qa_role')}
+    return rv
+
+
+def resolve_qa(e):
+    """QA status of an entry from every review: the highest-priority reviewer role decides; within that role
+    rejected > flagged > accepted. No review: the entry's own status."""
+    rv = e.get('qa_reviews') or {}
+    if not rv:
+        return e.get('qa_status', 'unreviewed')
+    top = max(PRIORITY.get(r.get('role'), 0) for r in rv.values())
+    return min((r['qa_status'] for r in rv.values() if PRIORITY.get(r.get('role'), 0) == top), key=QA_CONFLICT.index)
+
+
+def _read(p):
+    return json.loads(Path(p).read_text())
+
+
+def load_merged(ep_dir, only=None, episode=None):
+    """annotation.json + every annotation.<annotator>.json, as one annotation dict (what the annotator shows, the
+    export resolves and label_agreement rates). only = one annotator id: the blind view (automated entries and that
+    annotator's own work; nothing from other raters). Episode labels resolve by provenance priority (expert >
+    model_assisted > trainee > automated), then the latest save. `ratings` keeps every annotator's own value."""
+    ep_dir = Path(ep_dir)
+    bp = ep_dir / BASE_FILE
+    ann = _read(bp) if bp.exists() else new_annotation(episode or {})
+    if not ann.get('episode_id'):
+        ann['episode_id'] = (episode or {}).get('episode_id')
+
+    def visible(e):
+        return only is None or (e.get('provenance') or 'automated') == 'automated' or e.get('annotator') == only
+    for layer in (*LAYERS, 'narration'):
+        ann[layer] = [dict(e, _origin='base') for e in ann.get(layer) or [] if visible(e)]
+        if only is not None:
+            for e in ann[layer]:
+                e['qa_reviews'] = {k: v for k, v in (e.get('qa_reviews') or {}).items() if k == only}
+                if e.get('qa_by') not in (None, only):
+                    e['qa_status'], e['qa_by'] = 'unreviewed', None
+    ratings = {name: {k: v for k, v in r.items() if only is None or k == only}
+               for name, r in (ann.get('ratings') or {}).items()}
+    cands = {name: [(ann[name], 0)] if ann.get(name) and visible(ann[name]) else [] for name in EPISODE_LABELS}
+    files = {}
+    for p in annotator_files(ep_dir):
+        doc = _read(p)
+        who = doc.get('annotator')
+        if who and (only is None or who == only):
+            files[who] = doc
+    for who, doc in files.items():
+        saved = max((h.get('saved_ns', 0) for h in doc.get('history') or []), default=0)
+        for layer in (*LAYERS, 'narration'):
+            ann[layer] += [dict(e, _origin=who) for e in doc.get(layer) or []]
+        for name, lab in (doc.get('labels') or {}).items():
+            ratings.setdefault(name, {})[who] = None if not lab else {'value': lab['value'], 'role': doc.get('role')}
+            if lab:
+                cands.setdefault(name, []).append((lab, saved))
+    for layer in LAYERS:
+        ann[layer].sort(key=lambda s: s['t0_ns'])
+    ann['narration'].sort(key=lambda n: n['t_ns'])
+    unmatched = []
+    for who, doc in files.items():
+        for q in doc.get('qa') or []:
+            e = next((x for x in ann.get(q.get('layer'), []) if entry_ref(q['layer'], x) == q.get('ref')), None)
+            if e is None:                    # the entry changed (e.g. auto_annotate re-run on a new bag)
+                unmatched.append(dict(q, annotator=who))
+            else:
+                e.setdefault('qa_reviews', {})[who] = {'qa_status': q['qa_status'], 'role': doc.get('role')}
+    for layer in LAYERS:
+        for e in ann[layer]:
+            e['qa_reviews'] = _reviews(e)
+            e['qa_status'] = resolve_qa(e)
+    for name, cs in cands.items():
+        ann[name] = max(cs, key=lambda c: (PRIORITY.get(c[0].get('provenance'), 0), c[1]))[0] if cs else None
+    ann['ratings'] = ratings
+    ann['annotators'] = sorted(files)
+    if unmatched:
+        ann['qa_unmatched'] = unmatched
+    ann['_files'] = files
+    return ann
 
 
 class AnnotationEditor:
-    """Edits one annotation.json on behalf of one annotator (role = provenance).
+    """Edits on behalf of one annotator (role = provenance) on a load_merged() view.
 
-    Segments are [t0_ns, t1_ns) with absolute stamps. Automated entries are never modified by
-    an annotator: corrections are added as new entries with the annotator's provenance, and the
-    automated entry can be marked rejected (QA). Every save appends to `history`.
+    Segments are [t0_ns, t1_ns) with absolute stamps. Entries of others (automated or other raters) are never
+    modified or deleted: corrections are new entries with the annotator's provenance, and any entry can get this
+    annotator's QA decision (accepted / flagged / rejected). save() writes only this annotator's file
+    (annotator_file()): own entries, own QA decisions, own episode labels, and its history.
     """
 
     def __init__(self, ann, annotator_id, role):
@@ -262,6 +387,8 @@ class AnnotationEditor:
             ann.setdefault(layer, [])
         ann.setdefault('narration', [])
         ann.setdefault('history', [])
+        self.prev = (ann.get('_files') or {}).get(annotator_id) or {}
+        self.own_labels = dict(self.prev.get('labels') or {})
         self.dirty = False
 
     def add_segment(self, layer, value, t0_ns, t1_ns):
@@ -271,7 +398,7 @@ class AnnotationEditor:
         if t1_ns is not None and t1_ns <= t0_ns:
             raise ValueError('segment end must be after its start')
         seg = {key: value, 't0_ns': int(t0_ns), 't1_ns': None if t1_ns is None else int(t1_ns),
-               'provenance': self.role, 'qa_status': 'unreviewed', 'annotator': self.who}
+               'provenance': self.role, 'qa_status': 'unreviewed', 'annotator': self.who, '_origin': self.who}
         self.ann[layer].append(seg)
         self.ann[layer].sort(key=lambda s: s['t0_ns'])
         self.dirty = True
@@ -281,6 +408,9 @@ class AnnotationEditor:
         seg = self.ann[layer][index]
         if seg.get('provenance') == 'automated':
             raise ValueError('automated entries are not deleted: set their QA status to rejected')
+        if seg.get('_origin', self.who) != self.who:
+            raise ValueError(f'entry of {seg.get("annotator") or "annotation.json"} (not yours): '
+                             'set its QA status to rejected instead')
         del self.ann[layer][index]
         self.dirty = True
 
@@ -288,40 +418,66 @@ class AnnotationEditor:
         if qa_status not in QA_STATUS:
             raise ValueError(f'qa_status must be one of {QA_STATUS}')
         entry = self.ann[layer][index]
-        entry['qa_status'] = qa_status
+        entry['qa_reviews'] = _reviews(entry)
+        entry['qa_reviews'][self.who] = {'qa_status': qa_status, 'role': self.role}
+        entry['qa_status'] = resolve_qa(entry)
         entry['qa_by'] = self.who
         self.dirty = True
+
+    def own_value(self, name):
+        lab = self.own_labels.get(name)
+        return None if not lab else lab.get('value')
 
     def set_label(self, name, value):
         """Episode-level label: failure_class, motion_quality, intent, outcome, task."""
         if value in (None, ''):
-            self.ann[name] = None
+            lab = None
         else:
             extra = {'tier': QUALITY_TIERS[int(value)]} if name == 'motion_quality' else {}
             if name == 'motion_quality':
                 value = int(value)
-            self.ann[name] = label(value, self.role, annotator=self.who, **extra)
-        # every annotator's own value is kept for inter-rater agreement (the field above is the latest)
+            lab = label(value, self.role, annotator=self.who, **extra)
+        self.ann[name] = lab
+        self.own_labels[name] = lab
+        # every annotator's own value is kept for inter-rater agreement
         self.ann.setdefault('ratings', {}).setdefault(name, {})[self.who] = (
-            None if value in (None, '') else {'value': value, 'role': self.role})
+            None if lab is None else {'value': value, 'role': self.role})
         self.dirty = True
 
     def add_narration(self, t_ns, text):
         if not text.strip():
             raise ValueError('empty narration')
         n = {'t_ns': int(t_ns), 'text': text.strip(), 'provenance': self.role,
-             'qa_status': 'unreviewed', 'annotator': self.who}
+             'qa_status': 'unreviewed', 'annotator': self.who, '_origin': self.who}
         self.ann['narration'].append(n)
         self.ann['narration'].sort(key=lambda x: x['t_ns'])
         self.dirty = True
         return n
 
+    def own_document(self, now_ns):
+        def own(e):
+            return {**{k: v for k, v in e.items() if k not in ('qa_reviews', 'qa_by')}, 'qa_status': 'unreviewed'}
+        doc = {'schema_version': SCHEMA_VERSION, 'episode_id': self.ann.get('episode_id'),
+               'annotator': self.who, 'role': self.role}
+        for layer in (*LAYERS, 'narration'):
+            doc[layer] = [own(e) for e in self.ann[layer] if e.get('_origin', self.who) == self.who
+                          and e.get('annotator') == self.who]
+        doc['qa'] = [{'layer': layer, 'ref': entry_ref(layer, e), 'qa_status': e['qa_reviews'][self.who]['qa_status']}
+                     for layer in LAYERS for e in self.ann[layer] if self.who in (e.get('qa_reviews') or {})]
+        doc['labels'] = self.own_labels
+        doc['history'] = list(self.prev.get('history') or []) + [
+            {'annotator': self.who, 'role': self.role, 'saved_ns': int(now_ns)}]
+        return doc
+
     def save(self, path, now_ns):
-        validate(self.ann)
-        self.ann['history'].append({'annotator': self.who, 'role': self.role, 'saved_ns': int(now_ns)})
-        from pathlib import Path
+        """Writes this annotator's file only (path: annotator_file(ep_dir, annotator_id)); validates what it writes."""
+        doc = self.own_document(now_ns)
+        validate({**doc, **doc['labels']})
         p = Path(path)
         tmp = p.with_suffix('.tmp')
-        tmp.write_text(dumps(self.ann) + '\n')
+        tmp.write_text(dumps(doc) + '\n')
         tmp.replace(p)
+        self.prev = doc
+        self.ann.setdefault('_files', {})[self.who] = doc
+        self.ann['history'].append(doc['history'][-1])
         self.dirty = False

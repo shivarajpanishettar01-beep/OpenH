@@ -127,15 +127,29 @@ Re-run on any episode:
 ros2 run usrig_qc episode_qc ~/data/sessions/<SESSION_ID>/ep_0001
 ```
 
-## 8b. Label agreement (expert annotation QA)
-When two or more annotators have labelled the same episodes in the `annotator` (each with their own
-annotator id):
+## 8b. Labelling and label agreement (expert annotation QA)
+`auto_annotate` writes the automated layers to `<ep>/annotation.json` after every episode. Annotators
+accept or correct them in the `annotator`; each annotator's work goes to `<ep>/annotation.<annotator>.json`
+only (own segments, narration, episode labels, QA decisions on other entries), so several annotators can
+work at the same time and `annotation.json` is never rewritten by hand:
 ```bash
+ros2 run usrig_dashboard annotator ~/data/sessions/S1 --annotator dr_a --role expert
+```
+Accepting an automated segment (QA `accepted`) counts as that annotator's rating; rejecting it removes it
+from the dataset. Where labels overlap, the export uses expert > model_assisted > trainee > automated and
+writes the winner's provenance per step (`observation.meta.{status,phase,gesture}_source`); an expert
+rejection beats a trainee acceptance.
+
+Double-rate 10-20 % of the episodes for agreement: the second annotator works blind (other raters'
+labels hidden; automated ones visible):
+```bash
+ros2 run usrig_qc label_agreement ~/data/sessions/S1 --pick 0.15          # which episodes need a second rater
+ros2 run usrig_dashboard annotator ~/data/sessions/S1 --annotator dr_b --role expert --blind
 ros2 run usrig_qc label_agreement ~/data/sessions/S1 ~/data/sessions/S2
 ```
 Cohen's kappa (two raters) or Fleiss' kappa (more) for phases, g_t intervals and gestures (sampled at 10 Hz),
 and for failure class / outcome / motion quality (quadratic-weighted) from each annotator's own rating.
-Automated and QA-rejected labels are ignored. The acceptance threshold is yours.
+Unreviewed automated labels and QA-rejected labels are ignored. The acceptance threshold is yours.
 
 ## 9. End of session
 1. Ctrl+C the episode manager, then the launch (micrus freezes and powers down on SIGINT).

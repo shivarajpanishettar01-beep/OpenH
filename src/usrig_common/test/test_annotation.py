@@ -67,13 +67,18 @@ def test_editor_rules(tmp_path):
     ed.set_label('failure_class', 'target_view_loss')
     ed.set_label('motion_quality', 4)
     ed.add_narration(2, 'target near centre; slide left to reacquire')
-    ed.save(tmp_path / 'annotation.json', 123)
+    ed.save(A.annotator_file(tmp_path, 'dr_x'), 123)
     import json
-    saved = json.loads((tmp_path / 'annotation.json').read_text())
-    assert saved['gestures'][0]['qa_status'] == 'rejected' and saved['gestures'][1]['provenance'] == 'expert'
-    assert saved['motion_quality'] == {'value': 4, 'provenance': 'expert', 'qa_status': 'unreviewed',
-                                       'annotator': 'dr_x', 'tier': 'expert'}
+    saved = json.loads(A.annotator_file(tmp_path, 'dr_x').read_text())    # only dr_x's own work
+    assert [(g['gesture'], g['provenance']) for g in saved['gestures']] == [('rock', 'expert')]
+    assert saved['qa'] == [{'layer': 'gestures', 'qa_status': 'rejected', 'ref': {
+        'value': 'slide', 't0_ns': 0, 't1_ns': 5, 'provenance': 'automated', 'annotator': None}}]
+    assert saved['labels']['motion_quality'] == {'value': 4, 'provenance': 'expert', 'qa_status': 'unreviewed',
+                                                 'annotator': 'dr_x', 'tier': 'expert'}
     assert saved['history'] == [{'annotator': 'dr_x', 'role': 'expert', 'saved_ns': 123}]
+    (tmp_path / 'annotation.json').write_text(json.dumps({'gestures': [ann['gestures'][0] | {'qa_status': 'unreviewed'}]}))
+    m = A.load_merged(tmp_path)
+    assert m['gestures'][0]['qa_status'] == 'rejected' and m['motion_quality']['value'] == 4
     ed.delete_segment('gestures', 1)
     assert len(ann['gestures']) == 1
 
@@ -99,3 +104,48 @@ def test_editor_keeps_every_annotators_episode_label():
     A.AnnotationEditor(ann, 'bob', 'expert').set_label('motion_quality', 3)
     assert ann['motion_quality']['value'] == 3 and ann['motion_quality']['annotator'] == 'bob'
     assert {k: v['value'] for k, v in ann['ratings']['motion_quality'].items()} == {'alice': 4, 'bob': 3}
+
+
+def test_concurrent_annotators_write_their_own_files(tmp_path):
+    """P2-16: two raters with the same episode open must not overwrite each other; annotation.json
+    (automated, written by auto_annotate) is never rewritten by the annotator; blind view hides others."""
+    import json
+    ep = tmp_path / 'ep_0001'
+    ep.mkdir()
+    base = A.new_annotation({'episode_id': 'e1', 'instruction': 'x'})
+    base['gestures'] = [{'gesture': 'slide', 't0_ns': 0, 't1_ns': 5, 'provenance': 'automated',
+                         'qa_status': 'unreviewed'}]
+    (ep / 'annotation.json').write_text(A.dumps(base))
+    a = A.AnnotationEditor(A.load_merged(ep), 'alice', 'expert')        # both open the episode
+    b = A.AnnotationEditor(A.load_merged(ep), 'bob', 'trainee')
+    a.add_segment('phases', 'sweep_scan', 0, 5)
+    a.set_label('failure_class', 'target_view_loss')
+    a.save(A.annotator_file(ep, 'alice'), 1)
+    b.add_segment('phases', 'view_acquisition', 0, 5)
+    b.set_qa('gestures', 0, 'accepted')
+    b.set_label('failure_class', 'observation_degradation')
+    b.save(A.annotator_file(ep, 'bob'), 2)
+    assert json.loads((ep / 'annotation.json').read_text()) == json.loads(A.dumps(base))
+    m = A.load_merged(ep)
+    assert sorted((s['phase'], s['annotator']) for s in m['phases']) == [('sweep_scan', 'alice'),
+                                                                         ('view_acquisition', 'bob')]
+    assert m['gestures'][0]['qa_status'] == 'accepted' and m['gestures'][0]['qa_reviews']['bob']['qa_status'] == 'accepted'
+    assert m['failure_class']['value'] == 'target_view_loss'           # expert over trainee
+    assert {k: v['value'] for k, v in m['ratings']['failure_class'].items()} == {
+        'alice': 'target_view_loss', 'bob': 'observation_degradation'}
+    # an expert rejection beats a trainee acceptance; alice's earlier work stays in her file
+    a2 = A.AnnotationEditor(A.load_merged(ep), 'alice', 'expert')
+    a2.set_qa('gestures', 0, 'rejected')
+    a2.save(A.annotator_file(ep, 'alice'), 3)
+    m = A.load_merged(ep)
+    assert m['gestures'][0]['qa_status'] == 'rejected'
+    assert [s['phase'] for s in m['phases'] if s['annotator'] == 'alice'] == ['sweep_scan']
+    blind = A.load_merged(ep, only='bob')
+    assert [s['annotator'] for s in blind['phases']] == ['bob'] and blind['gestures'][0]['qa_status'] == 'accepted'
+    assert 'alice' not in (blind.get('ratings') or {}).get('failure_class', {})
+    ed = A.AnnotationEditor(A.load_merged(ep), 'bob', 'trainee')
+    i = next(i for i, s in enumerate(ed.ann['phases']) if s['annotator'] == 'alice')
+    with pytest.raises(ValueError, match='alice'):
+        ed.delete_segment('phases', i)
+    with pytest.raises(ValueError):
+        A.annotator_file(ep, '../evil')

@@ -5,7 +5,8 @@
 Writes <ep>/annotation.json: phase segments (from phase events), gesture segments (from teleop
 key events), failure / recovery status intervals (g_t), task and outcome. Everything written
 here has provenance "automated". Labels with any other provenance already in the file
-(expert / trainee / model_assisted) are kept untouched.
+(expert / trainee / model_assisted, from before per-annotator files) are kept untouched; the
+annotator writes annotation.<annotator>.json, which this never touches.
 """
 import argparse
 import json
@@ -47,8 +48,10 @@ def auto_annotate(ep_dir, episode, keymap, write=True):
         if ann.get(single) is None or ann[single].get('provenance') == 'automated':
             ann[single] = auto[single]
     A.validate(ann)
-    if write:
-        path.write_text(A.dumps(ann) + '\n')
+    if write:                       # atomic: the annotator may be reading it (it never writes it)
+        tmp = path.with_suffix('.tmp')
+        tmp.write_text(A.dumps(ann) + '\n')
+        tmp.replace(path)
     return ann
 
 

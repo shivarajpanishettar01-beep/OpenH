@@ -308,3 +308,35 @@ def test_low_disk_does_not_fail_a_recorded_episode(tmp_path):
     r = run_episode_qc(tmp_path / 'ep_d1', EP, *config(min_free=10**9))
     assert r['pass'], r['failed']
     assert r['checks']['free_disk']['status'] == 'n/a' and r['checks']['free_disk']['free_gb'] > 0
+
+
+def test_label_agreement_counts_an_accepted_automated_segment(tmp_path):
+    """P2-16: a rater who accepts the automated segment has rated it; that is agreement data."""
+    from usrig_common import annotation as A
+    from usrig_qc.label_agreement import main
+    S = 10**9
+    d = tmp_path / 'S1' / 'ep_0000'
+    d.mkdir(parents=True)
+    (d / 'episode.json').write_text(json.dumps({'t_start_ns': 0, 't_end_ns': 10 * S}))
+    ann = A.new_annotation({'episode_id': 'e0'})
+    ann['status_intervals'] = [{'status': 'failure', 't0_ns': 2 * S, 't1_ns': 5 * S, 'provenance': 'automated',
+                                'qa_status': 'unreviewed'}]
+    a = A.AnnotationEditor(ann, 'alice', 'expert')
+    a.add_segment('status_intervals', 'failure', 2 * S, 5 * S)
+    b = A.AnnotationEditor(ann, 'bob', 'expert')
+    b.set_qa('status_intervals', 0, 'accepted')       # bob accepts the automated interval (index 0)
+    (d / 'annotation.json').write_text(A.dumps(ann))
+    main([str(tmp_path / 'S1'), '--json', str(tmp_path / 'a.json')])
+    res = {r['label']: r for r in json.loads((tmp_path / 'a.json').read_text())}
+    assert res['status_intervals']['episodes'] == 1 and res['status_intervals']['percent_agreement'] == 1.0
+
+
+def test_pick_for_double_rating_covers_every_type():
+    from usrig_qc.label_agreement import pick_for_double_rating
+    cov = [{'dir': f'e{i}', 'type': t, 'sim': False, 'raters': ['alice']}
+           for i, t in enumerate(['success'] * 16 + ['failure'] * 2 + ['recovery-mid'] * 2)]
+    cov.append({'dir': 'done', 'type': 'success', 'sim': False, 'raters': ['alice', 'bob']})
+    pick = pick_for_double_rating(cov, 0.15)            # 15 % of 21 = 3, one already double-rated
+    assert len(pick) == 2 and {c['type'] for c in pick} <= {'success', 'failure', 'recovery-mid'}
+    assert len({c['type'] for c in pick_for_double_rating(cov, 0.2)}) == 3
+    assert pick == pick_for_double_rating(cov, 0.15)    # seeded

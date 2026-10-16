@@ -1,6 +1,6 @@
 """Annotation tool for expert / trainee / model-assisted labels (Open-H V2 proposal, section 7).
 
-  ros2 run usrig_dashboard annotator <session_dir> --annotator <id> --role expert|trainee|model_assisted
+  ros2 run usrig_dashboard annotator <session_dir> --annotator <id> --role expert|trainee|model_assisted [--blind]
 
 Offline: reads the episode bags, never touches the ROS graph, so it can run anywhere (also while a
 session is being recorded on another machine).
@@ -8,10 +8,14 @@ session is being recorded on another machine).
 Per episode: B-mode and wrist colour at the playhead, probe-axis force trace, and timeline tracks for
 phases, gestures, status (g_t), narration and rig events. The annotator
   * adds segments (layer + value, Mark start / Mark end at the playhead),
-  * sets QA status on any entry (automated entries are never deleted, only rejected),
+  * sets QA status on any entry (entries of others are never deleted, only rejected; accepting an automated
+    entry counts as this annotator's rating in label_agreement),
   * sets episode labels: failure class, motion quality 1-5, intent, outcome,
   * adds narration at the playhead.
-Save validates and writes <ep>/annotation.json, appending the annotator to its history.
+Save validates and writes only <ep>/annotation.<annotator>.json (own entries, QA decisions, episode labels,
+history): raters working at the same time never overwrite each other, and annotation.json (automated,
+auto_annotate) is never rewritten. --blind hides every other rater's entries, QA decisions and episode
+labels (automated ones stay visible): use it for the second rating of double-rated episodes.
 Keys: Space play/pause, Left/Right one frame, [ ] start/end mark, Ctrl+S save.
 """
 import argparse
@@ -39,8 +43,11 @@ def main():
     ap.add_argument('session')
     ap.add_argument('--annotator', required=True)
     ap.add_argument('--role', required=True, choices=['expert', 'trainee', 'model_assisted'])
+    ap.add_argument('--blind', action='store_true', help="hide other raters' labels (double rating for kappa)")
     ap.add_argument('--config-dir')
     a, _ = ap.parse_known_args()
+    A.annotator_file('.', a.annotator)                 # refuses an id that is not a safe file name
+    only = a.annotator if a.blind else None
 
     from PySide6 import QtCore, QtGui, QtWidgets
     import pyqtgraph as pg
@@ -57,7 +64,7 @@ def main():
     pg.setConfigOptions(imageAxisOrder='row-major', antialias=False)
     app = QtWidgets.QApplication(sys.argv)
     win = QtWidgets.QMainWindow()
-    win.setWindowTitle(f'usrig annotator: {sdir.name} ({a.annotator}, {a.role})')
+    win.setWindowTitle(f'usrig annotator: {sdir.name} ({a.annotator}, {a.role}{", BLIND" if a.blind else ""})')
     state = {'data': None, 'ed': None, 't': 0, 'mark': None, 'playing': False}
 
     split = QtWidgets.QSplitter()
@@ -67,10 +74,8 @@ def main():
     ep_list = QtWidgets.QListWidget()
     for d in eps:
         e = json.loads((d / 'episode.json').read_text())
-        n_human = 0
-        if (d / 'annotation.json').exists():
-            ann = json.loads((d / 'annotation.json').read_text())
-            n_human = sum(1 for layer, _ in TRACKS for s in ann.get(layer, []) if s.get('provenance') != 'automated')
+        ann = A.load_merged(d, only=only, episode=e)
+        n_human = sum(1 for layer, _ in TRACKS for s in ann.get(layer, []) if s.get('provenance') != 'automated')
         it = QtWidgets.QListWidgetItem(f'{d.name}  {e.get("type") or ""}  {e.get("outcome") or ""}'
                                        f'{"  [sim]" if e.get("sim") else ""}  human:{n_human}')
         it.setData(QtCore.Qt.UserRole, str(d))
@@ -164,6 +169,7 @@ def main():
     split.setSizes([260, 1000, 420])
 
     track_items = []
+    shown = {}              # episode label -> (value, annotator, provenance) as displayed when loaded
 
     # ---------- helpers
     def rel(t_ns):
@@ -230,7 +236,10 @@ def main():
 
     def show_episode_labels():
         ann = state['ed'].ann
-        fc = (ann.get('failure_class') or {}).get('value') or ''
+        for name in ('failure_class', 'motion_quality', 'intent', 'outcome'):
+            lab = ann.get(name) or {}
+            shown[name] = (lab.get('value'), lab.get('annotator'), lab.get('provenance'))
+        fc =(ann.get('failure_class') or {}).get('value') or ''
         fc_box.setCurrentText(fc)
         mq = (ann.get('motion_quality') or {}).get('value')
         mq_box.setCurrentIndex(0 if mq is None else 1 + (5 - int(mq)))
@@ -271,8 +280,7 @@ def main():
         dlg.show()
         d = load_episode(ep_dir, color_topic, progress=lambda f: (dlg.setValue(int(f * 100)), app.processEvents()))
         dlg.close()
-        path = ep_dir / 'annotation.json'
-        ann = json.loads(path.read_text()) if path.exists() else A.new_annotation(d.episode)
+        ann = A.load_merged(ep_dir, only=only, episode=d.episode)
         state.update(data=d, ed=A.AnnotationEditor(ann, a.annotator, a.role), mark=None)
         if len(d.force_t):
             force_curve.setData((d.force_t - d.t0_ns) * 1e-9, d.force)
@@ -341,18 +349,22 @@ def main():
         if ed is None:
             return
         try:
-            ann = ed.ann
-            if fc_box.currentText() != ((ann.get('failure_class') or {}).get('value') or ''):
-                ed.set_label('failure_class', fc_box.currentText())
-            mq = None if mq_box.currentIndex() == 0 else 6 - mq_box.currentIndex()
-            if mq != (ann.get('motion_quality') or {}).get('value'):
-                ed.set_label('motion_quality', mq)
-            if intent.text() != ((ann.get('intent') or {}).get('value') or ''):
-                ed.set_label('intent', intent.text())
-            if outcome_box.currentText() != ((ann.get('outcome') or {}).get('value') or ''):
-                ed.set_label('outcome', outcome_box.currentText())
-            ed.save(state['data'].ep_dir / 'annotation.json', time.time_ns())
-            status.setText(f'saved {state["data"].ep_dir / "annotation.json"}')
+            values = {'failure_class': fc_box.currentText() or None,
+                      'motion_quality': None if mq_box.currentIndex() == 0 else 6 - mq_box.currentIndex(),
+                      'intent': intent.text() or None, 'outcome': outcome_box.currentText() or None}
+            for name, v in values.items():
+                sv, by, prov = shown.get(name, (None, None, None))
+                others = sv is not None and prov != 'automated' and by != a.annotator
+                # unchanged own value, or another rater's label left as shown: not a new rating by this annotator;
+                # an automated value saved as shown is this annotator accepting it (a rating)
+                if v != ed.own_value(name) and not (v == sv and others):
+                    ed.set_label(name, v)
+            path = A.annotator_file(state['data'].ep_dir, a.annotator)
+            ed.save(path, time.time_ns())
+            show_episode_labels()
+            unmatched = len(ed.ann.get('qa_unmatched') or [])
+            status.setText(f'saved {path}' + (f'  ({unmatched} QA decisions refer to entries that changed)'
+                                              if unmatched else ''))
         except ValueError as e:
             status.setText(f'not saved: {e}')
 
@@ -396,6 +408,8 @@ def main():
     if '--smoke-test' in sys.argv:          # load the first episode and exit (CI / headless check)
         load(ep_list.item(0))
         seek(state['data'].t0_ns + int(1.7e9))
+        if '--smoke-save' in sys.argv:      # also save (writes only this annotator's file)
+            save()
         app.processEvents()
         if '--screenshot' in sys.argv:
             win.grab().save(sys.argv[sys.argv.index('--screenshot') + 1])

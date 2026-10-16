@@ -37,7 +37,7 @@ Per step (added to every episode parquet and to meta/info.json):
   instruction.text                       string
 Meta:
   meta/calibration/camera_intrinsics.json, wrist_cali_mtx.json, prob_cali_mtx.json
-  meta/annotations.jsonl                 full annotation.json per episode (provenance + QA status)
+  meta/annotations.jsonl                 per episode: annotation.json + annotation.<annotator>.json merged (provenance, QA reviews, ratings)
   info.json splits: train / recovery / failure / test (contiguous, from stage_bags.py)
   meta/provenance.jsonl                  per episode: session, phantom, operator, type, mode, capture PC, commit, offsets
   README.md + MANIFEST.sha256           afterwards with export/release_card.py (dataset card from the data itself)
@@ -241,8 +241,8 @@ def main():
             sys.exit(f'{bag}: synthetic pipeline-check episodes only with --pipeline-check, and never mixed '
                      'with real episodes')
         sess = json.loads((Path(bag).parent / 'session.json').read_text())
-        ann_path = Path(bag) / 'annotation.json'
-        ann = json.loads(ann_path.read_text()) if ann_path.exists() else {}
+        # annotation.json (automated) + every annotation.<annotator>.json, merged
+        ann = F.A.load_merged(bag, episode=epj)
         n = t.num_rows
         t_steps = ((float(s['start_unix']) + np.arange(n) / float(s['fps'])) * 1e9).astype(np.int64)
         st = read_streams(bag, a.us_topic, ct['depth'], ct['color_info'], ct['depth_info'], a.depth == 'png')
@@ -335,7 +335,7 @@ def main():
                                        'info': {'frame': a.action_frame, 'rotation': 'rotation_vector'}}
                 else:
                     new_features[k] = feature_of(t.column(k), pa)
-        annotations.append({'episode_index': ep_index, 'episode_id': epj.get('episode_id'), **ann})
+        annotations.append({'episode_index': ep_index, 'episode_id': epj.get('episode_id'), **F.A.public(ann)})
         provenance.append({'episode_index': ep_index, 'split': o['split'],
                            **{k: epj.get(k) for k in PROVENANCE_KEYS},
                            'session_sim': bool(sess.get('sim')), 'n_steps': n})

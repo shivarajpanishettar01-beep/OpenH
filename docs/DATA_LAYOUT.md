@@ -15,7 +15,9 @@ tool has its own path setting.
 │       ├── ep_NNNN_0.mcap, metadata.yaml    the episode bag (all recorded topics)
 │       ├── episode.json                     labels, outcome, micrus HDF5 path, provenance
 │       ├── qc.json                          per-episode QC
-│       ├── annotation.json                  phases, gestures, g_t (automatic + expert)
+│       ├── annotation.json                  automated phases, gestures, g_t, task, outcome (auto_annotate)
+│       ├── annotation.<annotator>.json      one per annotator: own labels + QA decisions (annotator);
+│       │                                    merged with annotation.json by the export and label_agreement
 │       └── task.txt                         instruction
 ├── micrus/<session_id>/                     micrus --out: lossless HDF5 recordings, snapshots
 ├── waypoints/<phantom_id>.yaml              collection waypoints (phantom frame)
