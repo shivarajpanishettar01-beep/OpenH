@@ -3,6 +3,9 @@
 set -eo pipefail
 cd "$(dirname "$0")/.."
 source scripts/env.sh
+# Isolation: the sim tests publish /teleop/twist and /operator/command. A random domain (never the rig's 0)
+# and localhost only, so a test run cannot reach a running rig or another test run.
+export ROS_DOMAIN_ID="${USRIG_TEST_DOMAIN_ID:-$((20 + RANDOM % 80))}" ROS_LOCALHOST_ONLY=1
 # ROS puts its launch_testing pytest plugin on PYTHONPATH; it is incompatible with pytest 9.
 export PYTEST_DISABLE_PLUGIN_AUTOLOAD=1
 # Tests never depend on this PC's machine settings (~/.config/usrig/machine.yaml).
