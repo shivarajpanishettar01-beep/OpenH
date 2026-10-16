@@ -49,6 +49,8 @@ EPISODES = [  # (episode_id, type, stage, instruction, failure interval s, recov
 ]
 KINESTHETIC = {'ep_0003'}      # freedrive: no command (NaN marker on /robot/cmd_executed), no setpoint
 FAILURE_CLASS = 'target_view_loss'   # expert label of ep_0002 (its FM-SYN id maps to no class)
+# a bag whose camera recorded nothing: stage_bags must skip and report it, the others still convert
+NO_CAMERA = ('ep_0004', 'success', 2, 'Find the long-axis view of the vessel', None, None)
 
 
 # ------------------------------------------------------------------------------- ground truth
@@ -90,7 +92,7 @@ def stamps():
 
 
 # ------------------------------------------------------------------------------- writing (openh env)
-def write_bag(bag_dir, ep):
+def write_bag(bag_dir, ep, camera=True):
     import rosbag2_py
     from builtin_interfaces.msg import Time
     from geometry_msgs.msg import PoseStamped, TwistStamped, WrenchStamped
@@ -162,7 +164,7 @@ def write_bag(bag_dir, ep):
     ci.k = [60.0, 0.0, 32.0, 0.0, 60.0, 24.0, 0.0, 0.0, 1.0]
     ci.d = [0.0] * 5
     ci.p = [60.0, 0.0, 32.0, 0.0, 0.0, 60.0, 24.0, 0.0, 0.0, 0.0, 1.0, 0.0]
-    for j, t in enumerate(st['cam']):
+    for j, t in enumerate(st['cam'] if camera else []):     # no camera: topics exist, no messages
         c = Image()
         c.header.stamp, c.header.frame_id = tm(t), 'd415_color_optical_frame'
         c.height, c.width, c.encoding, c.step = 48, 64, 'rgb8', 64 * 3
@@ -204,10 +206,10 @@ def write_session(root):
                                                    'calibration': {'prob_cali_mtx': np.eye(4).tolist(),
                                                                    'wrist_cam_cali_mtx': np.eye(4).tolist()}},
                                                   indent=1))
-    for ep in EPISODES:
+    for ep in EPISODES + [NO_CAMERA]:
         eid, typ, stage, instr, fail, rec = ep
         d = sess / eid
-        write_bag(d, ep)
+        write_bag(d, ep, camera=ep is not NO_CAMERA)
         ann = {'status_intervals': [], 'phases': [{'phase': 'target_localisation', 't0_ns': T0_NS, 't1_ns': None}],
                'gestures': []}
         if fail:
@@ -247,6 +249,9 @@ def run(a):
     staging = work / 'staging'
     sh([sys.executable, str(HERE / 'stage_bags.py'), '--sessions', str(sess), '--include-stage0', '--include-stage1',
         '--pipeline-check', '-o', str(staging)])
+    skipped = [x['episode_id'] for x in json.loads((work / 'staging_order.json').read_text()).get('skipped', [])]
+    if skipped != [NO_CAMERA[0]]:
+        sys.exit(f'PIPELINE CHECK FAILED: stage_bags skipped {skipped}, expected the camera-less {NO_CAMERA[0]}')
 
     print('[3/6] bag_to_lerobot.py (v2.1)')
     conv = os.environ.get('BAG_TO_LEROBOT')

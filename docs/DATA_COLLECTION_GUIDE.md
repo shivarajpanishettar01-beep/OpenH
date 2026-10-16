@@ -169,8 +169,10 @@ the exported dataset is derived from them.
 
 ## 11. Export (Open-H, LeRobot v3.0)
 Only episodes with QC pass, not discarded, not simulated (`sim: true` is refused), and not synthetic are
-exported. Stage 0 / Stage 1 need `--include-stage0` / `--include-stage1` (open decision 6). Test sessions
-are whole held-out sessions.
+exported. Stage 0 / Stage 1 need `--include-stage0` / `--include-stage1` (open decision 6); freedrive
+episodes are kept whatever their stage. Test sessions are whole held-out sessions. A bag without messages
+on a topic the converter needs (e.g. no camera) is skipped and listed (`SKIPPED`, and `skipped` in the
+order file) instead of stopping the conversion; `--depth none` if the export runs without depth.
 ```bash
 python export/stage_bags.py --sessions ~/data/sessions/S1 ~/data/sessions/S2 --test-sessions ~/data/sessions/S3 -o ~/datasets/staging
 ```

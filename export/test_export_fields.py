@@ -113,6 +113,38 @@ def test_calibration_per_session_with_exact_frames():
     assert w['wrist_cali_mtx'] == I and 'T_flange_camera' in w['frame'] and 'end-effector' not in w['frame']
 
 
+def _staged_session(tmp_path, eps):
+    import json
+    import yaml
+    s = tmp_path / 'S1'
+    for name, typ, stage, topics, extra in eps:
+        d = s / name
+        d.mkdir(parents=True)
+        (d / 'episode.json').write_text(json.dumps({'episode_id': name, 'session_id': 'S1', 'type': typ, 'stage': stage,
+                                                    'outcome': 'success', 'qc': {'pass': True}, **extra}))
+        (d / 'metadata.yaml').write_text(yaml.safe_dump({'rosbag2_bagfile_information': {'topics_with_message_count': [
+            {'topic_metadata': {'name': t}, 'message_count': 5} for t in topics]}}))
+    return s
+
+
+def test_stage_bags_keeps_stage1_freedrive_and_skips_bags_missing_topics(tmp_path):
+    """P2-21: freedrive episodes are kept whatever their stage; a bag without a topic the converter needs is
+    skipped and reported instead of stopping bag_to_lerobot for every episode."""
+    import argparse
+    import stage_bags as SB
+    need = ['/micrus/bmode', '/wrist/d415/color/image_raw']
+    s = _staged_session(tmp_path, [('ep_0001', 'kinesthetic', 1, need, {}), ('ep_0002', 'success', 2, need[:1], {}),
+                                   ('ep_0003', 'success', 2, need, {})])
+    ns = argparse.Namespace(include_stage0=False, include_stage1=False, exclude_kinesthetic=False, pipeline_check=False)
+    assert sorted(e['episode_id'] for e in SB.collect([s], ns)) == ['ep_0001', 'ep_0002', 'ep_0003']
+    skipped = []
+    got = SB.collect([s], ns, required=set(need), skipped=skipped)
+    assert [e['episode_id'] for e in got] == ['ep_0003', 'ep_0001']
+    assert [(x['episode_id'], x['missing']) for x in skipped] == [('ep_0002', ['/wrist/d415/color/image_raw'])]
+    assert {'/micrus/bmode', '/wrist/d415/color/image_raw', '/robot/state', '/micrus/frame_info'} <= \
+        SB.converter_topics(HERE / 'lerobot_rig.yaml')
+
+
 def test_png16_is_lossless():
     d = np.random.default_rng(0).integers(0, 65535, (48, 64), dtype=np.uint16)
     assert np.array_equal(F.unpng16(F.png16(d)), d)
