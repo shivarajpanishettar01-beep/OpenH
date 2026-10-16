@@ -155,3 +155,35 @@ def test_disabled_protective_stop_does_not_look_active(app):
     c = img.pixelColor(img.width() // 2, img.height() // 4)
     assert not (c.red() > 150 and c.green() < 90 and c.blue() < 90), (c.red(), c.green(), c.blue())
     win.close()
+
+
+def test_protective_stop_is_never_refused_while_another_action_runs(app):
+    """The console runs one blocking action at a time; the protective stop must bypass that lock."""
+    ros, win, refresh = make(app, REC)
+    ros.busy = 'run path'                                            # a 600 s path from the console
+    ros.pstops = []
+    ros.protective_stop = lambda: ros.pstops.append(time.monotonic()) or True
+    refresh()
+    b = btn(win, 'PROTECTIVE STOP')
+    assert b.isEnabled()
+    b.click()
+    assert len(ros.pstops) == 1
+    win.close()
+
+
+def test_console_ros_protective_stop_ignores_busy():
+    """ConsoleRos.protective_stop calls /robot/protective_stop even while a worker action holds `busy`."""
+    from usrig_dashboard.operator_console import ConsoleRos
+    called = threading.Event()
+
+    class Cli:
+        srv_name = '/robot/protective_stop'
+
+        def wait_for_service(self, timeout_sec=None):
+            return True
+    fake = types.SimpleNamespace(busy='run path', cli={'pstop': Cli()}, notes=[])
+    fake.note = fake.notes.append
+    fake.call = lambda client, req, timeout=None: called.set() or types.SimpleNamespace(success=True, message='ok')
+    assert ConsoleRos.protective_stop(fake) is True
+    assert called.wait(2.0), fake.notes
+    assert fake.busy == 'run path'                                   # the other action keeps its slot

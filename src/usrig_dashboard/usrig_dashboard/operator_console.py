@@ -176,6 +176,20 @@ class ConsoleRos(Node):
         threading.Thread(target=work, daemon=True).start()
         return True
 
+    def protective_stop(self):
+        """Never refused: its own thread, outside the one-at-a-time worker slot (`busy`), so it also works
+        while a console path / move / verify is running."""
+        def work():
+            try:
+                if not self.cli['pstop'].wait_for_service(timeout_sec=2.0):
+                    raise RuntimeError(f"{self.cli['pstop'].srv_name} not available (use the pendant)")
+                r = self.call(self.cli['pstop'], Trigger.Request(), 10)
+                self.note(f'protective stop: {r.message}' if r.success else f'protective stop REFUSED: {r.message}')
+            except Exception as e:  # noqa: BLE001
+                self.note(f'protective stop FAILED: {e} (use the pendant)')
+        threading.Thread(target=work, daemon=True).start()
+        return True
+
     def trigger(self, key, label):
         def fn():
             if not self.cli[key].wait_for_service(timeout_sec=2.0):
@@ -299,7 +313,7 @@ def build_window(ros, scfg=None, rig=None):
         ros.send({'cmd': 'ack_fault'})
 
     def do_pstop():
-        ros.trigger('pstop', 'protective stop')
+        ros.protective_stop()
 
     head.addWidget(lbl_session, 1)
     head.addWidget(lbl_clock)
