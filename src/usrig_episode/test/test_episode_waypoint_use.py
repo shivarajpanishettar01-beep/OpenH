@@ -199,3 +199,42 @@ def test_restart_runs_qc_that_never_ran(tmp_path, monkeypatch):
     fake = _post_fake(tmp_path)
     EpisodeManager._recover_interrupted(fake)
     assert _j.loads((d / 'episode.json').read_text())['qc']['pass'] is True
+
+
+def test_session_hand_eye_calibration_is_not_overwritten(tmp_path):
+    """Every manager start overwrote session.json wrist_cam_cali_mtx with rig.yaml's (null or older)."""
+    import json as _j
+    import types as _t
+    M = [[1, 0, 0, 0.01], [0, 1, 0, 0], [0, 0, 1, 0.05], [0, 0, 0, 1]]
+    (tmp_path / 'session.json').write_text(_j.dumps({'wrist_cam_cali_mtx': M}))
+    fake = _t.SimpleNamespace(sdir=tmp_path, rig={'calibration': {'wrist_cam_cali_mtx': None}})
+    EpisodeManager._snapshot_calibration(fake)
+    assert _j.loads((tmp_path / 'session.json').read_text())['wrist_cam_cali_mtx'] == M
+    (tmp_path / 'session.json').write_text('{}')
+    fake.rig = {'calibration': {'wrist_cam_cali_mtx': M}}
+    EpisodeManager._snapshot_calibration(fake)
+    assert _j.loads((tmp_path / 'session.json').read_text())['wrist_cam_cali_mtx'] == M
+
+
+def test_onset_keys_do_not_overwrite_the_disturbance_stamp(tmp_path):
+    """An operator onset key overwrote onset_t but kept onset_source='disturbance stamp', and repeated keys
+    kept the last press while the annotation g_t uses the first."""
+    import json as _j
+    import queue as _q
+    import threading as _th
+    import types as _t
+    from std_msgs.msg import String
+    events = []
+    ep = {'t_start_ns': 1_000_000_000, 'onset_t': 2.0, 'onset_source': 'disturbance stamp', 'notes': '',
+          'view_reached_ns': []}
+    fake = _t.SimpleNamespace(ep_lock=_th.Lock(), ep=ep, cmds=_q.Queue(), pause_log=None,
+                              event=lambda k, v, *a: events.append((k, v)))
+    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'onset'})))
+    assert ep['onset_t'] == 2.0 and ep['onset_source'] == 'disturbance stamp' and ep['onset_t_operator'] > 0
+    ep2 = {'t_start_ns': 1_000_000_000, 'onset_t': None, 'onset_source': None, 'notes': '', 'view_reached_ns': [],
+           'recovery_start_t': None}
+    fake.ep = ep2
+    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'recovery_start'})))
+    first = ep2['recovery_start_t']
+    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'recovery_start'})))
+    assert ep2['recovery_start_t'] == first                          # first press counts, like the annotation

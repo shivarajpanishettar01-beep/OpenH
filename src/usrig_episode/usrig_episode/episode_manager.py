@@ -142,8 +142,8 @@ class EpisodeManager(Node):
         update_session_json(self.sdir, session_id=self.session_id, stage=self.stage, sim=self.sim,
                             operators=self.scfg['session']['operators'], phantom_id=self.phantom_id,
                             phantom_placement=self.scfg['session'].get('phantom_placement'),
-                            rig_git_commit=provenance.rig_git_commit(),
-                            wrist_cam_cali_mtx=config.get_path(self.rig, 'calibration.wrist_cam_cali_mtx'))
+                            rig_git_commit=provenance.rig_git_commit())
+        self._snapshot_calibration()
         g = gates.check_stage(self.stage, self.scfg, self.root)
         update_session_json(self.sdir, gates={f'stage{self.stage}': {**g, 'checked_ns': now_ns()}})
         if not g['passed']:
@@ -159,6 +159,13 @@ class EpisodeManager(Node):
         self.create_timer(0.5, self._publish_status, callback_group=cb)
         self.worker = threading.Thread(target=self._run_stage, name='stage', daemon=True)
         self.worker.start()
+
+    def _snapshot_calibration(self):
+        """rig.yaml's hand-eye matrix into session.json, unless the session already has its own (handeye_calib
+        --session writes it there): overwriting it on every start lost that session's calibration."""
+        sess = read_json(self.sdir / 'session.json')
+        if sess.get('wrist_cam_cali_mtx') is None:
+            update_session_json(self.sdir, wrist_cam_cali_mtx=config.get_path(self.rig, 'calibration.wrist_cam_cali_mtx'))
 
     def _presession_ready(self):
         """A passing, recent pre-session check for this stage in session.json (re-read every time: the operator
@@ -254,9 +261,15 @@ class EpisodeManager(Node):
                 elif cmd in ('onset', 'recovery_start', 'recovery_end'):
                     key = {'onset': 'onset_t', 'recovery_start': 'recovery_start_t',
                            'recovery_end': 'recovery_end_t'}[cmd]
-                    ep[key] = (t - ep['t_start_ns']) * 1e-9 if ep.get('t_start_ns') else None
-                    if cmd == 'onset' and not ep.get('onset_source'):
-                        ep['onset_source'] = 'operator key'
+                    rel = (t - ep['t_start_ns']) * 1e-9 if ep.get('t_start_ns') else None
+                    if cmd == 'onset' and ep.get('onset_source') == 'disturbance stamp':
+                        # the injected disturbance's own stamp stays the onset; the operator's press is kept beside it
+                        ep.setdefault('onset_t_operator', rel)
+                    elif ep.get(key) is None:
+                        # first press counts (the annotation's g_t intervals use the first event too)
+                        ep[key] = rel
+                        if cmd == 'onset':
+                            ep['onset_source'] = 'operator key'
                     self.event('phase', {'phase': cmd, 't_ns': t})
         self.cmds.put(c)
 
