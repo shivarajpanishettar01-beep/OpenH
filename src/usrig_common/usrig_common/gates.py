@@ -42,7 +42,9 @@ def gate01(session_cfg, episodes):
         return {'passed': False, 'reason': f'null in session.yaml: {nulls}'}
     run = best = 0
     for ep in episodes:
-        if ep.get('stage') != 0 or ep.get('outcome') == 'discard':
+        # teleop shakedown only: freedrive episodes are forced to stage 0 but are not teleop
+        if (ep.get('stage') != 0 or ep.get('outcome') == 'discard' or ep.get('gate_excluded')
+                or ep.get('collection_mode') == 'freedrive'):
             continue
         run = run + 1 if _qc_pass(ep) else 0
         best = max(best, run)
@@ -56,21 +58,23 @@ def gate12(session_cfg, episodes):
     min_paths = get_path(session_cfg, 'gate12.min_paths')
     if max_err is None or min_paths is None:
         return {'passed': False, 'reason': 'gate12.max_speed_error_pct / min_paths null in session.yaml'}
-    st1 = [e for e in episodes if e.get('stage') == 1 and e.get('outcome') != 'discard']
-    good = 0
-    gaps_ok = True
-    for e in st1:
-        tr = e.get('speed_tracking') or {}
-        if tr.get('max_error_pct') is not None and tr['max_error_pct'] <= max_err:
-            good += 1
-        checks = (e.get('qc') or {}).get('checks', {})
-        for name in ('micrus_frame_gaps', 'wrist_rate', 'robot_rate', 'robot_sample_gaps'):
-            if checks.get(name, {}).get('status') == 'fail':
-                gaps_ok = False
+    # gate_excluded: {'by', 'reason'} written by a reviewer (e.g. a cable pulled): not counted either way
+    st1 = sorted((e for e in episodes if e.get('stage') == 1 and e.get('outcome') != 'discard'
+                  and not e.get('gate_excluded')), key=lambda e: e.get('t_start_ns') or 0)
+    # distinct paths (one path repeated is not min_paths paths)
+    good = {e.get('target') for e in st1
+            if (e.get('speed_tracking') or {}).get('max_error_pct') is not None
+            and e['speed_tracking']['max_error_pct'] <= max_err}
+    # stream gaps judged on the latest min_paths episodes: an old fixed problem must not block Stage 2 forever
+    recent = st1[-int(min_paths):] if int(min_paths) > 0 else []
+    gaps_ok = bool(recent) and not any(
+        ((e.get('qc') or {}).get('checks', {}).get(name) or {}).get('status') == 'fail'
+        for e in recent for name in ('micrus_frame_gaps', 'wrist_rate', 'robot_rate', 'robot_sample_gaps',
+                                     'stream_coverage'))
     durations = [e.get('duration_s') or 0 for e in st1]
     eph = (len(st1) / (sum(durations) / 3600.0)) if sum(durations) > 0 else None
-    return {'passed': good >= int(min_paths) and gaps_ok, 'paths_within_error': good,
-            'required_paths': min_paths, 'zero_frame_gaps': gaps_ok,
+    return {'passed': len(good) >= int(min_paths) and gaps_ok, 'paths_within_error': len(good),
+            'required_paths': min_paths, 'zero_frame_gaps_recent': gaps_ok, 'recent_judged': len(recent),
             'episodes_per_recorded_hour': eph}
 
 
