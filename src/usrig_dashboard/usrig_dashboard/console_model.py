@@ -158,6 +158,8 @@ def prompt(c: Ctx):
         return 'episode_manager not running: start a collection on the Session tab'
     if c.fault:
         return 'Robot in FAULT: check the cause, then Acknowledge fault'
+    if c.session.get('stage_error'):
+        return f'STOPPED: {c.session["stage_error"]}. Fix the cause, then restart the collection'
     st, w = c.ep_state, c.waiting
     if st == 'idle' and c.session.get('presession_problem'):
         return f'Blocked: {c.session["presession_problem"]}. Run the Pre-session check (Session tab), then Start'

@@ -70,6 +70,7 @@ class EpisodeRecorder:
         self.proc = None
         self.recording_micrus = False
         self.hdf5_path = ''
+        self.micrus_stop_error = None
         self._seen = {}
         self._seen_lock = threading.Lock()
         self._cfg_files = self._write_bag_configs(rec)
@@ -162,8 +163,13 @@ class EpisodeRecorder:
             self.hdf5_path = self._call_micrus(True)
             self.recording_micrus = True
         except RecorderError:
-            self.lock_file.unlink(missing_ok=True)
             self._stop_bag()
+            # a timed-out start may still have started micrus: stop it; keep the lock if that fails too
+            try:
+                self._call_micrus(False, timeout=5.0)
+                self.lock_file.unlink(missing_ok=True)
+            except RecorderError:
+                pass
             raise
         return t_ready
 
@@ -237,14 +243,18 @@ class EpisodeRecorder:
         return rc
 
     def stop(self):
-        """End the bag cleanly, then stop micrus. Returns (bag_returncode, hdf5_path)."""
+        """End the bag cleanly, then stop micrus. Returns (bag_returncode, hdf5_path). A failed micrus stop is
+        recorded in micrus_stop_error, not raised: the episode is complete and must still be written. The lock
+        file then stays, so record_guard stops micrus when this process ends."""
         rc = self._stop_bag()
+        self.micrus_stop_error = None
         if self.recording_micrus:
+            self.recording_micrus = False
             try:
                 self._call_micrus(False)
-            finally:
-                self.recording_micrus = False
                 self.lock_file.unlink(missing_ok=True)
+            except RecorderError as e:
+                self.micrus_stop_error = str(e)
         return rc, self.hdf5_path
 
     def abort(self):

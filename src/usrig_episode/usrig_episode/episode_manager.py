@@ -200,7 +200,8 @@ class EpisodeManager(Node):
                 session={'session_id': self.session_id, 'stage': self.stage, 'collection_mode': self.collection_mode,
                          'robot_control': self.control, 'operator_id': self.operator_id,
                          'phantom_id': self.phantom_id, 'sim': self.sim, 'session_dir': str(self.sdir),
-                         'presession_problem': self.presession_problem},
+                         'presession_problem': self.presession_problem,
+                         'stage_error': getattr(self, 'stage_error', None)},
                 ep=self.ep, pause_log=self.pause_log, waiting_for=self.waiting_for, finishing=self.finishing,
                 last_ep=self.last_ep, counts=self.counts, plan=self.plan_info, now_ns=now_ns())
         self.pub_status.publish(String(data=json.dumps(payload, default=str)))
@@ -446,6 +447,11 @@ class EpisodeManager(Node):
             self.event('outcome', {'outcome': ep['outcome']})
         time.sleep(0.2)   # let the end / outcome events reach the bag
         rc, _ = self.recorder.stop()
+        if self.recorder.micrus_stop_error:
+            ep['micrus_stop_error'] = self.recorder.micrus_stop_error
+            ep['notes'] = (ep['notes'] + f'\nmicrus stop failed: {self.recorder.micrus_stop_error}').strip()
+            self.get_logger().error(f'micrus did not confirm the stop ({self.recorder.micrus_stop_error}); '
+                                    'episode kept, record_guard will stop micrus')
         with self.ep_lock:
             self.ep = None
         ep['duration_s'] = (ep['t_end_ns'] - ep['t_start_ns']) * 1e-9 if ep['t_start_ns'] else None
@@ -521,6 +527,7 @@ class EpisodeManager(Node):
 
     # ------------------------------------------------------------------ stages
     def _run_stage(self):
+        self.stage_error = None
         try:
             self._wait_presession()
             if self.collection_mode == 'freedrive':
@@ -530,7 +537,9 @@ class EpisodeManager(Node):
         except Abort as e:
             self.get_logger().error(f'stage stopped: {e}')
         except Exception as e:  # noqa: BLE001
-            self.get_logger().error(f'stage error: {e!r}')
+            # shown in /episode/status: the node keeps running, so the console would otherwise show "idle"
+            self.stage_error = repr(e)
+            self.get_logger().error(f'stage error: {e!r} (no more episodes: restart the collection)')
         finally:
             self.recorder.abort()
 
@@ -563,7 +572,7 @@ class EpisodeManager(Node):
                     ep['notes'] = (ep['notes'] + '\nstopped by stage0.max_duration_s').strip()
                 elif c['cmd'] == 'discard':
                     ep['outcome'] = 'discard'
-            except (Abort, RecorderError) as e:
+            except Exception as e:  # noqa: BLE001  (Abort, RecorderError, OSError, ...: this episode only)
                 self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
                 ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
@@ -604,7 +613,7 @@ class EpisodeManager(Node):
                     ep['notes'] = (ep['notes'] + '\nstopped by stage0.max_duration_s').strip()
                 elif c['cmd'] == 'discard':
                     ep['outcome'] = 'discard'
-            except (Abort, RecorderError) as e:
+            except Exception as e:  # noqa: BLE001  (Abort, RecorderError, OSError, ...: this episode only)
                 self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
                 ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
@@ -655,7 +664,7 @@ class EpisodeManager(Node):
                     ep['outcome'] = 'success' if r.success else 'fail'
                 elif ep.get('outcome') != 'discard':
                     ep['outcome'] = 'fail'
-            except (Abort, RecorderError) as e:
+            except Exception as e:  # noqa: BLE001  (Abort, RecorderError, OSError, ...: this episode only)
                 self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
                 ep['notes'] = f'aborted: {e}'
@@ -754,7 +763,7 @@ class EpisodeManager(Node):
                     self.event('phase', {'phase': 'hold', 'hold_s': s2['success_hold_s']})
                     self.call('teleop', SetBool.Request(data=False))
                     time.sleep(float(s2['success_hold_s']))
-        except (Abort, RecorderError) as e:
+        except Exception as e:  # noqa: BLE001  (Abort, RecorderError, OSError, ...: this episode only)
             self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
             ep['outcome'] = 'discard'
             ep['notes'] = f'aborted: {e}'

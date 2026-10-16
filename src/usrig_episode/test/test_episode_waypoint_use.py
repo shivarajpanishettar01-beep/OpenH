@@ -118,3 +118,36 @@ def test_plan_progress_spans_sessions(tmp_path):
     fake = _t.SimpleNamespace(root=root, sdir=sdir)
     rows = [{'row': str(i)} for i in range(1, 6)]
     assert [r['row'] for r in EpisodeManager._pending_rows(fake, rows, 'abc')] == ['2', '3', '4', '5']
+
+
+def test_micrus_stop_failure_keeps_the_episode(tmp_path):
+    """A failed /micrus/record false raised out of _finish before episode.json was written: a complete episode
+    was lost and the stage thread died. The error is now recorded, and the lock file is kept so record_guard
+    still stops micrus."""
+    import types as _t
+    from usrig_episode.recorder import EpisodeRecorder, RecorderError
+    lock = tmp_path / 'lock'
+    lock.write_text('1')
+
+    def fail(on, timeout=10.0):
+        raise RecorderError('/micrus/record False timed out')
+    fake = _t.SimpleNamespace(_stop_bag=lambda: 0, recording_micrus=True, _call_micrus=fail,
+                              lock_file=lock, hdf5_path='/x.h5', micrus_stop_error=None)
+    rc, h5 = EpisodeRecorder.stop(fake)
+    assert rc == 0 and h5 == '/x.h5'
+    assert 'timed out' in fake.micrus_stop_error and lock.exists() and fake.recording_micrus is False
+
+
+def test_stage_thread_error_is_reported(tmp_path):
+    """Any non-Abort error ended the stage thread while the console kept showing 'idle'."""
+    import types as _t
+    logs = []
+    fake = _t.SimpleNamespace(collection_mode='robot', stage=0, stage_error=None,
+                              recorder=_t.SimpleNamespace(abort=lambda: None),
+                              get_logger=lambda: _t.SimpleNamespace(error=logs.append))
+
+    def boom():
+        raise OSError('No space left on device')
+    fake._wait_presession = boom
+    EpisodeManager._run_stage(fake)
+    assert 'No space left' in fake.stage_error
