@@ -167,6 +167,12 @@ class EpisodeManager(Node):
         ok, why = (True, None) if self.sim else gates.presession_ok(
             sess, self.stage, self.control, now_ns(), self.scfg['session'].get('presession_max_age_h', 12),
             self.camera_recorded)
+        if ok:
+            from shutil import disk_usage
+            free = disk_usage(self.sdir).free / 1e9
+            floor = float(self.scfg['session'].get('min_free_disk_gb', 50))
+            if free <= floor:
+                ok, why = False, f'{free:.0f} GB free on the data disk (floor {floor:g} GB): free space first'
         T = (sess.get('phantom_registration') or {}).get('T_base_phantom')
         if ok and T is not None:
             # the recorded tcp_phantom comes from robot_state's own copy of the registration
@@ -724,6 +730,9 @@ class EpisodeManager(Node):
                                + (f' failure {row["failure_mode"]} / {row["staging_method"]}' if row['failure_mode'] else '')
                                + ': press N to start it')
         self.wait_cmd({'next'})
+        while not self._presession_ready():
+            self.get_logger().error(f'row not started: {self.presession_problem}. Fix it, then press N')
+            self.wait_cmd({'next'})
         self.plan_info['next_row'] = None
         off = [float(row[k] or 0) for k in ('off_dx_mm', 'off_dy_mm', 'off_dz_mm',
                                              'off_rock_deg', 'off_tilt_deg', 'off_rot_deg')]

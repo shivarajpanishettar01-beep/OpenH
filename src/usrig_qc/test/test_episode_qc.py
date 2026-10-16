@@ -300,3 +300,11 @@ def test_bag_recorder_error_fails(tmp_path):
     assert r['checks']['bag_closed']['status'] == 'fail' and not r['pass']
     r = run_episode_qc(tmp_path / 'ep_c5', dict(EP, bag_returncode=0), *config())
     assert r['checks']['bag_closed']['status'] == 'pass'
+
+
+def test_low_disk_does_not_fail_a_recorded_episode(tmp_path):
+    """Free disk was a QC check on the already-recorded episode: below the floor good episodes were discarded."""
+    write_bag(tmp_path / 'ep_d1')
+    r = run_episode_qc(tmp_path / 'ep_d1', EP, *config(min_free=10**9))
+    assert r['pass'], r['failed']
+    assert r['checks']['free_disk']['status'] == 'n/a' and r['checks']['free_disk']['free_gb'] > 0

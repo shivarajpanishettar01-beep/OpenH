@@ -256,7 +256,10 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     from shutil import disk_usage
     free = disk_usage(ep_dir).free / 1e9
     min_free = scfg['session'].get('min_free_disk_gb', 50)
-    checks['free_disk'] = _status(free > min_free, free_gb=free)
+    # information only: the recorded episode is not worse for a full disk; episode_manager refuses to START
+    # an episode below the floor instead (failing here discarded good episodes)
+    checks['free_disk'] = {'status': 'n/a', 'free_gb': free, 'floor_gb': min_free,
+                           'reason': 'checked before each Start (episode_manager)'}
 
     # ---- wrist camera
     if not use_cam:

@@ -63,7 +63,7 @@ def _fake_manager(tmp_path, session_json):
     logs = []
     log = _t.SimpleNamespace(error=logs.append, warn=logs.append, info=logs.append)
     return _t.SimpleNamespace(sim=False, sdir=tmp_path, stage=0, control=False, camera_recorded=False,
-                              scfg={'session': {'presession_max_age_h': 12}}, presession_problem=None,
+                              scfg={'session': {'presession_max_age_h': 12, 'min_free_disk_gb': 0}}, presession_problem=None,
                               get_logger=lambda: log, logs=logs)
 
 
@@ -151,3 +151,10 @@ def test_stage_thread_error_is_reported(tmp_path):
     fake._wait_presession = boom
     EpisodeManager._run_stage(fake)
     assert 'No space left' in fake.stage_error
+
+
+def test_start_refused_below_the_disk_floor(tmp_path):
+    fake = _fake_manager(tmp_path, {})
+    fake.sim = True
+    fake.scfg['session']['min_free_disk_gb'] = 10**9
+    assert EpisodeManager._presession_ready(fake) is False and 'GB free' in fake.presession_problem
