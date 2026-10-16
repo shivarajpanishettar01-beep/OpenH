@@ -3,9 +3,11 @@
   ros2 launch usrig_bringup collect.launch.py session_id:=<id> [sim:=true] [control:=false]
       [camera:=true] [teleop:=true] [episode_manager:=true] [qc:=true] [dashboard:=false]
       [input:=keyboard|spacemouse|freedrive] [stage:=0|1|2] [operator_id:=..] [phantom_id:=..] [console:=true]
+      [demo_gui:=true]
 
 console:=true starts the operator console (no images; usable during collection). The demo dashboard stays
-dashboard:=true.
+dashboard:=true. demo_gui:=true starts the read-only demo screen (usrig_demo_gui) for demonstrations only:
+while episode_manager runs a real (non-sim) session it drops all its subscriptions and shows "paused".
 
 sim:=true -> micrus --simulate and the robot nodes on URSim. The wrist camera has no simulator:
 use camera:=false in simulation.
@@ -56,6 +58,8 @@ def generate_launch_description():
         DeclareLaunchArgument('qc', default_value='true'),
         DeclareLaunchArgument('dashboard', default_value='false'),
         DeclareLaunchArgument('console', default_value='false', description='operator console (no images)'),
+        DeclareLaunchArgument('demo_gui', default_value='false',
+                              description='read-only demo screen; paused while a real collection session runs'),
         DeclareLaunchArgument('stage', default_value='-1', description='-1 = session.yaml session.stage'),
         DeclareLaunchArgument('operator_id', default_value='', description='default: first of session.operators'),
         DeclareLaunchArgument('phantom_id', default_value='', description='default: session.phantom_id'),
@@ -89,4 +93,6 @@ def generate_launch_description():
              parameters=params, condition=IfCondition(L('dashboard'))),
         Node(package='usrig_dashboard', executable='operator_console', output='screen',
              parameters=params, condition=IfCondition(L('console'))),
+        Node(package='usrig_demo_gui', executable='demo_gui', output='screen', arguments=['--source', 'ros'],
+             condition=IfCondition(L('demo_gui'))),
     ])

@@ -1,0 +1,102 @@
+# Demo GUI configuration. Everything a lab member may want to change without touching code.
+# Names below follow the OpenH repo (src/usrig_*); confirm on the capture PC with
+# `ros2 node list` and `ros2 topic list` before relying on them.
+
+title: UR7e Robotic Ultrasound
+subtitle: Open-H v2 | IIT Mandi
+refresh_hz: 30                 # GUI redraw rate (the existing dashboard uses 30 too)
+force_window_s: 30             # scan timeline history (s): phases, events, force and torque
+show_recording_panel: false    # true = add the Recording and dataset panel to the right rail
+gui_nice: 10                   # lower CPU priority so recording/control keep priority (0 = unchanged)
+
+# Nodes / topics shown in the ROS 2 panel. `expected_hz` is [min, max] or a single number;
+# null = event-driven topic, rate not checked. `node` is the name from `ros2 node list`.
+nodes:
+  - {label: micrus,            node: micrus,           topic: /micrus/bmode,                                  expected_hz: [26.0, 29.0]}
+  - {label: robot_state,       node: robot_state,      topic: /robot/state,                                   expected_hz: [480, 520]}
+  - {label: robot_control,     node: robot_control,    topic: /robot/control_status,                          expected_hz: [120, 130]}
+  - {label: d415 colour,       node: d415,             topic: /wrist/d415/color/image_raw,                    expected_hz: [28, 31]}
+  - {label: d415 depth,        node: d415,             topic: /wrist/d415/aligned_depth_to_color/image_raw,   expected_hz: [28, 31]}
+  - {label: qc_monitor,        node: qc_monitor,       topic: /qc/status,                                     expected_hz: [1.8, 2.2]}
+  - {label: episode_manager,   node: episode_manager,  topic: /episode/events,                                expected_hz: null}
+  - {label: rig_static_tf,     node: rig_static_tf,    topic: /tf_static,                                     expected_hz: null}
+  - {label: recorder,          node: rosbag2_recorder, topic: '(bag writer)',                                 expected_hz: null}
+
+topics:
+  bmode: /micrus/bmode
+  frame_info: /micrus/frame_info
+  robot_state: /robot/state
+  color: /wrist/d415/color/image_raw
+  depth: /wrist/d415/aligned_depth_to_color/image_raw
+  qc_status: /qc/status
+  control_status: /robot/control_status  # rate only (node health row), counted without decoding
+  episode_events: /episode/events
+  episode_status: /episode/status  # demo only: session.sim decides whether the GUI may run (collection_guard.py)
+  tcp_pose: /robot/tcp_pose      # trajectory map source (falls back to /robot/state tcp_base)
+  tf_static: /tf_static          # flange -> wrist_camera from rig_static_tf (hand-eye calibration)
+
+rig_config_dir: null           # where rig.yaml is read from (null = the usrig_bringup default, as the other nodes)
+
+# Frame names used by rig_static_tf (its parameters flange_frame / camera_frame).
+frames:
+  flange: flange
+  wrist_camera: wrist_camera
+
+# Trajectory map in the robot view: a run starts when the robot leaves a rest (stationary for
+# rest_s with no episode phase) and shows rest -> approach -> contact -> scan -> retract.
+# Probe tip and flange need rig.yaml robot.tcp_setting / probe.*; the camera path needs the
+# hand-eye calibration. Paths whose calibration is null are not drawn ("not calibrated").
+trajectory:
+  rest_s: 1.5            # stationary this long, with no episode phase, counts as a rest
+  rest_tol_m: 0.0005     # "stationary" = TCP moved less than this
+  min_step_m: 0.0005     # new path point after this much motion
+  max_s: 180             # longest run kept
+  merge_m: 0.012         # phase markers closer than this share one label
+
+# Contact / quality thresholds. null = not decided yet -> the GUI shows Unknown instead of guessing
+# (same rule as rig.yaml: nothing is assumed until measured on the rig).
+contact_force_threshold_n: null    # |F along probe axis| above this = In Contact
+force_band_n: null                 # [low, high] shown as "in band" on the contact force metric
+coupling_floor: null               # mean B-mode intensity; copy rig.yaml qc.coupling_floor
+episode_cap_s: 30                  # session.yaml stage2.cap_s
+data_root: ~/data                  # session.yaml session.root; Output path fallback when /episode/status has no session_dir
+
+# Mapping from phase events (EpisodeEvent kind=phase, value.phase) to GUI phases. Names checked against
+# episode_manager and robot_control (see sources/episode_tracker.py). Unlisted names (retract, fault,
+# fault_ack, zero_ft) keep the previous GUI phase.
+phase_map:
+  free_air: approach           # F/T hold in free air at episode start; probe not yet on the phantom
+  free_air_end: approach
+  approach: approach           # robot_control: moving to the approach pose
+  contact: contact             # robot_control: descended to contact
+  search: view_acquisition     # episode_manager Stage 2: looking for the target view
+  search_path: sweep           # robot_control path run (search event with path_length_m)
+  perturbation: recovery
+  onset: recovery
+  contact_lost: recovery
+  recovery_start: recovery
+  recovery: reacquisition
+  recovery_end: reacquisition
+  recontact: reacquisition
+  hold: reacquisition          # Stage 2 success hold at the view
+
+# episode_manager outcome values -> GUI outcome
+outcome_map:
+  success: success
+  recovered: success
+  fail: failure
+  discard: aborted
+
+# Values used only by the mock source.
+mock:
+  contact_force_threshold_n: 1.0
+  force_band_n: [2.0, 6.0]
+  coupling_floor: 40.0
+  session_id: '{date}_vascular_4vein_op1_s01'   # follows session.yaml id_pattern
+  # Stand-in calibration for the simulated rig only (same keys as rig.yaml; the real ones are null
+  # until measured). Controller TCP = probe tip 0.13 m along the flange z axis; D415 on the holder,
+  # 90 mm to the side of the probe axis, tilted 20 deg towards the probe tip.
+  rig:
+    robot: {tcp_setting: [0, 0, 0.13, 0, 0, 0]}
+    probe: {tcp_already_includes_probe: true, tip_offset_flange_m: null}
+    calibration: {wrist_cam_cali_mtx: [0.09, 0.0, 0.045, 0.0, -0.349, 0.0]}
