@@ -495,9 +495,20 @@ class RobotControlNode(Node):
             self.get_logger().warn('cannot acknowledge: robot state missing or stale')
             return
         T = geometry.pose_from_ur(s.tcp_pose)
+        problem = safety.controller_problem(s.robot_mode, s.safety_mode)
+        if problem:
+            self.get_logger().warn(f'cannot acknowledge: {problem} (clear it on the pendant first)')
+            return
         still = safety.hard_violations(self.lim, T, s.wrench, s.tcp_speed)
         if still & (safety.FLAG_FORCE_MAX | safety.FLAG_SPEED):
             self.get_logger().warn(f'cannot acknowledge: still violated {safety.flag_names(still)}')
+            return
+        try:
+            running = self.backend.ensure_running()
+        except Exception as e:  # noqa: BLE001
+            running, problem = False, str(e)
+        if not running:
+            self.get_logger().warn(f'cannot acknowledge: controller script could not be restarted {problem or ""}')
             return
         # Outside the box or the tilt cone: acknowledge into recovery. Those two hard checks are
         # suspended until the probe is back inside; the command filter only allows motion that
@@ -602,6 +613,11 @@ class RobotControlNode(Node):
             self._publish_cmd(now_ns())
             return
         T = geometry.pose_from_ur(s.tcp_pose)
+        problem = safety.controller_problem(s.robot_mode, s.safety_mode)
+        if problem and self.status.mode != ST.MODE_FAULT and not isinstance(self.motion, Idle):
+            # e.g. a UR protective stop (collision, safety plane, pendant): the state stays fresh, so
+            # without this nothing faulted and the samples kept the motion's labels
+            self._fault(0, problem)
         hard = safety.hard_violations(self.lim, T, s.wrench, s.tcp_speed)
         if self.recovering_flags:
             self.recovering_flags &= hard
@@ -631,7 +647,10 @@ class RobotControlNode(Node):
         if isinstance(m, Idle) and not np.any(v) and not np.any(w):
             pass  # nothing to send: the robot is not being commanded
         else:
-            self.backend.command(T, v, w, self.lim.a_max, m.force_on, self.force_setpoint, dt)
+            if self.backend.command(T, v, w, self.lim.a_max, m.force_on, self.force_setpoint, dt) is False:
+                self._fault(0, 'controller refused the command (ur_rtde returned False)')
+                self._publish_cmd(s.stamp_ns)
+                return
 
         with self.status.lock:
             self.status.mode = m.mode

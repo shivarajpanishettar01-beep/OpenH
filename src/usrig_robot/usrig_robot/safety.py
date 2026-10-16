@@ -22,6 +22,24 @@ FLAG_NAMES = {FLAG_ENVELOPE: 'envelope', FLAG_TILT_CONE: 'tilt_cone', FLAG_FORCE
               FLAG_DEADMAN: 'deadman', FLAG_SPEED: 'speed'}
 
 
+# UR RTDE robot_mode / safety_mode values (ur_rtde RTDEReceiveInterface getRobotMode / getSafetyMode)
+ROBOT_MODE_RUNNING = 7
+SAFETY_MODES_OK = (1, 2)            # NORMAL, REDUCED
+SAFETY_MODE_NAMES = {3: 'protective stop', 4: 'recovery mode', 5: 'safeguard stop',
+                     6: 'system emergency stop', 7: 'robot emergency stop', 8: 'safety violation',
+                     9: 'safety fault', 10: 'validate joint id', 11: 'undefined safety mode',
+                     12: 'automatic-mode safeguard stop', 13: 'three-position enabling stop'}
+
+
+def controller_problem(robot_mode, safety_mode):
+    """Why the controller cannot execute commands now (None = fine, or not reported by the source)."""
+    if safety_mode is not None and safety_mode not in SAFETY_MODES_OK:
+        return f'controller in {SAFETY_MODE_NAMES.get(safety_mode, f"safety mode {safety_mode}")}'
+    if robot_mode is not None and robot_mode != ROBOT_MODE_RUNNING:
+        return f'robot not running (robot_mode {robot_mode}; 7 = RUNNING)'
+    return None
+
+
 def flag_names(flags):
     return [n for b, n in FLAG_NAMES.items() if flags & b]
 

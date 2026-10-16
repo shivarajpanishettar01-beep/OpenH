@@ -21,6 +21,7 @@ class RobotSample:
     wrench: np.ndarray          # actual_TCP_force, as reported by the controller
     di_bits: int = None         # actual_digital_input_bits (freedrive pedal on a configurable input)
     robot_mode: int = None      # RTDE robot_mode (7 = RUNNING)
+    safety_mode: int = None     # RTDE safety_mode (1 NORMAL, 2 REDUCED, 3 PROTECTIVE_STOP, ...)
 
 
 @dataclass
@@ -97,6 +98,7 @@ class RtdeReader:
                 wrench=np.asarray(r.getActualTCPForce(), float),
                 di_bits=int(r.getActualDigitalInputBits()),
                 robot_mode=int(r.getRobotMode()),
+                safety_mode=int(r.getSafetyMode()),
             )
             with self._stats_lock:
                 st = self.stats

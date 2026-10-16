@@ -34,10 +34,15 @@ class Backend:
         """Called every control tick, also when nothing is commanded (controller-side deadman)."""
 
     def command(self, T_tcp, v_base, w_base, accel, force_on, force_setpoint_n, dt):
+        """Returns False when the controller refused the command (robot_control FAULTs)."""
         raise NotImplementedError
 
     def stop(self):
         raise NotImplementedError
+
+    def ensure_running(self):
+        """Before resuming after a FAULT: make sure the controller side can take commands again."""
+        return True
 
     def zero_ft(self):
         raise NotImplementedError
@@ -150,16 +155,28 @@ class RtdeBackend(Backend):
             task_frame = geometry.ur_from_pose(T_tcp)
             # selection: compliant along tool z only; wrench along tool +z (into tissue).
             # Sign convention of forceMode wrench vs probe direction: NOT VERIFIED (check in URSim).
-            self.c.forceMode(task_frame, [0, 0, 1, 0, 0, 0],
-                             [0.0, 0.0, float(force_setpoint_n), 0.0, 0.0, 0.0],
-                             2, self.force_limits)
+            if self.c.forceMode(task_frame, [0, 0, 1, 0, 0, 0],
+                                [0.0, 0.0, float(force_setpoint_n), 0.0, 0.0, 0.0],
+                                2, self.force_limits) is False:
+                return False
             self.force_active = True
         elif self.force_active:
             self.c.forceModeStop()
             self.force_active = False
         # R8: the command lives speedl_time_ticks x dt, so one late tick does not decelerate the arm;
         # the controller watchdog still stops a dead loop.
-        self.c.speedL([*map(float, v_base), *map(float, w_base)], float(accel), float(dt) * self.speedl_time_ticks)
+        return self.c.speedL([*map(float, v_base), *map(float, w_base)], float(accel),
+                             float(dt) * self.speedl_time_ticks) is not False
+
+    def ensure_running(self):
+        """A protective / safeguard stop ends the ur_rtde control script on the controller: upload it again."""
+        if self.c is None:
+            return False
+        if self.c.isProgramRunning():
+            return True
+        self.log('RTDE control script not running on the controller: uploading it again')
+        self.force_active = False
+        return bool(self.c.reuploadScript())
 
     def stop(self):
         if self.c is None:

@@ -56,6 +56,9 @@ class FakeRobot:
         self.t_last = time.monotonic()
         self.robot_ip = 'fake'
         self.protective = False
+        self.robot_mode, self.safety_mode = None, None      # set to RTDE values to simulate the controller
+        self.refuse_commands = False                        # ur_rtde speedL returning False
+        self.reuploads = 0
 
     # ---- state side
     def _integrate(self):
@@ -86,7 +89,8 @@ class FakeRobot:
             return RobotSample(stamp_ns=time.time_ns(), controller_time_s=time.monotonic(),
                                q=np.zeros(6), qd=np.zeros(6), tcp_pose=np.array(geometry.ur_from_pose(self.T)),
                                tcp_speed=np.concatenate([self.v, self.w]),
-                               wrench=np.concatenate([self._force_base(), np.zeros(3)]))
+                               wrench=np.concatenate([self._force_base(), np.zeros(3)]),
+                               robot_mode=self.robot_mode, safety_mode=self.safety_mode)
 
     # ---- backend side
     def connect(self):
@@ -101,8 +105,15 @@ class FakeRobot:
     def command(self, T_tcp, v_base, w_base, accel, force_on, fsp, dt):
         with self.lock:
             self._integrate()
+            if self.refuse_commands:
+                return False
             self.v, self.w = np.asarray(v_base, float), np.asarray(w_base, float)
             self.force_on, self.fsp = force_on, fsp
+            return True
+
+    def ensure_running(self):
+        self.reuploads += 1
+        return True
 
     def stop(self):
         with self.lock:
@@ -810,4 +821,40 @@ def test_deadman_zero_is_not_an_expert_action(sim):
     fsp, mode, flags, src, expert = node.status.snapshot()
     assert flags & rc.safety.FLAG_DEADMAN
     assert src == rc.ST.SOURCE_NONE and expert is False
+    node.destroy_node()
+
+
+def test_controller_problem_rule():
+    from usrig_robot.safety import controller_problem
+    assert controller_problem(None, None) is None                    # not reported (simulator / old reader)
+    assert controller_problem(7, 1) is None and controller_problem(7, 2) is None   # RUNNING, NORMAL / REDUCED
+    assert 'protective' in controller_problem(7, 3)
+    assert 'emergency' in controller_problem(7, 7)
+    assert 'not running' in controller_problem(5, 1)                # IDLE (brakes released, no program)
+
+
+def test_protective_stop_on_the_controller_faults_and_labels_none(sim):
+    """A UR protective stop (collision, safety plane, pendant) kept fresh state: nothing faulted before."""
+    node, robot = sim()
+    robot.robot_mode, robot.safety_mode = 7, 1
+    _teleop_on(node)
+    robot.safety_mode = 3                                           # PROTECTIVE_STOP
+    drive(node, 0.1)
+    fsp, mode, flags, src, expert = node.status.snapshot()
+    assert mode == rc.ST.MODE_FAULT and src == rc.ST.SOURCE_NONE and expert is False
+    cmd(node, {'cmd': 'ack_fault'})                                  # still stopped: refused
+    assert node.status.mode == rc.ST.MODE_FAULT
+    robot.safety_mode = 1                                           # unlocked on the pendant
+    cmd(node, {'cmd': 'ack_fault'})
+    assert node.status.mode != rc.ST.MODE_FAULT and robot.reuploads == 1
+    node.destroy_node()
+
+
+def test_refused_command_faults(sim):
+    """ur_rtde speedL returning False (script not running, controller busy) used to be ignored."""
+    node, robot = sim()
+    _teleop_on(node)
+    robot.refuse_commands = True
+    drive(node, 0.1, v=(0.002, 0, 0))
+    assert node.status.mode == rc.ST.MODE_FAULT
     node.destroy_node()
