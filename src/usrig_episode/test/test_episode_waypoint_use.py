@@ -158,3 +158,44 @@ def test_start_refused_below_the_disk_floor(tmp_path):
     fake.sim = True
     fake.scfg['session']['min_free_disk_gb'] = 10**9
     assert EpisodeManager._presession_ready(fake) is False and 'GB free' in fake.presession_problem
+
+
+def _post_fake(tmp_path):
+    import types as _t
+    from usrig_episode import episode_status as es
+    calls = []
+    f = _t.SimpleNamespace(sdir=tmp_path, finishing=False, scfg={}, rig={}, keymap={}, last_ep=None, counts=None,
+                           _finished_episodes=lambda: [], calls=calls,
+                           get_logger=lambda: _t.SimpleNamespace(info=calls.append, warn=calls.append))
+    f._post_process = lambda ep: EpisodeManager._post_process(f, ep)
+    assert es.last_summary                                          # used by _post_process
+    return f
+
+
+def test_discarded_episodes_skip_qc(tmp_path, monkeypatch):
+    """QC on a discard (never exported) was pure operator dead time."""
+    import json as _j
+    import usrig_qc.episode_qc as eq
+    monkeypatch.setattr(eq, 'run_episode_qc', lambda *a, **k: (_ for _ in ()).throw(AssertionError('QC ran')))
+    (tmp_path / 'ep_0001').mkdir()
+    fake = _post_fake(tmp_path)
+    ep = EpisodeManager._post_process(fake, {'episode_dir': 'ep_0001', 'episode_id': 'e1', 'outcome': 'discard',
+                                             'notes': ''})
+    assert ep['qc'] == {'pass': False, 'skipped': 'discarded episode'}
+    assert _j.loads((tmp_path / 'ep_0001' / 'episode.json').read_text())['qc']['skipped']
+
+
+def test_restart_runs_qc_that_never_ran(tmp_path, monkeypatch):
+    """A crash between the episode.json write and QC left qc: null for good; it is now run on restart."""
+    import json as _j
+    import usrig_qc.episode_qc as eq
+    import usrig_qc.auto_annotate as aa
+    monkeypatch.setattr(eq, 'run_episode_qc', lambda d, ep, s, r: {'pass': True, 'checks': {}})
+    monkeypatch.setattr(aa, 'auto_annotate', lambda d, ep, km: None)
+    d = tmp_path / 'ep_0002'
+    d.mkdir()
+    (d / 'episode.json').write_text(_j.dumps({'episode_dir': 'ep_0002', 'episode_id': 'e2', 'outcome': 'success',
+                                              'qc': None, 'notes': '', 'duration_s': 25.0}))
+    fake = _post_fake(tmp_path)
+    EpisodeManager._recover_interrupted(fake)
+    assert _j.loads((d / 'episode.json').read_text())['qc']['pass'] is True

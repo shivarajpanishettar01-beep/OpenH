@@ -366,6 +366,11 @@ class EpisodeManager(Node):
                 write_json_atomic(d / 'episode.json', ep)
                 self.get_logger().warn(f'{d.name}: interrupted episode marked discard')
             partial.unlink(missing_ok=True)
+        for f in sorted(self.sdir.glob('ep_*/episode.json')):
+            ep = read_json(f)
+            if ep.get('qc') is None and ep.get('outcome') != 'discard':
+                self.get_logger().info(f'{f.parent.name}: QC never ran (stopped during post-processing): running it')
+                self._post_process(ep)
 
     def _wrist_info(self):
         cam = self.scfg['wrist_camera']
@@ -438,8 +443,10 @@ class EpisodeManager(Node):
         ep['t_start_ns'] = self.event('start', {k: ep.get(k) for k in
                                                 ('stage', 'type', 'target', 'instruction', 'plan_row')})
 
-    def _finish(self, ep, task_text=None):
-        """end event -> bag stops -> micrus stops -> task.txt / episode.json -> QC."""
+    def _finish(self, ep, task_text=None, post=True):
+        """end event -> bag stops -> micrus stops -> task.txt / episode.json [-> QC, auto-annotation].
+        post=False: the caller retracts first and then calls _post_process (QC decodes every frame: seconds of
+        dead time that used to pass with the probe still in contact)."""
         if ep.get('t_start_ns') is None:
             ep['t_start_ns'] = ep.get('t_bag_ready_ns')
         self.finishing = True
@@ -470,6 +477,20 @@ class EpisodeManager(Node):
             (d / 'task.txt').write_text((task_text or ep['instruction']) + '\n')
         write_json_atomic(d / 'episode.json', ep)
         (self.sdir / f'.{ep["episode_dir"]}.partial.json').unlink(missing_ok=True)
+        return self._post_process(ep) if post else ep
+
+    def _post_process(self, ep):
+        """QC and auto-annotation of a written episode, then the final episode.json. Discards are not checked
+        (never exported): their QC time was pure operator dead time."""
+        d = self.sdir / ep['episode_dir']
+        self.finishing = True
+        if ep.get('outcome') == 'discard':
+            ep['qc'] = {'pass': False, 'skipped': 'discarded episode'}
+            write_json_atomic(d / 'episode.json', ep)
+            self.last_ep = es.last_summary(ep)
+            self.counts = es.summarize_episodes(self._finished_episodes())
+            self.finishing = False
+            return ep
         try:
             from usrig_qc.episode_qc import run_episode_qc
             ep['qc'] = run_episode_qc(d, ep, self.scfg, self.rig)
@@ -583,12 +604,15 @@ class EpisodeManager(Node):
                 ep['outcome'] = 'discard'
                 ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
             finally:
-                if ep.get('t_bag_ready_ns'):
-                    self._finish(ep)
+                written = bool(ep.get('t_bag_ready_ns'))
+                if written:
+                    ep = self._finish(ep, post=False)
                 else:
                     self._close_unstarted(ep)
                 if self.control:
                     self._safe_retract()
+                if written:
+                    self._post_process(ep)
 
     def _freedrive(self):
         """Kinesthetic episodes: the operator moves the arm with the freedrive pedal; nothing is commanded."""
@@ -673,13 +697,16 @@ class EpisodeManager(Node):
             except Exception as e:  # noqa: BLE001  (Abort, RecorderError, OSError, ...: this episode only)
                 self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
                 ep['outcome'] = 'discard'
-                ep['notes'] = f'aborted: {e}'
+                ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
             finally:
-                if ep.get('t_bag_ready_ns'):
-                    self._finish(ep, task_text=ep.get('instruction') or f'Scan path {name}')
+                written = bool(ep.get('t_bag_ready_ns'))
+                if written:
+                    ep = self._finish(ep, task_text=ep.get('instruction') or f'Scan path {name}', post=False)
                 else:
                     self._close_unstarted(ep)
                 self._safe_retract()
+                if written:
+                    ep = self._post_process(ep)
 
     def _try_call(self, name, req):
         try:
@@ -775,13 +802,16 @@ class EpisodeManager(Node):
         except Exception as e:  # noqa: BLE001  (Abort, RecorderError, OSError, ...: this episode only)
             self.get_logger().error(f"{ep['episode_id']} aborted, discarded: {e}")
             ep['outcome'] = 'discard'
-            ep['notes'] = f'aborted: {e}'
+            ep['notes'] = (ep['notes'] + f'\naborted: {e}').strip()
         finally:
-            if ep.get('t_bag_ready_ns'):
-                ep = self._finish(ep)
+            written = bool(ep.get('t_bag_ready_ns'))
+            if written:
+                ep = self._finish(ep, post=False)
             else:
                 self._close_unstarted(ep)
             self._safe_retract()
+            if written:
+                ep = self._post_process(ep)
         ok = ep.get('outcome') != 'discard' and (ep.get('qc') or {}).get('pass') is True
         prog = read_json(prog_path)
         prog[row['row']] = {'status': 'done' if ok else 'redo', 'episode_id': ep['episode_id']}
