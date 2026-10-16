@@ -82,6 +82,49 @@ def failure_class_problems(episodes, catalog=None):
     return out
 
 
+def index_problems(order_episodes, sources, parquet_indices):
+    """The v2.1 dataset must hold exactly the staged episodes, in staging order (episode_index == stage index):
+    the splits and every per-episode label are keyed on it. Returns one message per mismatch."""
+    out = []
+    by_index = {int(s['episode_index']): str(Path(s['bag']).resolve()) for s in sources}
+    for o in order_episodes:
+        bag = by_index.get(int(o['index']))
+        if bag is None:
+            out.append(f'staged episode {o["index"]} ({o["bag"]}) is not in the v2.1 dataset')
+        elif bag != str(Path(o['bag']).resolve()):
+            out.append(f'v2.1 episode {o["index"]} is {bag}, staged as {o["bag"]}')
+    staged = {int(o['index']) for o in order_episodes}
+    out += [f'v2.1 episode {i} ({by_index[i]}) was not staged' for i in sorted(set(by_index) - staged)]
+    if sorted(int(i) for i in parquet_indices) != sorted(by_index):
+        out.append(f'{len(parquet_indices)} episode parquet files for {len(by_index)} episodes in micrus_sources.jsonl')
+    return out
+
+
+def converter_offsets(lr):
+    """({'ultrasound', 'camera'}: s) the converter (bag_to_lerobot, lerobot_rig.yaml) aligned the videos with,
+    and problems (the frame info must use the ultrasound image's offset)."""
+    im = lr.get('images') or {}
+    used = {'ultrasound': float((im.get('observation.images.ultrasound') or {}).get('time_offset_s') or 0.0),
+            'camera': float((im.get('observation.images.wrist_camera') or {}).get('time_offset_s') or 0.0)}
+    fi = lr.get('micrus_frame_info')
+    probs = []
+    if fi is not None and abs(float(fi.get('time_offset_s') or 0.0) - used['ultrasound']) > 1e-6:
+        probs.append(f'lerobot_rig.yaml micrus_frame_info time_offset_s {fi.get("time_offset_s")} != ultrasound '
+                     f'image {used["ultrasound"]}')
+    return used, probs
+
+
+def offset_problems(epj, used, tol_s=0.001):
+    """An episode whose capture PC measured offsets (episode.json time_offsets_s) differ from the ones its videos
+    were aligned with: its video frames and host stamps would be off by the difference."""
+    out = []
+    for name, meas in (epj.get('time_offsets_s') or {}).items():
+        if name in used and meas is not None and abs(float(meas) - used[name]) > tol_s:
+            out.append(f'{epj.get("episode_id")}: {name} offset measured on {epj.get("capture_host")} is {meas} s, '
+                       f'the videos were aligned with {used[name]} s (lerobot_rig.yaml)')
+    return out
+
+
 def sample_hold(stamps_ns, t_steps_ns):
     """Index of the latest sample stamped at or before each step (-1 if none)."""
     st = np.asarray(stamps_ns, np.int64)

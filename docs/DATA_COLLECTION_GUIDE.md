@@ -181,6 +181,11 @@ In the `openh-export` env (Python 3.12, LeRobot 0.6.0):
 ```bash
 ~/miniconda3/envs/openh-export/bin/python export/openh_export.py --v21 ~/datasets/us_v21 --order ~/datasets/staging_order.json --out ~/datasets/iitmandi_us
 ```
+Before writing anything the export checks, and refuses with the full list of problems: the v2.1 dataset holds
+exactly the staged episodes in staging order and was converted with `export/lerobot_rig.yaml` (hash in
+`micrus_sources.jsonl`); every episode's measured time offsets (`episode.json time_offsets_s`, from its capture
+PC) equal the `time_offset_s` the converter aligned the videos with (convert episodes from capture PCs with
+different offsets separately); every failure / recovery episode has a failure class.
 Needs `probe.type` and `calibration.prob_cali_mtx` in `rig.yaml`. Action = incremental TCP pose
 `[dx, dy, dz, drx, dry, drz]` (base frame, rotation vector; `--action-frame tool` for the TCP frame); the
 executed probe-frame twist is kept as `observation.meta.commanded_twist`, with

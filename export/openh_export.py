@@ -136,23 +136,10 @@ def carry_meta(work, custom_info):
     shutil.rmtree(old)
 
 
-_warned = set()
-
-
-def warn_offsets(epj, ep_off):
-    """bag_to_lerobot aligned the images with lerobot_rig.yaml time_offset_s; warn once per value if that differs
-    from what the recording PC measured (episode.json time_offsets_s)."""
-    import yaml
-    lr = yaml.safe_load((HERE / 'lerobot_rig.yaml').read_text())
-    pairs = (('ultrasound', lr['images']['observation.images.ultrasound'].get('time_offset_s')),
-             ('camera', lr['images']['observation.images.wrist_camera'].get('time_offset_s')))
-    for name, used in pairs:
-        meas = ep_off.get(name)
-        if meas is not None and used is not None and abs(float(meas) - float(used)) > 0.001 and name not in _warned:
-            _warned.add(name)
-            print(f'WARNING: {epj.get("episode_id")}: lerobot_rig.yaml {name} time_offset_s {used} differs from the '
-                  f'{meas} measured on {epj.get("capture_host")}: set lerobot_rig.yaml to the capture PC value and '
-                  'convert again (bag_to_lerobot aligned the images with it)')
+def converter_config_sha(lr):
+    """The hash bag_to_lerobot stores per episode (micrus_sources.jsonl config_sha256_16)."""
+    import hashlib
+    return hashlib.sha256(json.dumps(lr, sort_keys=True).encode()).hexdigest()[:16]
 
 
 def feature_of(col, pa):
@@ -178,10 +165,9 @@ def main():
     ap.add_argument('--failure-catalog', default=str(HERE.parent / 'src/usrig_presets/config/failure_catalog.yaml'),
                     help='FM ids; a failure_class key on an entry overrides the PROPOSED table in annotation.py')
     ap.add_argument('--us-topic', default='/micrus/bmode')
-    ap.add_argument('--us-time-offset-s', type=float, default=None,
-                    help='default: rig.yaml calibration.ultrasound_time_offset_s (PLACEHOLDER until P9c)')
-    ap.add_argument('--depth-time-offset-s', type=float, default=None,
-                    help='default: rig.yaml calibration.camera_time_offset_s (PLACEHOLDER until P9c)')
+    ap.add_argument('--converter-config', default=str(HERE / 'lerobot_rig.yaml'),
+                    help='the bag_to_lerobot config the v2.1 dataset was converted with (checked by hash): its '
+                         'time_offset_s values aligned the videos and are used for host stamps and depth too')
     ap.add_argument('--action-frame', choices=['base', 'tool'], default='base')
     ap.add_argument('--depth', choices=['png', 'none'], default='png')
     ap.add_argument('--skip-convert', action='store_true')
@@ -201,8 +187,10 @@ def main():
     missing = [k for k, v in (('probe.type', probe_type), ('calibration.prob_cali_mtx', prob_cali)) if v is None]
     if missing:
         sys.exit(f'null in rig.yaml: {missing} (Open-H needs them)')
-    us_off = a.us_time_offset_s if a.us_time_offset_s is not None else float(cal.get('ultrasound_time_offset_s', 0))
-    d_off = a.depth_time_offset_s if a.depth_time_offset_s is not None else float(cal.get('camera_time_offset_s', 0))
+    # bag_to_lerobot aligned the videos with these: host stamps and depth use the same, and every episode's
+    # measured offsets (episode.json, from its capture PC) must agree, else its frames would be off
+    lr = yaml.safe_load(Path(a.converter_config).read_text())
+    offsets, problems = F.converter_offsets(lr)
     ct = scfg['wrist_camera']['topics']
 
     src = Path(a.v21).expanduser()
@@ -214,14 +202,25 @@ def main():
         sys.exit(f'{out} or {work} exists')
     order = json.loads(Path(a.order).read_text())
     catalog = yaml.safe_load(Path(a.failure_catalog).read_text()) if Path(a.failure_catalog).exists() else None
-    # every failure / recovery episode needs one of the four failure classes (checked before writing anything)
+    # checked before writing anything: dataset = staged episodes in staging order, converter config, offsets,
+    # and a failure class on every failure / recovery episode
+    src_rows = read_jsonl(src / 'meta' / 'micrus_sources.jsonl')
+    problems += F.index_problems(order['episodes'], src_rows,
+                                 [int(p.stem.split('_')[-1]) for p in src.glob('data/chunk-*/episode_*.parquet')])
+    sha = converter_config_sha(lr)
+    problems += [f'v2.1 episode {r["episode_index"]} was converted with another config ({r.get("config_sha256_16")}, '
+                 f'{a.converter_config} is {sha}): its video offsets are unknown'
+                 for r in src_rows if r.get('config_sha256_16') not in (None, sha)]
     staged = []
     for o in order['episodes']:
         epj = json.loads((Path(o['bag']) / 'episode.json').read_text())
         staged.append((epj, F.A.load_merged(o['bag'], episode=epj)))
-    probs = F.failure_class_problems(staged, catalog)
-    if probs:
-        sys.exit('failure / recovery episodes without a failure class:\n  ' + '\n  '.join(probs))
+        problems += F.offset_problems(epj, offsets)
+    problems += F.failure_class_problems(staged, catalog)
+    if problems:
+        hint = ('\nOffsets: set lerobot_rig.yaml time_offset_s to the capture PC values (stage and convert episodes '
+                'from different capture PCs separately) and convert again.' if any('offset' in p for p in problems) else '')
+        sys.exit(f'not exported ({len(problems)} problems; nothing written):\n  ' + '\n  '.join(problems) + hint)
     shutil.copytree(src, work)
     meta = work / 'meta'
     info = json.loads((meta / 'info.json').read_text())
@@ -240,14 +239,10 @@ def main():
         s = sources[ep_index]
         bag = str(Path(s['bag']).resolve())
         o = by_bag.get(bag)
-        if o is None:
-            sys.exit(f'episode {ep_index}: bag {bag} not in {a.order}')
+        if o is None or o['index'] != ep_index:
+            sys.exit(f'episode {ep_index}: bag {bag} is not staged at that index in {a.order}')
         epj = json.loads((Path(bag) / 'episode.json').read_text())
-        # offsets measured on the PC that recorded this episode (episode.json) win over the exporting PC's rig.yaml
-        ep_off = epj.get('time_offsets_s') or {}
-        us_off_ep = us_off if a.us_time_offset_s is not None or ep_off.get('ultrasound') is None else float(ep_off['ultrasound'])
-        d_off_ep = d_off if a.depth_time_offset_s is not None or ep_off.get('camera') is None else float(ep_off['camera'])
-        warn_offsets(epj, ep_off)
+        us_off_ep, d_off_ep = offsets['ultrasound'], offsets['camera']   # = the measured ones (checked above)
         if epj.get('sim'):
             sys.exit(f'{bag}: simulated episode (sim: true): never exported')
         if bool(epj.get('synthetic_pipeline_check')) != a.pipeline_check:
@@ -352,7 +347,8 @@ def main():
         provenance.append({'episode_index': ep_index, 'split': o['split'],
                            **{k: epj.get(k) for k in PROVENANCE_KEYS},
                            'session_sim': bool(sess.get('sim')), 'n_steps': n,
-                           'failure_class': fc or None, 'failure_class_source': fc_src or None})
+                           'failure_class': fc or None, 'failure_class_source': fc_src or None,
+                           'time_offsets_used_s': offsets})
         print(f'episode {ep_index}: {n} steps, split {o["split"]}, type {o["type"]}, '
               f'status {dict(zip(*np.unique(status, return_counts=True)))}')
 

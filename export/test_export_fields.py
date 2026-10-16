@@ -74,6 +74,29 @@ def test_failure_class_from_failure_mode_and_missing_class_is_an_error():
     assert [p.split(':')[0] for p in probs] == ['a', 'b', 'c']
 
 
+def test_export_checks_dataset_index_count_and_offsets():
+    """P2-18: the v2.1 episode order must match the staging order 1:1, and every episode whose measured offsets
+    differ from the ones the converter aligned the videos with is an error (not one warning per run)."""
+    order = [{'index': 0, 'bag': '/s/ep_1'}, {'index': 1, 'bag': '/s/ep_2'}]
+    src = [{'episode_index': 0, 'bag': '/s/ep_1'}, {'episode_index': 1, 'bag': '/s/ep_2'}]
+    assert F.index_problems(order, src, [0, 1]) == []
+    swapped = [{'episode_index': 0, 'bag': '/s/ep_2'}, {'episode_index': 1, 'bag': '/s/ep_1'}]
+    assert len(F.index_problems(order, swapped, [0, 1])) == 2
+    assert F.index_problems(order, src[:1], [0])                         # conversion stopped after one bag
+    assert F.index_problems(order, src + [{'episode_index': 2, 'bag': '/s/x'}], [0, 1, 2])   # stray episode
+    assert F.index_problems(order, src, [0])                             # a parquet file missing
+    lr = {'images': {'observation.images.ultrasound': {'time_offset_s': -0.02},
+                     'observation.images.wrist_camera': {'time_offset_s': 0.0}},
+          'micrus_frame_info': {'time_offset_s': -0.02}}
+    used, probs = F.converter_offsets(lr)
+    assert used == {'ultrasound': -0.02, 'camera': 0.0} and probs == []
+    assert F.converter_offsets({**lr, 'micrus_frame_info': {'time_offset_s': 0.0}})[1]
+    assert F.offset_problems({'time_offsets_s': {'ultrasound': -0.02, 'camera': 0.0}}, used) == []
+    assert F.offset_problems({'time_offsets_s': {'ultrasound': None, 'camera': None}}, used) == []
+    for eid in ('a', 'b'):                                               # every episode, not only the first
+        assert len(F.offset_problems({'episode_id': eid, 'time_offsets_s': {'ultrasound': -0.035}}, used)) == 1
+
+
 def test_png16_is_lossless():
     d = np.random.default_rng(0).integers(0, 65535, (48, 64), dtype=np.uint16)
     assert np.array_equal(F.unpng16(F.png16(d)), d)

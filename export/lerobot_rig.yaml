@@ -16,7 +16,7 @@ images:
   observation.images.ultrasound:
     topic: /micrus/bmode
     time_offset_s: -0.020       # PLACEHOLDER: set to the CAPTURE PC's measured ultrasound offset (its machine.yaml,
-                                # also in every episode.json time_offsets_s; openh_export warns if they differ)
+                                # also in every episode.json time_offsets_s; openh_export refuses every episode where they differ)
   observation.images.wrist_camera:          # proposal name (Open-H ultrasound schema)
     topic: /wrist/d415/color/image_raw
     time_offset_s: 0.0          # PLACEHOLDER until the P9c camera temporal calibration
