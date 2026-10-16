@@ -52,6 +52,11 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 - Pedal on a configurable input set to "Freedrive": the input bit in `actual_digital_input_bits` (8 + input)
   and freedrive behaviour on the UR7e (works in Remote Control mode as well: user, 14 Oct 2026).
   `freedrive_check` (usrig_freedrive) tests the labels, locking and drift on the arm; run it first.
+- Robot data content on the real UR7e (16 Oct): `bag_check` now checks that pose, joints and force are READ
+  (F/T live, not all zero / constant; TCP not at the origin; derived topics equal `/robot/state`), and
+  `robot_state_cpp` drops a sample with a missing RTDE field instead of publishing zeros. Only checked on
+  synthetic bags and the 14 Oct URSim bag (force exactly 0 there: URSim has no F/T sensor). First real
+  check: test 1.5 with the move / tilt / press protocol.
 - `robot_state_cpp` with the new RTDE outputs (`actual_digital_input_bits`, `robot_mode`): runs on URSim
   5.26.1 (13 Oct 2026, read-only: 475 Hz, IDLE labels, NaN marker at 120 Hz); the FREEDRIVE label itself
   (pedal held) is tested only as pure logic (`test_labels.py`).

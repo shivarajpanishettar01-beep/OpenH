@@ -31,7 +31,8 @@ Where files go: `docs/DATA_LAYOUT.md`. Test recordings go to `~/data/checks/<tes
 sessions, and are never exported. Simulated runs (`sim:=true`) go to `~/data_sim`.
 
 What has run where (14 Oct 2026, development PC):
-- Test 1 ran in simulation (URSim): its recording passed `bag_check`, with 0 robot samples lost.
+- Test 1 ran in simulation (URSim): 0 robot samples lost; with the content checks of 16 Oct its bag fails only
+  "F/T live" (URSim reports 0 force), as expected in simulation.
 - Test 2 ran in simulation (URSim + the micrus simulator): recordings passed with 0 robot samples lost and 0
   ultrasound frame gaps. One run right after URSim had booted lost robot samples in the bag; see the note at
   the end of test 2.
@@ -130,12 +131,21 @@ Stop terminal 1 (Ctrl+C), start it again with recording:
 ```bash
 ros2 launch usrig_bringup test1_robot.launch.py record:=true
 ```
-Move the arm by hand / pendant for about 30 s, then Ctrl+C. The launch printed the folder; check it:
+During the ~30 s recording do three things you can recognise in the data afterwards:
+1. leave the arm still for ~5 s (free-air force baseline);
+2. move it by pendant jog or freedrive about 100 mm along one base axis, and tilt the tool ~10 deg;
+3. press lightly on the tool / probe by hand for 2-3 s (a few N).
+
+Then Ctrl+C. The launch printed the folder; check it:
 ```bash
 ros2 run usrig_qc bag_check ~/data/checks/test1_robot_<date_time> --expect robot
 ```
-**Pass**: rate 500 Hz (controller clock), 0 samples lost, `/joint_states`, `/robot/tcp_pose`, `/robot/wrench`
-with the same count as `/robot/state`, and "TCP moved ... mm" matching what you did.
+**Pass**: rate 500 Hz (controller clock), 0 samples lost; `/joint_states`, `/robot/tcp_pose`, `/robot/wrench`
+with the same count as `/robot/state` **and the same values** (matched sample by sample); every value finite;
+joint angles read; TCP not at the base origin; F/T live (a real sensor always shows noise, so all-zero or
+constant force means `actual_TCP_force` is not arriving). Then read the "robot data" summary against what you
+did: "TCP moved up to ~100 mm", "turned up to ~10 deg", the force maximum a few N above the median (your press),
+and freedrive samples only if you held the pedal.
 
 **1.6 Measure the workspace while you are here** (read-only; the robot connected, you move it by pendant or
 freedrive). `m` measures the box from corners you touch with the probe tip, the tilt axis with the probe square to
@@ -370,4 +380,5 @@ ros2 launch usrig_bringup test2_micrus_robot.launch.py session_id:=sim_test sim:
 ros2 launch usrig_bringup test4_full_system.launch.py session_id:=sim_test sim:=true camera:=false
 ```
 Data goes to `~/data_sim`. URSim runs slower than real time, so `bag_check` judges the robot rate on the
-controller clock.
+controller clock. URSim has no F/T sensor: its `actual_TCP_force` is exactly 0, so the "F/T live" check FAILS
+in simulation (measured on the 14 Oct URSim test-1 bag); on the real UR7e it must pass.

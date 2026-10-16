@@ -311,15 +311,30 @@ private:
       urcl::vector6d_t q{}, qd{}, pose{}, speed{}, force{};
       uint64_t di_bits = 0;
       int32_t robot_mode = -1;
-      pkg->getData("timestamp", ctrl_t);
-      pkg->getData("actual_q", q);
-      pkg->getData("actual_qd", qd);
-      pkg->getData("actual_TCP_pose", pose);
-      pkg->getData("actual_TCP_speed", speed);
-      pkg->getData("actual_TCP_force", force);
-      pkg->getData("actual_digital_input_bits", di_bits);
-      pkg->getData("robot_mode", robot_mode);
+      // getData() returns false for a field missing from the package; the zeros left in place must never be
+      // published as data (a TCP at the base origin or a 0 N force would look like a valid sample)
+      std::string missing;
+      const auto get = [&](const char* name, auto& v) {
+        if (!pkg->getData(name, v)) {
+          missing += std::string(missing.empty() ? "" : ", ") + name;
+        }
+      };
+      get("timestamp", ctrl_t);
+      get("actual_q", q);
+      get("actual_qd", qd);
+      get("actual_TCP_pose", pose);
+      get("actual_TCP_speed", speed);
+      get("actual_TCP_force", force);
+      get("actual_digital_input_bits", di_bits);
+      get("robot_mode", robot_mode);
       (void)speed;
+      if (!missing.empty()) {
+        ++field_failures_;
+        RCLCPP_ERROR_THROTTLE(get_logger(), *get_clock(), 5000,
+                              "RTDE sample without %s: not published (%ld samples dropped so far)",
+                              missing.c_str(), field_failures_.load());
+        continue;
+      }
       account(ctrl_t, stamp_ns, period);
       publish(stamp_ns, ctrl_t, q, qd, pose, force, di_bits, robot_mode);
     }
@@ -525,6 +540,7 @@ public:
   bool have_phantom_ = false;
   long samples_ = 0, repeated_ = 0, gaps_ = 0, lost_ = 0;
   std::atomic<long> read_failures_{0};
+  std::atomic<long> field_failures_{0};   // samples with an RTDE output missing (never published)
   double last_ctrl_ = 0;
   bool have_last_ = false;
   std::vector<double> stamp_minus_ctrl_;
