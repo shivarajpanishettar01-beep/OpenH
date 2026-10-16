@@ -14,7 +14,8 @@ RIG = yaml.safe_load((REPO / 'src/usrig_bringup/config/rig.yaml').read_text())
 T0 = 1_760_000_000_000_000_000
 
 
-def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mode=3, vx_mm_s=0.0):
+def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mode=3, vx_mm_s=0.0,
+              camera=False, camera_stop_s=None, us_stop_s=None):
     from rosbags.rosbag2 import StoragePlugin, Writer
     ts = _typestore()
     Image = ts.types['sensor_msgs/msg/Image']
@@ -37,6 +38,8 @@ def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mo
         if i == drop_frame:
             continue
         ns = T0 + int(i * 1e9 / 27)
+        if us_stop_s is not None and ns > T0 + us_stop_s * 1e9:
+            break
         img = Image(header=hdr(ns), height=64, width=64, encoding='mono8', is_bigendian=0, step=64,
                     data=np.full(64 * 64, 120, np.uint8))
         fi = {'stamp': ns * 1e-9, 'frame_index': i, 'settings': {'depth': 40, 'lines': 128}}
@@ -64,9 +67,22 @@ def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mo
         ns = T0 + int(t * 1e9)
         cmd = {'cmd': 'key', 'key': key, 'down': down, 't_ns': ns}
         msgs.append(('/operator/command', ns, String(data=json.dumps(cmd)), String))
+    usb = {'speed_mbps': 5000, 'reconnects': 0} if camera else None
     for k in range(int(duration_s * 2)):
         ns = T0 + int(k * 0.5e9)
-        msgs.append(('/qc/status', ns, String(data=json.dumps({'wrist_usb': None})), String))
+        msgs.append(('/qc/status', ns, String(data=json.dumps({'wrist_usb': usb})), String))
+    if camera:
+        # D415 colour + aligned depth at 30 Hz over the whole bag (it records before start and after end)
+        ct = SCFG['wrist_camera']['topics']
+        for k in range(int(duration_s * 30)):
+            ns = T0 + int(k * 1e9 / 30)
+            if camera_stop_s is not None and ns > T0 + camera_stop_s * 1e9:
+                break
+            col = Image(header=hdr(ns), height=4, width=4, encoding='rgb8', is_bigendian=0, step=12,
+                        data=np.full(48, 100, np.uint8))
+            dep = Image(header=hdr(ns), height=4, width=4, encoding='16UC1', is_bigendian=0, step=8,
+                        data=np.full(32, 7, np.uint8))
+            msgs += [(ct['color'], ns, col, Image), (ct['depth'], ns, dep, Image)]
 
     with Writer(path, version=8, storage_plugin=StoragePlugin.MCAP) as w:
         conns = {}
@@ -245,3 +261,42 @@ def test_label_agreement_two_raters(tmp_path, capsys):
     assert st['episodes'] == 3 and abs(st['percent_agreement'] - (300 - 5) / 300) < 1e-9 and st['kappa'] > 0.9
     assert res['motion_quality']['episodes'] == 3 and 0 < res['motion_quality']['kappa'] < 1
     assert res['phases']['episodes'] == 0 and res['phases']['kappa'] is None
+
+
+def camera_config():
+    scfg, rig = config()
+    scfg['wrist_camera']['enabled'] = True
+    scfg['recording']['include_wrist_camera'] = True
+    return scfg, rig
+
+
+def test_camera_rate_judged_inside_the_episode_window(tmp_path):
+    """The bag records before start (readiness, free-air hold, descent) and after end: depth was counted over
+    the whole bag but divided by the window, so every camera episode under ~35 s failed wrist_rate."""
+    write_bag(tmp_path / 'ep_c1', camera=True)
+    r = run_episode_qc(tmp_path / 'ep_c1', EP, *camera_config())
+    c = r['checks']['wrist_rate']
+    assert c['status'] == 'pass', c
+    assert c['hz']['depth'] == pytest.approx(30, rel=0.02) and c['hz']['color'] == pytest.approx(30, rel=0.02)
+
+
+def test_stream_that_stops_mid_episode_fails(tmp_path):
+    """A camera or scanner that stalls part way used to pass: rates were taken between the samples present."""
+    write_bag(tmp_path / 'ep_c2', camera=True, camera_stop_s=2.5)        # window 0.7 .. 3.8 s
+    r = run_episode_qc(tmp_path / 'ep_c2', EP, *camera_config())
+    assert r['checks']['stream_coverage']['status'] == 'fail'
+    assert 'wrist.color' in r['checks']['stream_coverage']['short']
+    write_bag(tmp_path / 'ep_c3', us_stop_s=3.0)
+    r = run_episode_qc(tmp_path / 'ep_c3', EP, *config())
+    assert r['checks']['stream_coverage']['status'] == 'fail' and 'ultrasound' in r['checks']['stream_coverage']['short']
+    write_bag(tmp_path / 'ep_c4', camera=True)
+    r = run_episode_qc(tmp_path / 'ep_c4', EP, *camera_config())
+    assert r['checks']['stream_coverage']['status'] == 'pass', r['checks']['stream_coverage']
+
+
+def test_bag_recorder_error_fails(tmp_path):
+    write_bag(tmp_path / 'ep_c5')
+    r = run_episode_qc(tmp_path / 'ep_c5', dict(EP, bag_returncode=1), *config())
+    assert r['checks']['bag_closed']['status'] == 'fail' and not r['pass']
+    r = run_episode_qc(tmp_path / 'ep_c5', dict(EP, bag_returncode=0), *config())
+    assert r['checks']['bag_closed']['status'] == 'pass'

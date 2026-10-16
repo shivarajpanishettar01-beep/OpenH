@@ -19,6 +19,7 @@ from usrig_common import config
 ROBOT_SOURCES = {0: 'teleop', 1: 'scripted_task', 2: 'transit', 3: 'perturbation', 4: 'none', 5: 'kinesthetic'}
 EXPERT_SOURCES = (0, 1, 5)          # teleop, scripted task, kinesthetic (freedrive by hand)
 PLANNED_LIFT = {'FM-01', 'FM-02'}
+UNSTAMPED = {'/micrus/frame_info', '/qc/status', '/operator/command'}   # std_msgs/String: no header
 
 
 def _typestore():
@@ -42,15 +43,24 @@ def stamp_ns(msg):
     return int(msg.header.stamp.sec) * 1_000_000_000 + int(msg.header.stamp.nanosec)
 
 
-def read_bag(bag_dir, topics, decode_every=None):
-    """{topic: [(log_ns, msg), ...]}; decode_every={topic: n} keeps every n-th message only."""
+def read_bag(bag_dir, topics, decode_every=None, window=None, window_stats=None):
+    """{topic: [(log_ns, msg), ...]}; decode_every={topic: n} keeps every n-th message only.
+    window=(t0, t1) with a window_stats dict: for every stamped topic, {topic: [n, first, last]} of the
+    messages whose header stamp (read from the raw CDR, no decoding) is inside the window."""
     from rosbags.highlevel import AnyReader
+
+    from .stream_check import stamp_from_cdr
     out = {t: [] for t in topics}
     counts = {t: 0 for t in topics}
     with AnyReader([Path(bag_dir)], default_typestore=_typestore()) as r:
         conns = [c for c in r.connections if c.topic in topics]
         for c, t, raw in r.messages(connections=conns):
             counts[c.topic] += 1
+            if window_stats is not None and window and c.topic not in UNSTAMPED:
+                st = stamp_from_cdr(raw)
+                if window[0] <= st <= window[1]:
+                    w = window_stats.setdefault(c.topic, [0, st, st])
+                    w[0], w[1], w[2] = w[0] + 1, min(w[1], st), max(w[2], st)
             n = (decode_every or {}).get(c.topic)
             if n and (counts[c.topic] - 1) % n:
                 continue
@@ -71,9 +81,11 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     use_cam = bool(scfg['recording'].get('include_wrist_camera') and cam.get('enabled'))
     if use_cam:
         topics += [ct['color'], ct['depth']] + ([ct['metadata']] if ct.get('metadata') else [])
-    data, counts = read_bag(ep_dir, topics, decode_every={ct.get('depth'): 5} if use_cam else None)
-    checks = {}
     t0, t1 = ep.get('t_start_ns'), ep.get('t_end_ns')
+    win = {}
+    data, counts = read_bag(ep_dir, topics, decode_every={ct.get('depth'): 5} if use_cam else None,
+                            window=(t0, t1) if t0 is not None and t1 is not None else None, window_stats=win)
+    checks = {}
 
     def in_win(ns):
         return t0 is not None and t1 is not None and t0 <= ns <= t1
@@ -122,6 +134,31 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
                                                max_gap_ms=worst, frames_without_both_sides=int((~both).sum()))
     else:
         checks['us_robot_stamp_gap'] = _status(False, reason='no frames or robot samples in window')
+
+    # ---- every stream covers the whole window (a stall / late start used to pass: rates were measured
+    # between the samples present). Allowed at each end: 3 periods, at least 0.1 s.
+    if t0 is not None and t1 is not None:
+        streams = {'ultrasound': ('/micrus/bmode', float(np.mean(scfg['micrus']['expected_fps']))),
+                   'robot': ('/robot/state', rate)}
+        if use_cam:
+            streams.update({'wrist.color': (ct['color'], float(cam['fps'])), 'wrist.depth': (ct['depth'], float(cam['fps']))})
+        short, ends = [], {}
+        for name, (topic, hz) in streams.items():
+            n, first, last = win.get(topic, (0, None, None))
+            tol = max(3.0 / hz, 0.1)
+            if n == 0:
+                short.append(name)
+                ends[name] = None
+                continue
+            ends[name] = [round((first - t0) * 1e-9, 3), round((t1 - last) * 1e-9, 3)]
+            if (first - t0) * 1e-9 > tol or (t1 - last) * 1e-9 > tol:
+                short.append(name)
+        checks['stream_coverage'] = _status(not short, short=short, start_end_gap_s=ends)
+    else:
+        checks['stream_coverage'] = _status(False, reason='no start / end event')
+    rc = ep.get('bag_returncode')
+    checks['bag_closed'] = ({'status': 'n/a', 'reason': 'no bag_returncode (offline run)'} if rc is None
+                            else _status(rc == 0, returncode=rc))
 
     # ---- coupling
     floor = config.get_path(rig, 'qc.coupling_floor')
@@ -229,14 +266,10 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
         fps_cfg = float(cam['fps'])
         res = {}
         for name in ('color', 'depth'):
-            st = np.array([stamp_ns(m) for _, m in data[ct[name]] if in_win(stamp_ns(m))])
-            n_all = counts[ct[name]]
-            if name == 'depth':
-                # decoded every 5th: use the count of all messages over the episode span
-                hz = (n_all - 1) / ((t1 - t0) * 1e-9) if t0 and t1 and n_all > 1 else 0.0
-            else:
-                hz = (len(st) - 1) / ((st[-1] - st[0]) * 1e-9) if len(st) > 1 else 0.0
-            res[name] = hz
+            # messages stamped inside [start, end] only: the bag also holds the readiness tail, the free-air
+            # hold and the descent before start and the stop after end (depth is decoded every 5th only)
+            n, first, last = win.get(ct[name], (0, 0, 0))
+            res[name] = (n - 1) / ((last - first) * 1e-9) if n > 1 and last > first else 0.0
         ok = all(abs(h - fps_cfg) <= 0.05 * fps_cfg for h in res.values())
         fn_gaps = None
         if ct.get('metadata') and data.get(ct['metadata']):
