@@ -340,7 +340,8 @@ def verify(a):
     for k in ('action', 'observation.state', 'observation.images.ultrasound', 'observation.images.wrist_camera',
               'observation.images.wrist_depth', 'observation.meta.status', 'observation.meta.host_stamp_ns',
               'observation.meta.commanded_twist', 'observation.meta.force_setpoint_n',
-              'observation.meta.action_is_expert', 'observation.meta.command_valid', 'instruction.text'):
+              'observation.meta.action_is_expert', 'observation.meta.command_valid', 'observation.meta.status_source',
+              'instruction.text'):
         check(k in feats, f'feature {k}')
     act = raw_info['features']['action']
     check(list(act['shape']) == [6] and act.get('names') == F.ACTION_NAMES and act['info']['frame'] == 'base',
@@ -414,6 +415,8 @@ def verify(a):
                 want = 'recovery'
             if item['observation.meta.status'] != want:
                 fails.append(f'ep {e["episode_id"]} step {k}: status {item["observation.meta.status"]} != {want}')
+            if item['observation.meta.status_source'] != ('' if want == 'nominal' else 'automated'):
+                fails.append(f'ep {e["episode_id"]} step {k}: status source {item["observation.meta.status_source"]!r}')
         check(abs(float(ds[gidx]['timestamp']) - 0.0) < 1e-6 and
               abs(float(ds[gidx + n - 1]['timestamp']) - (n - 1) / truth['fps']) < 1e-4, f'{e["episode_id"]}: timestamps')
         check(ds[gidx]['instruction.text'] in [x[3] for x in EPISODES], f'{e["episode_id"]}: instruction text')
@@ -422,7 +425,7 @@ def verify(a):
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')
     check(worst['us_px'] <= 3.0, f'ultrasound frame selection + pixels (h264), max error {worst["us_px"]:.2f} grey levels')
     per_step = [f for f in fails if ' step ' in f]
-    check(not per_step, f'per-step force setpoint / expert flag / command_valid / host stamp / depth / status: '
+    check(not per_step, f'per-step force setpoint / expert flag / command_valid / host stamp / depth / status + source: '
                         f'{len(per_step)} mismatches {per_step[:3]}')
     # LeRobot query with history, as a training loader would use it
     q = LeRobotDataset(f'local/{out.name}', root=out, video_backend='pyav',

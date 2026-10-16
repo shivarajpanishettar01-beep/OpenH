@@ -138,6 +138,64 @@ def segment_at(segments, key, t_steps_ns, default=''):
     return out
 
 
+# Label resolver (export, release card): which entry wins where several cover the same step.
+PRIORITY = {'expert': 3, 'model_assisted': 2, 'trainee': 1, 'automated': 0}
+QA_RANK = {'accepted': 2, 'unreviewed': 1, 'flagged': 0}
+
+
+def usable(entry):
+    """QA-rejected entries never reach the dataset."""
+    return entry.get('qa_status') != 'rejected'
+
+
+def _rank(entry):
+    # entries without provenance (older files) count as automated
+    return PRIORITY.get(entry.get('provenance') or 'automated', 0), QA_RANK.get(entry.get('qa_status'), 1)
+
+
+def _covers(s, t):
+    return t >= s['t0_ns'] and (s.get('t1_ns') is None or t < s['t1_ns'])
+
+
+def resolve_segments(segments, key, t_steps_ns, default=''):
+    """Per step (value, provenance) of the winning usable segment: highest provenance priority
+    (expert > model_assisted > trainee > automated), then QA accepted > unreviewed > flagged, then the
+    later-starting (more specific) segment. Steps no usable segment covers get (default, '')."""
+    vals, srcs, best = [default] * len(t_steps_ns), [''] * len(t_steps_ns), [None] * len(t_steps_ns)
+    for order, s in enumerate(segments or []):
+        if not usable(s):
+            continue
+        r = (*_rank(s), s['t0_ns'], order)
+        for i, t in enumerate(t_steps_ns):
+            if _covers(s, t) and (best[i] is None or r > best[i]):
+                best[i], vals[i], srcs[i] = r, s[key], s.get('provenance') or 'automated'
+    return vals, srcs
+
+
+def resolve_gestures(segments, t_steps_ns):
+    """Gestures can overlap: per step the set of usable gestures from the highest-priority provenance
+    that has any gesture there, and that provenance."""
+    sets, srcs = [set() for _ in t_steps_ns], [''] * len(t_steps_ns)
+    top = [-1] * len(t_steps_ns)
+    for s in segments or []:
+        if not usable(s):
+            continue
+        p = _rank(s)[0]
+        for i, t in enumerate(t_steps_ns):
+            if _covers(s, t) and p >= top[i]:
+                if p > top[i]:
+                    sets[i], top[i], srcs[i] = set(), p, s.get('provenance') or 'automated'
+                sets[i].add(s['gesture'])
+    return ['+'.join(sorted(x)) for x in sets], srcs
+
+
+def resolve_steps(ann, t_steps_ns):
+    """{'status' | 'phase' | 'gesture': (per-step values, per-step label source)} for the export."""
+    return {'status': resolve_segments(ann.get('status_intervals'), 'status', t_steps_ns, default='nominal'),
+            'phase': resolve_segments(ann.get('phases'), 'phase', t_steps_ns),
+            'gesture': resolve_gestures(ann.get('gestures'), t_steps_ns)}
+
+
 def new_annotation(episode):
     """Skeleton annotation.json for an episode; automated layers are filled by auto_annotate."""
     return {

@@ -34,6 +34,29 @@ def test_step_labels():
     assert g == ['', 'rock+slide', 'rock']
 
 
+def test_step_labels_resolver_drops_rejected_and_prefers_expert():
+    """P2-15: QA-rejected entries are ignored; expert > model_assisted > trainee > automated where they overlap,
+    whatever the order in the file (auto_annotate appends the automated entries after the human ones)."""
+    S = 10**9
+    auto = {'provenance': 'automated', 'qa_status': 'unreviewed'}
+    ann = {'status_intervals': [{'status': 'failure', 't0_ns': 0, 't1_ns': 10 * S, 'provenance': 'automated',
+                                 'qa_status': 'rejected'}],
+           'phases': [{'phase': 'sweep_scan', 't0_ns': 0, 't1_ns': 10 * S, 'provenance': 'expert',
+                       'qa_status': 'unreviewed', 'annotator': 'dr_a'},
+                      {'phase': 'target_localisation', 't0_ns': 0, 't1_ns': None, **auto}],
+           'gestures': [{'gesture': 'rock', 't0_ns': 2 * S, 't1_ns': 4 * S, 'provenance': 'trainee',
+                         'qa_status': 'unreviewed', 'annotator': 'tr_b'},
+                        {'gesture': 'slide', 't0_ns': 0, 't1_ns': None, **auto}]}
+    t = [S, 3 * S, 12 * S]
+    st, ph, g = F.step_labels(ann, t)
+    assert st == ['nominal'] * 3
+    assert ph == ['sweep_scan', 'sweep_scan', 'target_localisation']
+    assert g == ['slide', 'rock', 'slide']
+    src = F.step_label_sources(ann, t)
+    assert src == {'status': ['', '', ''], 'phase': ['expert', 'expert', 'automated'],
+                   'gesture': ['automated', 'trainee', 'automated']}
+
+
 def test_png16_is_lossless():
     d = np.random.default_rng(0).integers(0, 65535, (48, 64), dtype=np.uint16)
     assert np.array_equal(F.unpng16(F.png16(d)), d)

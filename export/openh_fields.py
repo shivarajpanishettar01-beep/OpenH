@@ -45,17 +45,15 @@ def delta_actions(tcp_xyzq, frame='base'):
 
 
 def step_labels(ann, t_steps_ns):
-    """Per-step (g_t, phase, gesture) strings from an annotation.json dict."""
-    t = [int(x) for x in t_steps_ns]
-    intervals = [(s['status'], s['t0_ns'], s['t1_ns']) for s in ann.get('status_intervals', [])]
-    status = A.status_per_step(intervals, t)
-    phase = A.segment_at(ann.get('phases', []), 'phase', t)
-    gestures = [set() for _ in t]
-    for g in ann.get('gestures', []):
-        for i, x in enumerate(t):
-            if x >= g['t0_ns'] and (g['t1_ns'] is None or x < g['t1_ns']):
-                gestures[i].add(g['gesture'])
-    return status, phase, ['+'.join(sorted(s)) for s in gestures]
+    """Per-step (g_t, phase, gesture) strings from an annotation dict, through the label resolver
+    (QA-rejected entries dropped; expert > model_assisted > trainee > automated where they overlap)."""
+    r = A.resolve_steps(ann, [int(x) for x in t_steps_ns])
+    return r['status'][0], r['phase'][0], r['gesture'][0]
+
+
+def step_label_sources(ann, t_steps_ns):
+    """Per-step provenance of the label that won ('' where no label covers the step)."""
+    return {k: v[1] for k, v in A.resolve_steps(ann, [int(x) for x in t_steps_ns]).items()}
 
 
 def sample_hold(stamps_ns, t_steps_ns):

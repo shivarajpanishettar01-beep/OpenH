@@ -26,6 +26,10 @@ Per step (added to every episode parquet and to meta/info.json):
   observation.meta.status                string      g_t: nominal | failure | recovery
   observation.meta.phase                 string      proposal phases (automated or annotated)
   observation.meta.gesture               string      active gestures, '+'-joined
+  observation.meta.{status,phase,gesture}_source string provenance of the label that won at this step
+                                                     (expert | model_assisted | trainee | automated | '' = none):
+                                                     QA-rejected entries dropped, expert > model_assisted >
+                                                     trainee > automated where entries overlap
   observation.meta.action_is_expert      bool
   observation.meta.stage                 int64
   observation.meta.failure_mode          string      plan failure-mode id
@@ -249,6 +253,7 @@ def main():
         hi = F.sample_hold(us + int(us_off_ep * 1e9), t_steps)
         host = np.where(hi >= 0, us[np.clip(hi, 0, None)], -1)
         status, phase, gesture = F.step_labels(ann, t_steps)
+        label_src = F.step_label_sources(ann, t_steps)
         cam = sess.get('wrist_cam_cali_mtx') or cal.get('wrist_cam_cali_mtx')
         wrist_cali = wrist_cali or cam
         state = np.asarray(t.column('observation.state').to_pylist(), float)
@@ -281,6 +286,9 @@ def main():
             'observation.meta.status': pa.array(status),
             'observation.meta.phase': pa.array(phase),
             'observation.meta.gesture': pa.array(gesture),
+            'observation.meta.status_source': pa.array(label_src['status']),
+            'observation.meta.phase_source': pa.array(label_src['phase']),
+            'observation.meta.gesture_source': pa.array(label_src['gesture']),
             'observation.meta.action_is_expert': pa.array(
                 np.asarray(t.column('observation.meta.action_is_expert').to_pylist()).ravel() > 0.5),
             'observation.meta.stage': pa.array([int(epj.get('stage', -1))] * n, pa.int64()),

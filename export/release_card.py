@@ -91,12 +91,15 @@ def summarize(ds, scfg):
     cal_dir = ds / 'meta' / 'calibration'
     cal = {f.stem: json.loads(f.read_text()) for f in cal_dir.glob('*.json')} if cal_dir.exists() else {}
     cols = data_columns(ds, ['episode_index', 'observation.meta.status', 'observation.meta.action_is_expert',
-                             'observation.meta.command_valid', 'observation.meta.action_source', 'instruction.text'])
+                             'observation.meta.command_valid', 'observation.meta.action_source', 'instruction.text',
+                             'observation.meta.status_source', 'observation.meta.phase_source'])
     n_steps = len(cols.get('episode_index', []))
     s = {'info': info, 'fps': fps, 'prov': prov, 'ann': ann, 'cal': cal, 'n_steps': n_steps,
          'synthetic': 'pipeline_check' in info or any(p.get('synthetic_pipeline_check') for p in prov)}
     s['hours'] = n_steps / fps / 3600.0
     s['status'] = Counter(cols.get('observation.meta.status', []))
+    s['label_sources'] = {k: dict(Counter(x or 'none' for x in cols.get(f'observation.meta.{k}_source', [])))
+                          for k in ('status', 'phase')}
     s['expert_share'] = (sum(bool(x) for x in cols.get('observation.meta.action_is_expert', [])) / n_steps) if n_steps else 0.0
     cv = cols.get('observation.meta.command_valid', [])
     s['command_valid_share'] = (sum(bool(x) for x in cv) / len(cv)) if cv else None
@@ -199,6 +202,8 @@ def card(s, name):
           f'Action source per step: {s["sources"]}; `action_is_expert` true on {s["expert_share"] * 100:.1f} % of steps.', '',
           '## Labels',
           f'Per-step g_t: {dict(s["status"])}.',
+          f'Per-step label source (resolver: QA-rejected dropped, expert > model_assisted > trainee > automated): '
+          f'g_t {s["label_sources"]["status"]}, phase {s["label_sources"]["phase"]}.',
           '| label | provenance | QA | count |', '|---|---|---|---|']
     for (kind, prov, qa), n in sorted(s['labels'].items()):
         L.append(f'| {kind} | {prov} | {qa} | {n} |')
