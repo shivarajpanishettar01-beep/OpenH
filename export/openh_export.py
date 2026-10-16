@@ -16,7 +16,12 @@ Per step (added to every episode parquet and to meta/info.json):
   observation.meta.command_valid         bool        false where nothing was commanded (freedrive by hand,
                                                      robot_control off): twist and setpoint are 0 there and
                                                      must be ignored (NaN would become null in LeRobot v3.0)
-  observation.images.wrist_depth         image       16-bit PNG, millimetres, aligned to colour (lossless)
+  observation.meta.in_episode            bool        step between the start and end events; false on the pre-roll
+                                                     (readiness, free-air hold, descent) and post-roll the bag holds
+  observation.meta.paused                bool        inside an operator pause (robot held; episode.json pauses_ns)
+  observation.meta.action_valid          bool        action joins two in-episode, unpaused steps; false on the last
+                                                     step (zero action, no successor): train on action_valid only
+  observation.images.wrist_depth        image       16-bit PNG, millimetres, aligned to colour (lossless)
   observation.meta.force_torque          float32[6]
   observation.meta.probe_type            string
   observation.meta.probe_acquisition_param float32[N] (= observation.ultrasound.settings)
@@ -229,6 +234,8 @@ def main():
                 problems.append(f'session {sid}: prob_cali_mtx neither in session.json nor in {a.rig_config} '
                                 '(Open-H needs it)')
     problems += F.failure_class_problems(staged, catalog)
+    problems += [f'{epj.get("episode_id")}: episode.json has no t_start_ns / t_end_ns (episode window unknown)'
+                 for epj, _ in staged if epj.get('t_start_ns') is None or epj.get('t_end_ns') is None]
     if problems:
         hint = ('\nOffsets: set lerobot_rig.yaml time_offset_s to the capture PC values (stage and convert episodes '
                 'from different capture PCs separately) and convert again.' if any('offset' in p for p in problems) else '')
@@ -285,6 +292,9 @@ def main():
         command_valid = ~np.isnan(old_action).any(axis=1) & (src != 5)
         old_action[~command_valid, :] = 0.0
         act = F.delta_actions(state[:, tcp_idx], a.action_frame)
+        # the converter keeps the whole bag: flag pre-roll / post-roll, operator pauses and the zero last action
+        in_episode, paused, action_valid = F.step_flags(t_steps, epj['t_start_ns'], epj['t_end_ns'],
+                                                        epj.get('pauses_ns'))
         fc, fc_src = F.failure_class(epj, ann, catalog)
         cols = {
             'action': pa.array(act.astype(np.float32).tolist(), pa.list_(pa.float32(), 6)),
@@ -293,6 +303,9 @@ def main():
             # shape [1] numeric features are scalars in LeRobot's HF schema (a 1-element list fails to load)
             'observation.meta.force_setpoint_n': pa.array(old_action[:, 6].astype(np.float32), pa.float32()),
             'observation.meta.command_valid': pa.array(command_valid, pa.bool_()),
+            'observation.meta.in_episode': pa.array(in_episode, pa.bool_()),
+            'observation.meta.paused': pa.array(paused, pa.bool_()),
+            'observation.meta.action_valid': pa.array(action_valid, pa.bool_()),
             'observation.meta.force_torque': t.column('observation.force_torque')
             if 'observation.force_torque' in t.column_names else pa.array([[np.nan] * 6] * n),
             'observation.meta.probe_type': pa.array([probe_type] * n),
@@ -336,7 +349,8 @@ def main():
                   'observation.meta.host_stamp_ns', 'observation.meta.stage', 'observation.meta.prob_cali_mtx',
                   'observation.meta.wrist_cali_mtx', 'observation.meta.force_torque',
                   'observation.meta.probe_acquisition_param', 'observation.meta.action_is_expert',
-                  'observation.meta.command_valid'):
+                  'observation.meta.command_valid', 'observation.meta.in_episode', 'observation.meta.paused',
+                  'observation.meta.action_valid'):
             es[k] = stats_of(np.asarray(t.column(k).to_pylist(), np.float64))
         if a.depth == 'png':
             d = np.stack([st['depth'][i] for i in di]).astype(np.float64)
@@ -362,7 +376,8 @@ def main():
                            'failure_class': fc or None, 'failure_class_source': fc_src or None,
                            'time_offsets_used_s': offsets,
                            'calibration_sources': {k: v[1] for k, v in calib[sid].items()}})
-        print(f'episode {ep_index}: {n} steps, split {o["split"]}, type {o["type"]}, '
+        print(f'episode {ep_index}: {n} steps ({int(in_episode.sum())} in the episode, {int(paused.sum())} paused, '
+              f'{int(action_valid.sum())} valid actions), split {o["split"]}, type {o["type"]}, '
               f'status {dict(zip(*np.unique(status, return_counts=True)))}')
 
     # wrist_rgb is named wrist_camera in the proposal (lerobot_rig.yaml already exports it so)

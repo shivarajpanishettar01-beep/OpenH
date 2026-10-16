@@ -42,7 +42,9 @@
 19. **Paused spans in the export** (operator console Pause, 14 Oct 2026): recording continues while paused (a bag
     hole would not line up with the micrus HDF5 and QC would fail the episode); the robot holds, samples are
     labelled not expert, and `episode.json` has `pauses` / `paused_s`. Drop those spans in `openh_export.py`, or
-    keep them as non-expert steps? Not implemented in the exporter yet.
+    keep them as non-expert steps? Now (16 Oct 2026) kept and flagged: `observation.meta.paused`, with
+    `observation.meta.in_episode` (pre-roll / post-roll) and `observation.meta.action_valid`; trimming instead
+    would need the videos re-cut, so the flags are the default until decided.
 20. **FM id -> failure class** (proposal section 6): `failure_catalog.yaml` has no class field, so
     `annotation.FM_FAILURE_CLASS` holds a PROPOSED mapping: FM-01 coupling loss and FM-07 shadowing ->
     observation_degradation; FM-02 lift-off and FM-03 force -> safety_relevant_interaction_state; FM-05 out of

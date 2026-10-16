@@ -196,7 +196,10 @@ flange frame), not the TCP. Needs `probe.type` in `rig.yaml` and a `prob_cali_mt
 `[dx, dy, dz, drx, dry, drz]` (base frame, rotation vector; `--action-frame tool` for the TCP frame); the
 executed probe-frame twist is kept as `observation.meta.commanded_twist`, with
 `observation.meta.command_valid` false where nothing was commanded (freedrive, robot_control off: twist
-and setpoint are 0 there); wrist depth is a lossless 16-bit PNG in mm. Freedrive episodes (type
+and setpoint are 0 there); wrist depth is a lossless 16-bit PNG in mm. The converter keeps the whole bag, so
+steps are flagged: `observation.meta.in_episode` (false on the pre-roll: readiness, free-air hold, descent, and
+after the end event), `observation.meta.paused` (operator pause) and `observation.meta.action_valid` (false on
+those and on the last step, whose action is a zero placeholder): train on `action_valid` steps. Freedrive episodes (type
 `kinesthetic`) go to the train split; `--exclude-kinesthetic` on `stage_bags.py` leaves them out.
 
 Dataset card and checksums (every number from the data: hours per phantom against the targets, episode types,

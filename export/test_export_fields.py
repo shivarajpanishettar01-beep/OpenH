@@ -145,6 +145,17 @@ def test_stage_bags_keeps_stage1_freedrive_and_skips_bags_missing_topics(tmp_pat
         SB.converter_topics(HERE / 'lerobot_rig.yaml')
 
 
+def test_step_flags_mark_pre_roll_pause_and_last_action():
+    """P2-22: steps outside [start, end) (pre-roll: readiness, free-air hold, descent; post-roll), paused steps and
+    actions without a valid successor are flagged, not silently exported as demonstration."""
+    S = 10**9
+    inside, paused, valid = F.step_flags([0, S, 2 * S, 3 * S, 4 * S, 5 * S, 6 * S], S, 5 * S, [[2 * S, 3 * S]])
+    assert inside.tolist() == [False, True, True, True, True, False, False]
+    assert paused.tolist() == [False, False, True, False, False, False, False]
+    assert valid.tolist() == [False, False, False, True, False, False, False]
+    assert F.step_flags([0, S], 0, 9 * S, [])[2].tolist() == [True, False]     # last step: zero action, invalid
+
+
 def test_png16_is_lossless():
     d = np.random.default_rng(0).integers(0, 65535, (48, 64), dtype=np.uint16)
     assert np.array_equal(F.unpng16(F.png16(d)), d)

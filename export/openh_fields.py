@@ -44,6 +44,22 @@ def delta_actions(tcp_xyzq, frame='base'):
     return a
 
 
+def step_flags(t_steps_ns, t_start_ns, t_end_ns, pauses_ns):
+    """(in_episode, paused, action_valid) bool arrays. The converter keeps the whole bag: steps before the start
+    event (readiness, free-air hold, descent) and after the end event are outside the episode. paused: inside an
+    operator pause (episode.json pauses_ns). action_valid: the action from t to t+1 joins two in-episode,
+    unpaused steps (the last step has no successor: its zero action is never valid)."""
+    t = np.asarray(t_steps_ns, np.int64)
+    inside = (t >= int(t_start_ns)) & (t < int(t_end_ns))
+    paused = np.zeros(len(t), bool)
+    for t0, t1 in pauses_ns or []:
+        paused |= (t >= int(t0)) & (t < int(t1))
+    ok = inside & ~paused
+    valid = np.zeros(len(t), bool)
+    valid[:-1] = ok[:-1] & ok[1:]
+    return inside, paused, valid
+
+
 def step_labels(ann, t_steps_ns):
     """Per-step (g_t, phase, gesture) strings from an annotation dict, through the label resolver
     (QA-rejected entries dropped; expert > model_assisted > trainee > automated where they overlap)."""

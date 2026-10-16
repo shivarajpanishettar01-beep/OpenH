@@ -49,6 +49,8 @@ EPISODES = [  # (episode_id, type, stage, instruction, failure interval s, recov
 ]
 KINESTHETIC = {'ep_0003'}      # freedrive: no command (NaN marker on /robot/cmd_executed), no setpoint
 FAILURE_CLASS = 'target_view_loss'   # expert label of ep_0002 (its FM-SYN id maps to no class)
+WINDOW_S = (0.5, 3.5)               # start / end events (s from T0): the bag also holds pre-roll and post-roll
+PAUSES_S = {'ep_0001': [(1.0, 1.4)]}  # operator pause (episode.json pauses_ns)
 # a bag whose camera recorded nothing: stage_bags must skip and report it, the others still convert
 NO_CAMERA = ('ep_0004', 'success', 2, 'Find the long-axis view of the vessel', None, None)
 
@@ -176,7 +178,8 @@ def write_bag(bag_dir, ep, camera=True):
         ci.header = c.header
         msgs += [(t, '/wrist/d415/color/image_raw', c), (t, '/wrist/d415/aligned_depth_to_color/image_raw', d),
                  (t + 1, '/wrist/d415/color/camera_info', ci), (t + 1, '/wrist/d415/aligned_depth_to_color/camera_info', ci)]
-    for t, kind, value in ((0, 'start', {}), (int(3.9e9), 'outcome', {'outcome': 'success'}), (int(3.95e9), 'end', {})):
+    for t, kind, value in ((int(WINDOW_S[0] * 1e9), 'start', {}), (int(WINDOW_S[1] * 1e9) - 1000, 'outcome', {'outcome': 'success'}),
+                           (int(WINDOW_S[1] * 1e9), 'end', {})):
         e = EpisodeEvent()
         e.header.stamp, e.episode_id, e.kind, e.value = tm(t), ep[0], kind, json.dumps(value)
         msgs.append((t, '/episode/events', e))
@@ -227,7 +230,11 @@ def write_session(root):
             'episode_id': eid, 'session_id': 'SYNTHETIC_session', 'type': typ, 'stage': stage,
             'instruction': instr, 'outcome': 'recovered' if fail else 'success', 'qc': {'pass': True},
             'failure_mode': 'FM-SYN' if fail else None, 'sim': False, 'synthetic_pipeline_check': True,
-            'time_offsets_s': {'ultrasound': -0.020, 'camera': 0.0}, 'capture_host': 'synthetic'}, indent=1))
+            'time_offsets_s': {'ultrasound': -0.020, 'camera': 0.0}, 'capture_host': 'synthetic',
+            't_start_ns': T0_NS + int(WINDOW_S[0] * 1e9), 't_end_ns': T0_NS + int(WINDOW_S[1] * 1e9),
+            'pauses_ns': [[T0_NS + int(p0 * 1e9), T0_NS + int(p1 * 1e9)] for p0, p1 in PAUSES_S.get(eid, [])],
+            'paused_s': sum(p1 - p0 for p0, p1 in PAUSES_S.get(eid, [])),
+            'duration_s': WINDOW_S[1] - WINDOW_S[0]}, indent=1))
     return sess
 
 
@@ -357,6 +364,7 @@ def verify(a):
               'observation.images.wrist_depth', 'observation.meta.status', 'observation.meta.host_stamp_ns',
               'observation.meta.commanded_twist', 'observation.meta.force_setpoint_n',
               'observation.meta.action_is_expert', 'observation.meta.command_valid', 'observation.meta.status_source',
+              'observation.meta.in_episode', 'observation.meta.paused', 'observation.meta.action_valid',
               'instruction.text'):
         check(k in feats, f'feature {k}')
     act = raw_info['features']['action']
@@ -381,6 +389,7 @@ def verify(a):
     poses = [tcp_pose(t * 1e-9) for t in st['robot']]
     P = np.array([[*p, *Rotation.from_matrix(R).as_quat()] for p, R in poses])
     worst = {'action': 0.0, 'twist': 0.0, 'us_px': 0.0}
+    flag_counts = {'outside': 0, 'paused': 0}
     gidx = 0
     for e in truth['episodes']:
         n = e['length']
@@ -435,6 +444,18 @@ def verify(a):
                 fails.append(f'ep {e["episode_id"]} step {k}: status source {item["observation.meta.status_source"]!r}')
             if item['observation.meta.failure_class'] != (FAILURE_CLASS if ep_fail else ''):
                 fails.append(f'ep {e["episode_id"]} step {k}: failure class {item["observation.meta.failure_class"]!r}')
+            pauses = PAUSES_S.get(e['episode_id'], [])
+
+            def usable(x):
+                return WINDOW_S[0] <= x < WINDOW_S[1] and not any(p0 <= x < p1 for p0, p1 in pauses)
+            nxt = (ticks[k + 1] * 1e9 - T0_NS) * 1e-9 if k + 1 < n else None
+            want_flags = (WINDOW_S[0] <= tau_step < WINDOW_S[1], any(p0 <= tau_step < p1 for p0, p1 in pauses),
+                          usable(tau_step) and nxt is not None and usable(nxt))
+            got_flags = tuple(bool(item[f'observation.meta.{f}']) for f in ('in_episode', 'paused', 'action_valid'))
+            if got_flags != want_flags:
+                fails.append(f'ep {e["episode_id"]} step {k}: in_episode / paused / action_valid {got_flags} != {want_flags}')
+            flag_counts['outside'] += not got_flags[0]
+            flag_counts['paused'] += got_flags[1]
         check(abs(float(ds[gidx]['timestamp']) - 0.0) < 1e-6 and
               abs(float(ds[gidx + n - 1]['timestamp']) - (n - 1) / truth['fps']) < 1e-4, f'{e["episode_id"]}: timestamps')
         check(ds[gidx]['instruction.text'] in [x[3] for x in EPISODES], f'{e["episode_id"]}: instruction text')
@@ -444,9 +465,11 @@ def verify(a):
     check(worst['action'] < 1e-6, f'incremental TCP action vs ground truth, max error {worst["action"]:.2e}')
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')
     check(worst['us_px'] <= 3.0, f'ultrasound frame selection + pixels (h264), max error {worst["us_px"]:.2f} grey levels')
+    check(flag_counts['outside'] > 0 and flag_counts['paused'] > 0,
+          f'pre-/post-roll and paused steps present and flagged ({flag_counts})')
     per_step = [f for f in fails if ' step ' in f]
-    check(not per_step, f'per-step force setpoint / expert flag / command_valid / host stamp / depth / status + source / failure class: '
-                        f'{len(per_step)} mismatches {per_step[:3]}')
+    check(not per_step, 'per-step force setpoint / expert flag / command_valid / host stamp / depth / status + source / '
+                        f'failure class / in_episode, paused, action_valid: {len(per_step)} mismatches {per_step[:3]}')
     # LeRobot query with history, as a training loader would use it
     q = LeRobotDataset(f'local/{out.name}', root=out, video_backend='pyav',
                        delta_timestamps={'action': [-2 / truth['fps'], -1 / truth['fps'], 0.0]})
