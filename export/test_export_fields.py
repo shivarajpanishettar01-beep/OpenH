@@ -97,6 +97,22 @@ def test_export_checks_dataset_index_count_and_offsets():
         assert len(F.offset_problems({'episode_id': eid, 'time_offsets_s': {'ultrasound': -0.035}}, used)) == 1
 
 
+def test_calibration_per_session_with_exact_frames():
+    """P2-19: each session's calibration snapshot (session.json) is exported for that session, the exporting PC's
+    rig.yaml only as a labelled fallback, and the wrist matrix is named T_flange_camera (not end-effector)."""
+    I, J = np.eye(4).tolist(), (2 * np.eye(4)).tolist()
+    rig_cal = {'wrist_cam_cali_mtx': J, 'prob_cali_mtx': J}
+    s1 = F.session_calibration({'calibration': {'wrist_cam_cali_mtx': I, 'prob_cali_mtx': I}}, rig_cal)
+    s2 = F.session_calibration({'wrist_cam_cali_mtx': I}, rig_cal)          # older session.json: wrist only
+    assert s1['prob_cali_mtx'] == (I, 'session.json:calibration.prob_cali_mtx')
+    assert s2['wrist_cali_mtx'] == (I, 'session.json:wrist_cam_cali_mtx')
+    assert s2['prob_cali_mtx'] == (J, 'rig.yaml of the exporting PC (no session snapshot)')
+    m = F.calibration_meta({'S1': s1, 'S2': s2}, 'prob_cali_mtx')
+    assert m['prob_cali_mtx'] is None and m['per_session']['S1']['matrix'] == I     # sessions differ
+    w = F.calibration_meta({'S1': s1, 'S2': s2}, 'wrist_cali_mtx')
+    assert w['wrist_cali_mtx'] == I and 'T_flange_camera' in w['frame'] and 'end-effector' not in w['frame']
+
+
 def test_png16_is_lossless():
     d = np.random.default_rng(0).integers(0, 65535, (48, 64), dtype=np.uint16)
     assert np.array_equal(F.unpng16(F.png16(d)), d)

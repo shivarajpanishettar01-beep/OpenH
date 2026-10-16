@@ -198,8 +198,12 @@ def write_bag(bag_dir, ep):
 def write_session(root):
     sess = root / 'SYNTHETIC_session'
     sess.mkdir(parents=True)
+    # the session's calibration snapshot: the export must use it, not the (different) rig.yaml test values
     (sess / 'session.json').write_text(json.dumps({'session_id': 'SYNTHETIC_session', 'sim': False,
-                                                   'synthetic_pipeline_check': True}, indent=1))
+                                                   'synthetic_pipeline_check': True,
+                                                   'calibration': {'prob_cali_mtx': np.eye(4).tolist(),
+                                                                   'wrist_cam_cali_mtx': np.eye(4).tolist()}},
+                                                  indent=1))
     for ep in EPISODES:
         eid, typ, stage, instr, fail, rec = ep
         d = sess / eid
@@ -257,8 +261,8 @@ def run(a):
     print('[4/6] openh_export.py --pipeline-check (LeRobot 0.6.0 env)')
     rig = yaml.safe_load((REPO / 'src/usrig_bringup/config/rig.yaml').read_text())
     rig.setdefault('probe', {})['type'] = 'SYNTHETIC-PROBE'
-    rig.setdefault('calibration', {})['prob_cali_mtx'] = np.eye(4).tolist()
-    rig['calibration']['wrist_cam_cali_mtx'] = np.eye(4).tolist()
+    rig.setdefault('calibration', {})['prob_cali_mtx'] = (2 * np.eye(4)).tolist()   # differs from the session
+    rig['calibration']['wrist_cam_cali_mtx'] = (2 * np.eye(4)).tolist()            # snapshot: must not be used
     rig_test = work / 'rig_pipeline_check.yaml'           # test values for this check only, never the rig's
     rig_test.write_text(yaml.safe_dump(rig, sort_keys=False))
     out = work / 'SYNTHETIC_openh_pipeline_check'
@@ -336,6 +340,10 @@ def verify(a):
               'annotations.jsonl', 'provenance.jsonl'):
         check((meta / f).exists(), f'meta/{f} survives the v3.0 conversion')
     raw_info = json.loads((meta / 'info.json').read_text())
+    pc, wc = (json.loads((meta / 'calibration' / f).read_text()) for f in ('prob_cali_mtx.json', 'wrist_cali_mtx.json'))
+    check(pc.get('prob_cali_mtx') == np.eye(4).tolist() and wc.get('wrist_cali_mtx') == np.eye(4).tolist()
+          and all(v['source'].startswith('session.json') for c in (pc, wc) for v in c['per_session'].values())
+          and 'T_flange_camera' in wc['frame'], 'calibrations from the session snapshot (not rig.yaml), exact frames')
     ann = [json.loads(x) for x in (meta / 'annotations.jsonl').read_text().splitlines() if x.strip()] \
         if (meta / 'annotations.jsonl').exists() else []
     check(len(ann) == len(EPISODES) and any((a.get('failure_class') or {}).get('value') == FAILURE_CLASS for a in ann),
@@ -425,6 +433,8 @@ def verify(a):
         check(abs(float(ds[gidx]['timestamp']) - 0.0) < 1e-6 and
               abs(float(ds[gidx + n - 1]['timestamp']) - (n - 1) / truth['fps']) < 1e-4, f'{e["episode_id"]}: timestamps')
         check(ds[gidx]['instruction.text'] in [x[3] for x in EPISODES], f'{e["episode_id"]}: instruction text')
+        check(np.allclose(np.asarray(ds[gidx]['observation.meta.prob_cali_mtx']).ravel(), np.eye(4).ravel()),
+              f'{e["episode_id"]}: per-step prob_cali_mtx = the session snapshot')
         gidx += n
     check(worst['action'] < 1e-6, f'incremental TCP action vs ground truth, max error {worst["action"]:.2e}')
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')

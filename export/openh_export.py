@@ -20,8 +20,10 @@ Per step (added to every episode parquet and to meta/info.json):
   observation.meta.force_torque          float32[6]
   observation.meta.probe_type            string
   observation.meta.probe_acquisition_param float32[N] (= observation.ultrasound.settings)
-  observation.meta.prob_cali_mtx         float32[16]
-  observation.meta.wrist_cali_mtx        float32[16] wrist camera w.r.t. the end-effector (hand-eye)
+  observation.meta.prob_cali_mtx         float32[16] this episode's session calibration (session.json snapshot;
+                                                     the exporting PC's rig.yaml only as a recorded fallback)
+  observation.meta.wrist_cali_mtx        float32[16] T_flange_camera: D415 colour optical frame in the UR flange
+                                                     (tool0) frame (hand-eye), per session as above
   observation.meta.host_stamp_ns         int64       real header stamp of the ultrasound frame used
   observation.meta.status                string      g_t: nominal | failure | recovery
   observation.meta.phase                 string      proposal phases (automated or annotated)
@@ -38,7 +40,8 @@ Per step (added to every episode parquet and to meta/info.json):
                                                      export stops if such an episode has none
   instruction.text                       string
 Meta:
-  meta/calibration/camera_intrinsics.json, wrist_cali_mtx.json, prob_cali_mtx.json
+  meta/calibration/camera_intrinsics.json, wrist_cali_mtx.json, prob_cali_mtx.json: exact frame, per_session
+                                         {session: matrix, source}; the top-level matrix only if all sessions agree
   meta/annotations.jsonl                 per episode: annotation.json + annotation.<annotator>.json merged (provenance, QA reviews, ratings)
   info.json splits: train / recovery / failure / test (contiguous, from stage_bags.py)
   meta/provenance.jsonl                  per episode: session, phantom, operator, type, mode, capture PC, commit, offsets
@@ -136,6 +139,11 @@ def carry_meta(work, custom_info):
     shutil.rmtree(old)
 
 
+def session_id(bag):
+    sj = Path(bag).parent / 'session.json'
+    return (json.loads(sj.read_text()).get('session_id') if sj.exists() else None) or Path(bag).parent.name
+
+
 def converter_config_sha(lr):
     """The hash bag_to_lerobot stores per episode (micrus_sources.jsonl config_sha256_16)."""
     import hashlib
@@ -183,10 +191,8 @@ def main():
     scfg = yaml.safe_load(Path(a.session_config).read_text())
     cal = rig.get('calibration') or {}
     probe_type = (rig.get('probe') or {}).get('type')
-    prob_cali = cal.get('prob_cali_mtx')
-    missing = [k for k, v in (('probe.type', probe_type), ('calibration.prob_cali_mtx', prob_cali)) if v is None]
-    if missing:
-        sys.exit(f'null in rig.yaml: {missing} (Open-H needs them)')
+    if probe_type is None:
+        sys.exit('null in rig.yaml: probe.type (Open-H needs it)')
     # bag_to_lerobot aligned the videos with these: host stamps and depth use the same, and every episode's
     # measured offsets (episode.json, from its capture PC) must agree, else its frames would be off
     lr = yaml.safe_load(Path(a.converter_config).read_text())
@@ -211,11 +217,17 @@ def main():
     problems += [f'v2.1 episode {r["episode_index"]} was converted with another config ({r.get("config_sha256_16")}, '
                  f'{a.converter_config} is {sha}): its video offsets are unknown'
                  for r in src_rows if r.get('config_sha256_16') not in (None, sha)]
-    staged = []
+    staged, calib = [], {}           # calib: session id -> {exported name: (matrix, source)}
     for o in order['episodes']:
         epj = json.loads((Path(o['bag']) / 'episode.json').read_text())
         staged.append((epj, F.A.load_merged(o['bag'], episode=epj)))
         problems += F.offset_problems(epj, offsets)
+        sid = session_id(o['bag'])
+        if sid not in calib:
+            calib[sid] = F.session_calibration(json.loads((Path(o['bag']).parent / 'session.json').read_text()), cal)
+            if calib[sid]['prob_cali_mtx'][0] is None:
+                problems.append(f'session {sid}: prob_cali_mtx neither in session.json nor in {a.rig_config} '
+                                '(Open-H needs it)')
     problems += F.failure_class_problems(staged, catalog)
     if problems:
         hint = ('\nOffsets: set lerobot_rig.yaml time_offset_s to the capture PC values (stage and convert episodes '
@@ -231,7 +243,7 @@ def main():
     tcp_idx = ([state_names.index(n) for n in ('tcp_x', 'tcp_y', 'tcp_z', 'tcp_qx', 'tcp_qy', 'tcp_qz', 'tcp_qw')]
                if 'tcp_x' in state_names else list(range(6, 13)))
 
-    new_features, annotations, intrinsics, wrist_cali = {}, [], None, None
+    new_features, annotations, intrinsics = {}, [], {}
     provenance = []
     for pf in sorted(work.glob('data/chunk-*/episode_*.parquet')):
         t = pq.read_table(pf)
@@ -254,16 +266,16 @@ def main():
         n = t.num_rows
         t_steps = ((float(s['start_unix']) + np.arange(n) / float(s['fps'])) * 1e9).astype(np.int64)
         st = read_streams(bag, a.us_topic, ct['depth'], ct['color_info'], ct['depth_info'], a.depth == 'png')
-        intrinsics = intrinsics or {'wrist_camera': st['color_info'], 'wrist_depth': st['depth_info'],
-                                    'depth_units': 'mm', 'depth_aligned_to': 'wrist_camera'}
+        sid = session_id(bag)
+        intrinsics.setdefault(sid, {'wrist_camera': st['color_info'], 'wrist_depth': st['depth_info']})
 
         us = np.sort(np.asarray(st['us'], np.int64))
         hi = F.sample_hold(us + int(us_off_ep * 1e9), t_steps)
         host = np.where(hi >= 0, us[np.clip(hi, 0, None)], -1)
         status, phase, gesture = F.step_labels(ann, t_steps)
         label_src = F.step_label_sources(ann, t_steps)
-        cam = sess.get('wrist_cam_cali_mtx') or cal.get('wrist_cam_cali_mtx')
-        wrist_cali = wrist_cali or cam
+        # this session's calibration snapshot (session.json), the exporting PC's rig.yaml only as a fallback
+        prob_cali, cam = calib[sid]['prob_cali_mtx'][0], calib[sid]['wrist_cali_mtx'][0]
         state = np.asarray(t.column('observation.state').to_pylist(), float)
         old_action = np.asarray(t.column('action').to_pylist(), float)
         # no command existed on kinesthetic steps (freedrive by hand) or without robot_control (NaN in the
@@ -348,7 +360,8 @@ def main():
                            **{k: epj.get(k) for k in PROVENANCE_KEYS},
                            'session_sim': bool(sess.get('sim')), 'n_steps': n,
                            'failure_class': fc or None, 'failure_class_source': fc_src or None,
-                           'time_offsets_used_s': offsets})
+                           'time_offsets_used_s': offsets,
+                           'calibration_sources': {k: v[1] for k, v in calib[sid].items()}})
         print(f'episode {ep_index}: {n} steps, split {o["split"]}, type {o["type"]}, '
               f'status {dict(zip(*np.unique(status, return_counts=True)))}')
 
@@ -359,11 +372,14 @@ def main():
     write_jsonl(meta / 'episodes_stats.jsonl', [ep_stats[k] for k in sorted(ep_stats)])
     write_jsonl(meta / 'annotations.jsonl', annotations)
     write_jsonl(meta / 'provenance.jsonl', provenance)
-    F.write_json(meta / 'calibration' / 'camera_intrinsics.json', intrinsics)
-    F.write_json(meta / 'calibration' / 'prob_cali_mtx.json',
-                 {'prob_cali_mtx': prob_cali, 'frame': 'probe w.r.t. end-effector'})
-    F.write_json(meta / 'calibration' / 'wrist_cali_mtx.json',
-                 {'wrist_cali_mtx': wrist_cali, 'frame': 'wrist camera w.r.t. end-effector (eye-in-hand)'})
+    first = intrinsics[next(iter(intrinsics))] if intrinsics else {}
+    F.write_json(meta / 'calibration' / 'camera_intrinsics.json',
+                 {**first, 'depth_units': 'mm', 'depth_aligned_to': 'wrist_camera',
+                  'same_in_all_sessions': len({json.dumps(v, sort_keys=True) for v in intrinsics.values()}) <= 1,
+                  'per_session': intrinsics})
+    used = {k: calib[k] for k in intrinsics}       # sessions that have episodes in the dataset
+    for name in F.CALIBRATIONS:
+        F.write_json(meta / 'calibration' / f'{name}.json', F.calibration_meta(used, name))
 
     groups = {}
     for o in order['episodes']:

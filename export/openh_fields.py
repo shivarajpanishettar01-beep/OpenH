@@ -82,6 +82,46 @@ def failure_class_problems(episodes, catalog=None):
     return out
 
 
+# exported name -> (rig.yaml / session snapshot key, exact frame definition)
+CALIBRATIONS = {
+    'wrist_cali_mtx': ('wrist_cam_cali_mtx',
+                       'T_flange_camera: 4x4 pose of the wrist D415 colour optical frame in the UR flange (tool0) '
+                       'frame, metres (eye-in-hand hand-eye, usrig_episode handeye_calib). Not the TCP / probe '
+                       'tip: compose with robot_tcp_setting (provenance.jsonl) for the TCP frame.'),
+    'prob_cali_mtx': ('prob_cali_mtx',
+                      'ultrasound image to probe calibration as given in calibration.prob_cali_mtx; source and '
+                      'target frames as defined by the lab calibration file (not re-derived here)'),
+}
+
+
+def session_calibration(sess, rig_cal):
+    """{exported name: (matrix, source)} for one session: the session's own snapshot wins (session.json
+    `calibration.<key>`, else a top-level `<key>` written at session start); the exporting PC's rig.yaml is only a
+    labelled fallback. (None, None) when neither has it."""
+    snap = sess.get('calibration') or {}
+    out = {}
+    for name, (key, _) in CALIBRATIONS.items():
+        if snap.get(key) is not None:
+            out[name] = (snap[key], f'session.json:calibration.{key}')
+        elif sess.get(key) is not None:
+            out[name] = (sess[key], f'session.json:{key}')
+        elif (rig_cal or {}).get(key) is not None:
+            out[name] = (rig_cal[key], 'rig.yaml of the exporting PC (no session snapshot)')
+        else:
+            out[name] = (None, None)
+    return out
+
+
+def calibration_meta(per_session, name):
+    """meta/calibration/<name>.json: the exact frame, every session's matrix and source, and the matrix itself
+    at the top level only when all sessions agree (else None: use per_session)."""
+    rows = {sid: c[name] for sid, c in sorted(per_session.items())}
+    distinct = {json.dumps(m) for m, _ in rows.values()}
+    top = next(iter(rows.values()))[0] if len(distinct) == 1 and rows else None
+    return {name: top, 'frame': CALIBRATIONS[name][1],
+            'per_session': {sid: {'matrix': m, 'source': src} for sid, (m, src) in rows.items()}}
+
+
 def index_problems(order_episodes, sources, parquet_indices):
     """The v2.1 dataset must hold exactly the staged episodes, in staging order (episode_index == stage index):
     the splits and every per-episode label are keyed on it. Returns one message per mismatch."""

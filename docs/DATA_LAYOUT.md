@@ -8,7 +8,9 @@ tool has its own path setting.
 ```
 ~/data/                                      (~/data_sim/ has the same folders)
 ├── sessions/<session_id>/
-│   ├── session.json                         registration, gates, pre-session result, plan lock, calibration refs
+│   ├── session.json                         registration, gates, pre-session result, plan lock, calibration
+│   │                                        snapshot (`calibration.<rig.yaml key>`, e.g. prob_cali_mtx,
+│   │                                        wrist_cam_cali_mtx; the export uses it per session)
 │   ├── plan_progress.json                   Stage 2 rows done / redo
 │   ├── .ep_NNNN.record.log                  bag recorder log
 │   └── ep_NNNN/

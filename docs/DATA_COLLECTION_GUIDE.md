@@ -186,7 +186,11 @@ exactly the staged episodes in staging order and was converted with `export/lero
 `micrus_sources.jsonl`); every episode's measured time offsets (`episode.json time_offsets_s`, from its capture
 PC) equal the `time_offset_s` the converter aligned the videos with (convert episodes from capture PCs with
 different offsets separately); every failure / recovery episode has a failure class.
-Needs `probe.type` and `calibration.prob_cali_mtx` in `rig.yaml`. Action = incremental TCP pose
+Calibrations are exported per session: each session's snapshot in `session.json` (`calibration.prob_cali_mtx`,
+`calibration.wrist_cam_cali_mtx`, or the older top-level `wrist_cam_cali_mtx`); the exporting PC's `rig.yaml`
+only where a session has none, recorded as such in `meta/calibration/*.json` (`per_session` source),
+`provenance.jsonl` and the dataset card. `wrist_cali_mtx` is T_flange_camera (D415 colour optical frame in the
+flange frame), not the TCP. Needs `probe.type` in `rig.yaml` and a `prob_cali_mtx` for every session. Action = incremental TCP pose
 `[dx, dy, dz, drx, dry, drz]` (base frame, rotation vector; `--action-frame tool` for the TCP frame); the
 executed probe-frame twist is kept as `observation.meta.commanded_twist`, with
 `observation.meta.command_valid` false where nothing was commanded (freedrive, robot_control off: twist

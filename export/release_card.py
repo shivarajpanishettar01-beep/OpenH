@@ -135,13 +135,26 @@ def summarize(ds, scfg):
     return s
 
 
+def cal_present(c, name):
+    """A calibration file has its matrix for every session (per_session) or, in older exports, at the top level."""
+    per = (c or {}).get('per_session')
+    if per:
+        return all((v.get('matrix') if isinstance(v, dict) and 'matrix' in v else v) is not None for v in per.values())
+    return (c or {}).get(name) is not None
+
+
 def limitations(s):
     out = []
     cal = s['cal']
-    if not cal.get('prob_cali_mtx', {}).get('prob_cali_mtx'):
-        out.append('Ultrasound image-to-probe calibration (prob_cali_mtx) missing.')
-    if not cal.get('wrist_cali_mtx', {}).get('wrist_cali_mtx'):
-        out.append('Wrist camera hand-eye calibration (wrist_cali_mtx) missing.')
+    if not cal_present(cal.get('prob_cali_mtx'), 'prob_cali_mtx'):
+        out.append('Ultrasound image-to-probe calibration (prob_cali_mtx) missing (in at least one session).')
+    if not cal_present(cal.get('wrist_cali_mtx'), 'wrist_cali_mtx'):
+        out.append('Wrist camera hand-eye calibration (wrist_cali_mtx) missing (in at least one session).')
+    fallback = sorted({f'{k} ({sid})' for k in ('prob_cali_mtx', 'wrist_cali_mtx')
+                       for sid, v in ((cal.get(k) or {}).get('per_session') or {}).items()
+                       if 'exporting PC' in str((v or {}).get('source'))})
+    if fallback:
+        out.append('Calibration taken from the exporting PC, not snapshotted with the session: ' + ', '.join(fallback))
     if not s['prov']:
         out.append('meta/provenance.jsonl missing: per-episode provenance unknown (export with the current openh_export.py).')
     for k in ('hosts', 'commits', 'operators'):
@@ -210,8 +223,10 @@ def card(s, name):
     L += ['', '## Splits', f'`meta/info.json` splits: {i.get("splits")} (test = whole held-out sessions).', '',
           '## Calibration and timing']
     for k, v in sorted(s['cal'].items()):
-        present = any(x is not None for x in v.values()) if isinstance(v, dict) else v is not None
-        L.append(f'- `meta/calibration/{k}.json`: {"present" if present else "MISSING"}')
+        present = (cal_present(v, k) if k in ('prob_cali_mtx', 'wrist_cali_mtx') else
+                   any(x is not None for x in v.values()) if isinstance(v, dict) else v is not None)
+        frame = f' ({v["frame"]})' if isinstance(v, dict) and v.get('frame') else ''
+        L.append(f'- `meta/calibration/{k}.json`: {"present" if present else "MISSING"}{frame}')
     for k, v in sorted(s['offsets'].items()):
         L.append(f'- time offset {k}: {v} s')
     L += ['', '## Provenance',
