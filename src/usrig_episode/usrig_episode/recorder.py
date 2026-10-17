@@ -77,6 +77,8 @@ class EpisodeRecorder:
 
         qos = QoSProfile(depth=2, reliability=ReliabilityPolicy.BEST_EFFORT, history=HistoryPolicy.KEEP_LAST)
         self._subs = []
+        self._watcher = None                # temporary node + executor for the readiness subscriptions
+        self._n_watch = 0
         from rosidl_runtime_py.utilities import get_message
         self._get_message = get_message
         self._qos = qos
@@ -113,8 +115,20 @@ class EpisodeRecorder:
         def cb(_msg, t=topic):
             with self._seen_lock:
                 self._seen[t] = now_ns()
-        # raw: never deserialize (images at 27 Hz, robot at 500 Hz); removed again once the bag is ready
-        self._subs.append(self.node.create_subscription(msg_type, topic, cb, self._qos, raw=True))
+        # raw: never deserialize (images at 27 Hz, robot at 500 Hz); removed again once the bag is ready.
+        # On their own node and executor: destroying a busy subscription of the manager's MultiThreadedExecutor
+        # killed it (InvalidHandle "cannot use Destroyable", episode_manager exit 2 at an episode start).
+        if self._watcher is None:
+            import rclpy
+            from rclpy.executors import SingleThreadedExecutor
+            self._n_watch += 1
+            wn = rclpy.create_node(f'{self.node.get_name()}_ready_watch_{self._n_watch}')
+            wex = SingleThreadedExecutor()
+            wex.add_node(wn)
+            th = threading.Thread(target=self._spin_watcher, args=(wex,), name='ready_watch', daemon=True)
+            th.start()
+            self._watcher = (wn, wex, th)
+        self._subs.append(self._watcher[0].create_subscription(msg_type, topic, cb, self._qos, raw=True))
         self._typed.add(topic)
         return True
 
@@ -186,10 +200,22 @@ class EpisodeRecorder:
             return []
         return ['chrt', '-f', str(prio)]
 
+    @staticmethod
+    def _spin_watcher(wex):
+        try:
+            wex.spin()
+        except Exception:  # noqa: BLE001  (shutdown races are harmless here)
+            pass
+
     def _unwatch(self):
-        """Drop the readiness subscriptions: they must not load this process during the episode."""
-        for sub in self._subs:
-            self.node.destroy_subscription(sub)
+        """Drop the readiness subscriptions: they must not load this process during the episode. The watcher's
+        executor is stopped first, so nothing is using them when they are destroyed."""
+        if self._watcher is not None:
+            wn, wex, th = self._watcher
+            self._watcher = None
+            wex.shutdown(timeout_sec=2.0)
+            th.join(timeout=2.0)
+            wn.destroy_node()
         self._subs.clear()
         self._typed.clear()
         with self._seen_lock:
