@@ -4,18 +4,21 @@
   source scripts/env.sh
   python export/pipeline_check.py run [--work DIR] [--keep]
 
-Writes two synthetic episodes as MCAP bags with every topic the rig records (ultrasound, frame info,
-robot state 500 Hz, executed twist 125 Hz, wrist colour + 16-bit depth 30 Hz, camera info, events),
-plus episode.json / session.json / annotation.json marked ``synthetic_pipeline_check: true``. Then runs
-the real chain:
+Writes three synthetic episodes (success with an operator pause, freedrive, recovery-mid) as MCAP bags
+with every topic the rig records (ultrasound, frame info, robot state 500 Hz, executed twist 125 Hz,
+wrist colour + 16-bit depth 30 Hz, camera info, events), plus a fourth bag whose camera recorded nothing
+(stage_bags must skip and report it), with episode.json (start / end window, pauses) / session.json
+(calibration snapshot, different from the rig.yaml test values) / annotation.json marked
+``synthetic_pipeline_check: true``. Then runs the real chain:
 
   stage_bags.py --pipeline-check -> bag_to_lerobot.py (v2.1) -> openh_export.py --pipeline-check
   (Open-H fields, LeRobot 0.6.0 v2.1 -> v3.0 converter) -> reload with LeRobotDataset
 
 and compares the reloaded dataset with the ground truth: incremental TCP actions (recomputed from the
 known trajectory), executed twist, force setpoint, expert flag, ultrasound frame selection and pixel
-values (lossy video, tolerance), ultrasound host stamps, lossless 16-bit depth, g_t status labels,
-instruction, splits and timestamps.
+values (lossy video, tolerance), ultrasound host stamps, lossless 16-bit depth, g_t status labels and
+their source, failure class, in_episode / paused / action_valid flags, per-session calibration and
+frames, instruction, splits, timestamps, and the card's hours (= duration minus pauses).
 
 The work folder defaults to <session.sim_root>/checks/pipeline_check (never the real data root). The
 dataset is named SYNTHETIC_*: stage_bags.py and openh_export.py refuse synthetic episodes without
