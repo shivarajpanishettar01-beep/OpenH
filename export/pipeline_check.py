@@ -304,6 +304,9 @@ def run(a):
         ("'freedrive': 1" in card and "'robot': 2" in card, 'card counts the collection modes'),
         ('Operators: 1; sessions: 1' in card, 'card counts operators / sessions'),
         ('prob_cali_mtx.json`: present' in card, 'card sees the calibration files'),
+        ((out / 'meta' / 'README.md').exists() and (out / 'meta' / 'README.md').read_text() == card,
+         'card also at meta/README.md (Open-H validator: ERROR when missing)'),
+        ('## Synchronization' in card, 'card has a synchronization section (Open-H validator looks for it)'),
         (len(prov) == len(EPISODES) and {x['episode_id'] for x in prov} == {e[0] for e in EPISODES}, 'provenance.jsonl rows'),
     ) if not ok]
     sh([py312, str(HERE / 'release_card.py'), '--dataset', str(out), '--check'])

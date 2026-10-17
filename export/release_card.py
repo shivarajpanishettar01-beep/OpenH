@@ -236,6 +236,11 @@ def card(s, name):
         L.append(f'- `meta/calibration/{k}.json`: {"present" if present else "MISSING"}{frame}')
     for k, v in sorted(s['offsets'].items()):
         L.append(f'- time offset {k}: {v} s')
+    L += ['', '## Synchronization',
+          'Every stream is stamped on the capture PC clock at acquisition (header stamps; one stamp per 500 Hz robot '
+          'sample). The export samples all streams onto the fixed-fps step grid; `timestamp` is frame_index / fps and '
+          'the raw clock is kept in `observation.meta.host_stamp_ns`. Measured temporal offsets per capture PC '
+          '(ultrasound: sinusoidal compress test; wrist camera: ArUco) are listed above and applied by the export.']
     L += ['', '## Provenance',
           f'- Capture PCs: {dict(s["hosts"])}', f'- Rig code commits: {dict(s["commits"])}', '',
           '## Known limitations'] + [f'- {x}' for x in limitations(s)] + [
@@ -261,10 +266,14 @@ def main(argv=None):
         return 0 if not bad else 1
     scfg = yaml.safe_load(Path(a.session_config).read_text())
     s = summarize(ds, scfg)
-    (ds / 'README.md').write_text(card(s, a.name or ds.name))
+    text = card(s, a.name or ds.name)
+    (ds / 'README.md').write_text(text)                  # Hugging Face dataset card
+    (ds / 'meta').mkdir(exist_ok=True)
+    (ds / 'meta' / 'README.md').write_text(text)         # Open-H: validate_formatting.py requires meta/README.md
     n = write_manifest(ds)
     print(f'wrote {ds / "README.md"} and MANIFEST.sha256 ({n} files); {fmt_h(s["hours"])}, '
-          f'{s["info"].get("total_episodes")} episodes' + ('  [SYNTHETIC]' if s['synthetic'] else ''))
+          f'{s["info"].get("total_episodes")} episodes' + ('  [SYNTHETIC]' if s['synthetic'] else '')
+          + ' (also meta/README.md)')
     for x in limitations(s):
         print(f'  limitation: {x}')
     return 0
