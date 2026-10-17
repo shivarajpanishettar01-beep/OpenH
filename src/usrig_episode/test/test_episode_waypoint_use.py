@@ -238,3 +238,14 @@ def test_onset_keys_do_not_overwrite_the_disturbance_stamp(tmp_path):
     first = ep2['recovery_start_t']
     EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'recovery_start'})))
     assert ep2['recovery_start_t'] == first                          # first press counts, like the annotation
+
+
+def test_micrus_stop_fallback_cannot_outlive_its_parent(monkeypatch):
+    """`ros2 service call` waits forever for a service that is gone; when episode_manager was SIGKILLed during
+    its abort, the fallback call was orphaned and never ended. It now carries its own time limit."""
+    import subprocess as _sp
+    from usrig_episode import record_guard
+    seen = []
+    monkeypatch.setattr(_sp, 'run', lambda argv, **k: seen.append(argv))
+    record_guard.stop_micrus_recording(timeout=7)
+    assert seen[0][:2] == ['timeout', '7'] and 'ros2' in seen[0]

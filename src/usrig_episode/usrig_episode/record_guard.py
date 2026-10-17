@@ -12,8 +12,10 @@ from pathlib import Path
 
 
 def stop_micrus_recording(service='/micrus/record', timeout=20):
-    return subprocess.run(['ros2', 'service', 'call', service, 'std_srvs/srv/SetBool', '{data: false}'],
-                          capture_output=True, text=True, timeout=timeout)
+    # coreutils timeout: the call ends by itself even if this process is killed (ros2 service call waits forever
+    # for a service that is gone; orphaned calls used to pile up after a SIGKILLed episode_manager)
+    return subprocess.run(['timeout', str(int(timeout)), 'ros2', 'service', 'call', service, 'std_srvs/srv/SetBool',
+                           '{data: false}'], capture_output=True, text=True, timeout=timeout + 5)
 
 
 def alive(pid):
