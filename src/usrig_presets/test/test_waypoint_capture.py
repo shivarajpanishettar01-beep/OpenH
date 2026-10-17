@@ -24,7 +24,9 @@ def fake_node(tmp_path):
         scfg={'session': {'phantom_id': 'ph', 'root': str(tmp_path), 'sim_root': str(tmp_path / 'sim')}},
         rig={'motion': {'approach_offset_mm': 50}, 'robot': {'tcp_setting': [0, 0, 0.1, 0, 0, 0]}, 'probe': {'type': 'L'}},
         tip_pose_base=lambda: T, state=lambda: state, create_client=lambda *a: None,
-        call=lambda c, r: types.SimpleNamespace(success=False, message='no scanner'))
+        call=lambda c, r: types.SimpleNamespace(success=True, message=str(snap)))
+    snap = tmp_path / 'snap_0001.png'
+    snap.write_bytes(b'png')
     return node, sdir, T
 
 
@@ -49,3 +51,37 @@ def test_capture_refuses_bad_input(tmp_path):
         W.capture_waypoint(node, sdir, 'x', 'o', 'v', ['only one'])
     with pytest.raises(ValueError, match='empty'):
         W.capture_waypoint(node, sdir, ' ', 'o', 'v', ['a', 'b', 'c'])
+
+
+def test_capture_refuses_without_a_reference_snapshot(tmp_path):
+    """A failed snapshot saved the waypoint with reference_snapshot None: it could never be verified."""
+    node, sdir, _ = fake_node(tmp_path)
+    node.call = lambda c, r: types.SimpleNamespace(success=False, message='no scanner')
+    with pytest.raises(RuntimeError, match='snapshot'):
+        W.capture_waypoint(node, sdir, 'femoral', 'vein', 'long', ['a', 'b', 'c'])
+    assert W.list_waypoints(node.scfg, sdir) == []
+
+
+def test_failed_verification_unverifies_the_waypoint(tmp_path):
+    """A move / descend failure raised before saving: an unreachable waypoint stayed verified (and a batch
+    verify stopped at the first bad waypoint)."""
+    node, sdir, _ = fake_node(tmp_path)
+    W.capture_waypoint(node, sdir, 'femoral', 'vein', 'long', ['a', 'b', 'c'])
+    f = tmp_path / 'waypoints' / 'ph.yaml'
+    data = yaml.safe_load(f.read_text())
+    data['waypoints'][0]['verified'] = True
+    f.write_text(yaml.safe_dump(data))
+    node.rig['waypoint_verify_min_ncc'] = 0.5
+    calls = []
+
+    def call(client, req, timeout=30.0):
+        calls.append(client)
+        if client == 'move':
+            return types.SimpleNamespace(success=False, message='target outside the phantom box')
+        return types.SimpleNamespace(success=True, message='')
+    node.call = call
+    c = types.SimpleNamespace(snap='snap', move='move', descend='descend', retract='retract', zero='zero')
+    v = W.verify_waypoint(node, sdir, 'femoral', c)
+    assert v['verified'] is False and 'outside the phantom box' in v['error']
+    assert yaml.safe_load(f.read_text())['waypoints'][0]['verified'] is False
+    assert calls[-1] == 'retract'

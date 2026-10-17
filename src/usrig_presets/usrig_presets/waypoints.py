@@ -148,6 +148,9 @@ def capture_waypoint(node, session, name, organ, view, instructions, frame_info=
     f_axis = float(T_tip[:3, 2] @ np.asarray(s.wrench[:3]))
     snap = node.create_client(Trigger, '/micrus/snapshot')
     r = node.call(snap, Trigger.Request())
+    if not r.success:
+        # without a reference image the waypoint can never be verified: refuse now, not at verify time
+        raise RuntimeError(f'no reference snapshot from micrus ({r.message}): waypoint not saved')
     fi = json.loads(frame_info) if frame_info else {}
     p, q = geometry.pq_from_pose(T_ph)
     pa, qa = geometry.pq_from_pose(A)
@@ -155,7 +158,7 @@ def capture_waypoint(node, session, name, organ, view, instructions, frame_info=
           'position_m': p.tolist(), 'quaternion_xyzw': q.tolist(),
           'approach_position_m': pa.tolist(), 'approach_quaternion_xyzw': qa.tolist(),
           'force_n': f_axis, 'preset': fi.get('settings'),
-          'reference_snapshot': keep_reference(snapshot_png(r.message), f, name) if r.success else None,
+          'reference_snapshot': keep_reference(snapshot_png(r.message), f, name),
           'instructions': instructions, 'verified': False, 'taught_ns': now_ns(),
           'taught_config': rig_fingerprint(node.rig)}
     data = _load(f, pid)
@@ -215,21 +218,33 @@ def verify_waypoint(node, session, name, clients=None, settle_s=1.0, retract_aft
     wp = next((w for w in data['waypoints'] if w['name'] == name), None)
     if wp is None:
         raise RuntimeError(f'waypoint {name} not found in {f}')
-    node.call(c.retract, Trigger.Request(), 60)
-    req = MoveToPose.Request()
-    req.target = PoseStamped()
-    req.target.header.frame_id = 'phantom'
-    geometry.fill_pose_msg(req.target.pose, geometry.pose_from_pq(wp['approach_position_m'],
-                                                                  wp['approach_quaternion_xyzw']))
-    r = node.call(c.move, req, 120)
-    if not r.success:
-        raise RuntimeError(f'move_to_pose: {r.message}')
-    node.call(c.zero, Trigger.Request())
-    d = DescendToContact.Request()
-    d.force_setpoint_n = abs(float(wp.get('force_n') or 0.0))
-    r = node.call(c.descend, d, 120)
-    if not r.success:
-        raise RuntimeError(f'descend: {r.message}')
+    try:
+        node.call(c.retract, Trigger.Request(), 60)
+        req = MoveToPose.Request()
+        req.target = PoseStamped()
+        req.target.header.frame_id = 'phantom'
+        geometry.fill_pose_msg(req.target.pose, geometry.pose_from_pq(wp['approach_position_m'],
+                                                                      wp['approach_quaternion_xyzw']))
+        r = node.call(c.move, req, 120)
+        if not r.success:
+            raise RuntimeError(f'move_to_pose: {r.message}')
+        node.call(c.zero, Trigger.Request())
+        d = DescendToContact.Request()
+        d.force_setpoint_n = abs(float(wp.get('force_n') or 0.0))
+        r = node.call(c.descend, d, 120)
+        if not r.success:
+            raise RuntimeError(f'descend: {r.message}')
+    except Exception as e:  # noqa: BLE001
+        # a waypoint that cannot be reached any more must not stay executable
+        wp['verified'] = False
+        wp.pop('verified_config', None)
+        wp['verify'] = {'ncc': None, 'error': str(e), 'stamp_ns': now_ns()}
+        _save(f, data)
+        try:
+            node.call(c.retract, Trigger.Request(), 60)
+        except Exception:  # noqa: BLE001
+            pass
+        return {**wp['verify'], 'verified': False}
     time.sleep(settle_s)
     r = node.call(c.snap, Trigger.Request())
     ref = cv2.imread(wp['reference_snapshot'], cv2.IMREAD_GRAYSCALE) if wp.get('reference_snapshot') else None
