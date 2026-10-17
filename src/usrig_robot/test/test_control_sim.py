@@ -881,3 +881,39 @@ def test_perturbation_runs_in_contact(sim):
     res = node._srv_perturb(req, InjectPerturbation.Response())
     assert res.success, res.message
     node.destroy_node()
+
+
+def test_unreadable_registration_refuses_motion_and_never_drops_the_box(sim):
+    """_load_registration cleared the phantom box first and re-read session.json while the loop used it; any
+    error other than RuntimeError left the box disabled and escaped."""
+    node, robot = sim()
+    box = (np.eye(4), np.zeros(3), np.ones(3))
+    node.lim.extra_boxes = [box]
+    seen = []
+
+    def bad():
+        seen.append(list(node.lim.extra_boxes))                     # what the control loop would see now
+        raise ValueError('session.json: malformed T_base_phantom')
+    node._phantom_T = bad
+    node._load_registration()
+    assert seen == [[box]]                                          # not emptied before the new value is known
+    assert 'unreadable' in node.registration_problem
+    node.destroy_node()
+
+
+def test_in_contact_hold_is_held_before_it_is_installed(sim, monkeypatch):
+    """The hold Teleop was installed before hold=True: for a tick the operator's twist could move the probe."""
+    node, robot = sim()
+    held_at_install = []
+    orig = rc.Teleop.__init__
+
+    def init(self, ctl, in_contact):
+        held_at_install.append(ctl.hold)
+        orig(self, ctl, in_contact)
+    monkeypatch.setattr(rc.Teleop, '__init__', init)
+    node.hold = False
+    with node.motion_lock:
+        node.motion = rc.Idle()
+    assert node._hold_in_contact_if_idle()
+    assert held_at_install == [True]
+    node.destroy_node()

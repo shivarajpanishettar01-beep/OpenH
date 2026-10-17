@@ -395,22 +395,29 @@ class RobotControlNode(Node):
         self.pub_evt.publish(e)
 
     def _load_registration(self):
-        """D9: with a phantom registration, also enforce the phantom-frame box (required then)."""
-        self.lim.extra_boxes = []
-        self.registration_problem = None
+        """D9: with a phantom registration, also enforce the phantom-frame box (required then).
+        The new box list is built first and assigned once: the control loop never sees it briefly empty."""
+        boxes, problem = [], None
         try:
             T_bp = self._phantom_T()
         except RuntimeError:
-            return                      # no registration yet: base-frame limits only
-        pmin = config.get_path(self.rig, 'limits.phantom_box_m.pmin')
-        pmax = config.get_path(self.rig, 'limits.phantom_box_m.pmax')
-        if pmin is None or pmax is None:
-            self.registration_problem = ('phantom registered but limits.phantom_box_m is null: '
-                                         'motion refused until it is set (D9)')
-            self.get_logger().error(self.registration_problem)
-            return
-        self.lim.extra_boxes = [(T_bp, np.asarray(pmin, float), np.asarray(pmax, float))]
-        self.get_logger().info(f'phantom box active: {pmin} .. {pmax} m (phantom frame)')
+            T_bp = None                 # no registration yet: base-frame limits only
+        except Exception as e:  # noqa: BLE001
+            T_bp, problem = None, f'phantom registration unreadable ({e}): motion refused until it is fixed'
+        if T_bp is not None:
+            pmin = config.get_path(self.rig, 'limits.phantom_box_m.pmin')
+            pmax = config.get_path(self.rig, 'limits.phantom_box_m.pmax')
+            if pmin is None or pmax is None:
+                problem = 'phantom registered but limits.phantom_box_m is null: motion refused until it is set (D9)'
+            else:
+                boxes = [(T_bp, np.asarray(pmin, float), np.asarray(pmax, float))]
+                self.get_logger().info(f'phantom box active: {pmin} .. {pmax} m (phantom frame)')
+        if problem:
+            self.registration_problem = problem
+            self.get_logger().error(problem)
+            return                      # keep the boxes in force; motion is refused anyway
+        self.lim.extra_boxes = boxes
+        self.registration_problem = None
 
     def _set_motion(self, m):
         with self.motion_lock:
@@ -442,8 +449,8 @@ class RobotControlNode(Node):
         with self.motion_lock:
             if not isinstance(self.motion, Idle) or self.status.mode == ST.MODE_FAULT:
                 return False
+            self.hold = True            # before the motion exists: no tick may apply the operator's twist
             self.motion = Teleop(self, True)
-        self.hold = True
         return True
 
     def _run(self, m, timeout=None):
