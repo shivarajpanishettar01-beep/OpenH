@@ -87,14 +87,25 @@ def ncc(a, b):
     return float((a * b).mean())
 
 
+def session_phantom(scfg, session=None):
+    """The phantom of this session (session.json, written by episode_manager from the launch's phantom_id),
+    else session.yaml's default. Using session.yaml alone picked another phantom's waypoints whenever the
+    session was launched with phantom_id:=... ."""
+    if session:
+        pid = read_json(Path(session) / 'session.json').get('phantom_id')
+        if pid:
+            return pid
+    return scfg['session'].get('phantom_id')
+
+
 def _paths(node, session):
     sess = read_json(Path(session) / 'session.json')
     reg = sess.get('phantom_registration')
     if not reg:
         raise RuntimeError('register the phantom first (register_phantom)')
-    pid = node.scfg['session']['phantom_id']
+    pid = session_phantom(node.scfg, session)
     if not pid:
-        raise RuntimeError('session.phantom_id is null in session.yaml')
+        raise RuntimeError('no phantom_id in session.json or session.yaml')
     # <root>/waypoints/<phantom_id>.yaml, root = real or sim by the session's own sim flag
     f = data_dir(node.scfg, 'waypoints', session_is_sim(session)) / f'{pid}.yaml'
     return np.array(reg['T_base_phantom']), f, pid
@@ -287,7 +298,7 @@ def _verify(node, a):
 
 def list_waypoints(scfg, session=None, sim=False):
     """Waypoints of the session's phantom with their status (for display). [] if none taught yet."""
-    pid = scfg['session'].get('phantom_id')
+    pid = session_phantom(scfg, session)
     if not pid:
         return []
     sim = session_is_sim(session) if session else sim

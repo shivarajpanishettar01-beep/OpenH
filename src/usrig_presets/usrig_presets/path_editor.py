@@ -21,11 +21,11 @@ from scipy.spatial.transform import Rotation
 from usrig_common import config, geometry
 
 
-def _files(scfg, sim=False):
+def _files(scfg, sim=False, phantom=None):
     from usrig_common.session import data_dir
-    pid = scfg['session']['phantom_id']
+    pid = phantom or scfg['session']['phantom_id']
     if not pid:
-        raise SystemExit('session.phantom_id is null in session.yaml')
+        raise SystemExit('give --phantom (session.phantom_id is null in session.yaml)')
     return (data_dir(scfg, 'waypoints', sim) / f'{pid}.yaml', data_dir(scfg, 'paths', sim) / f'{pid}.yaml')
 
 
@@ -53,11 +53,12 @@ def main(argv=None):
     ap.add_argument('--along', choices=['x', 'y'], default='x')
     ap.add_argument('--mm', type=float)
     ap.add_argument('--instruction', default=None)
+    ap.add_argument('--phantom', default=None, help='phantom id (default: session.yaml session.phantom_id)')
     ap.add_argument('--config-dir', default=None)
     ap.add_argument('--sim', action='store_true', help='simulation data (session.sim_root)')
     a, _ = ap.parse_known_args(argv)
     scfg = config.load_config('session', a.config_dir)
-    wfile, pfile = _files(scfg, a.sim)
+    wfile, pfile = _files(scfg, a.sim, a.phantom)
     wps = yaml.safe_load(wfile.read_text())['waypoints'] if wfile.exists() else []
     paths = yaml.safe_load(pfile.read_text()) if pfile.exists() else {'paths': {}}
 

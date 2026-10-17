@@ -85,3 +85,16 @@ def test_failed_verification_unverifies_the_waypoint(tmp_path):
     assert v['verified'] is False and 'outside the phantom box' in v['error']
     assert yaml.safe_load(f.read_text())['waypoints'][0]['verified'] is False
     assert calls[-1] == 'retract'
+
+
+def test_waypoints_follow_the_session_phantom_not_session_yaml(tmp_path):
+    """Waypoint list / teach / go-to used session.yaml phantom_id: with another phantom in the active session
+    (launch phantom_id:=...), Go to approach could move to the other phantom's waypoint."""
+    node, sdir, _ = fake_node(tmp_path)
+    s = json.loads((sdir / 'session.json').read_text())
+    s['phantom_id'] = 'other'                                       # what episode_manager wrote for this session
+    (sdir / 'session.json').write_text(json.dumps(s))
+    wp, f = W.capture_waypoint(node, sdir, 'femoral', 'vein', 'long', ['a', 'b', 'c'])
+    assert f.name == 'other.yaml'
+    assert [w['name'] for w in W.list_waypoints(node.scfg, sdir)] == ['femoral']
+    assert W.session_phantom(node.scfg, sdir) == 'other' and W.session_phantom(node.scfg, None) == 'ph'

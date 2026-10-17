@@ -619,7 +619,8 @@ def build_window(ros, scfg=None, rig=None):
 
     def load_paths():
         from usrig_common.session import data_dir
-        pid = scfg['session'].get('phantom_id')
+        from usrig_presets.waypoints import session_phantom
+        pid = session_phantom(scfg, ros.session_dir())
         f = data_dir(scfg, 'paths', ros.sim) / f'{pid}.yaml' if pid else None
         path_combo.clear()
         if f and f.exists():
@@ -636,7 +637,8 @@ def build_window(ros, scfg=None, rig=None):
         if not confirm('Robot will move', f'Run path "{name}" at {speed.value():.0f} mm/s? Needs contact '
                        '(descend first); the probe follows the path under force control.'):
             return
-        pid = scfg['session'].get('phantom_id')
+        from usrig_presets.waypoints import session_phantom
+        pid = session_phantom(scfg, ros.session_dir())
 
         def fn():
             spec = config.load_yaml(data_dir(scfg, 'paths', ros.sim) / f'{pid}.yaml')['paths'][name]

@@ -188,7 +188,8 @@ def cmd_waypoint(node, a, ask):
     if 'T_base_phantom' not in reg:
         raise SystemExit(f'no phantom registration in {sess}/session.json (register_phantom)')
     from usrig_common.session import data_dir, session_is_sim
-    pid = node.scfg['session'].get('phantom_id')
+    from .waypoints import session_phantom
+    pid = session_phantom(node.scfg, sess)
     f = data_dir(node.scfg, 'waypoints', session_is_sim(sess)) / f'{pid}.yaml'
     wps = {w['name']: w for w in (yaml.safe_load(f.read_text()) if f.exists() else {'waypoints': []})['waypoints']}
     if a.name not in wps:
