@@ -358,6 +358,12 @@ def build_window(ros, scfg=None, rig=None):
     g_rec = QtWidgets.QGroupBox('Recording')
     rl = QtWidgets.QGridLayout(g_rec)
 
+    sent_outcome = {}           # episode_id -> outcome sent from this console (status lags by up to 0.5 s)
+
+    def send_outcome(v):
+        sent_outcome[(ctx_now().episode or {}).get('episode_id')] = v
+        ros.send({'cmd': 'outcome', 'value': v})
+
     def do_start_stop():
         c = ctx_now()
         starting = cm.start_stop_label(c) == 'Start episode'
@@ -365,13 +371,15 @@ def build_window(ros, scfg=None, rig=None):
                 'Robot may move', 'Starting lets episode_manager move the robot (approach, descend) when a waypoint '
                 'or stage needs it. Area clear and e-stop at hand?'):
             return
-        if not starting and 'outcome' in c.waiting and not (c.episode or {}).get('outcome'):
+        ep_now = c.episode or {}
+        if (not starting and 'outcome' in c.waiting and not ep_now.get('outcome')
+                and ep_now.get('episode_id') not in sent_outcome):
             # QC requires an outcome event: an episode stopped without one fails the 'events' check
             pick = win.ask_outcome()
             if pick is None:
                 return
             if pick != 'none':
-                ros.send({'cmd': 'outcome', 'value': pick})
+                send_outcome(pick)
         ros.send({'cmd': 'start_stop'})
 
     def ask_outcome():
@@ -404,9 +412,9 @@ def build_window(ros, scfg=None, rig=None):
     rl.addWidget(button('Pause', 'pause', lambda: ros.send({'cmd': 'pause'}), 'warn',
                         'robot holds (with robot_control); the span is marked, recording continues'), 0, 2)
     rl.addWidget(button('Resume', 'resume', lambda: ros.send({'cmd': 'resume'}), 'good'), 0, 3)
-    rl.addWidget(button('Success', 'outcome', lambda: ros.send({'cmd': 'outcome', 'value': 'success'}), 'good', '1'), 1, 0)
-    rl.addWidget(button('Recovered', 'outcome', lambda: ros.send({'cmd': 'outcome', 'value': 'recovered'}), 'good', '2'), 1, 1)
-    rl.addWidget(button('Fail', 'outcome', lambda: ros.send({'cmd': 'outcome', 'value': 'fail'}), 'bad', '3'), 1, 2)
+    rl.addWidget(button('Success', 'outcome', lambda: send_outcome('success'), 'good', '1'), 1, 0)
+    rl.addWidget(button('Recovered', 'outcome', lambda: send_outcome('recovered'), 'good', '2'), 1, 1)
+    rl.addWidget(button('Fail', 'outcome', lambda: send_outcome('fail'), 'bad', '3'), 1, 2)
     rl.addWidget(button('Discard', 'discard', do_discard, 'bad', 'Esc'), 1, 3)
     rl.addWidget(button('View reached', 'view_reached', lambda: ros.send({'cmd': 'view_reached'}), tip='Space'), 2, 0)
     rl.addWidget(button('Failure onset', 'onset', lambda: ros.send({'cmd': 'onset'}), tip='O'), 2, 1)

@@ -134,6 +134,8 @@ def test_stop_without_outcome_asks_for_one(app):
     win.ask_outcome = lambda: 'recovered'
     btn(win, 'Stop episode').click()
     assert ros.sent[-2:] == [{'cmd': 'outcome', 'value': 'recovered'}, {'cmd': 'start_stop'}]
+    ros.status = dict(REC, episode=dict(REC['episode'], episode_id='s1_ep_0004', number=4))   # next episode
+    refresh()
     win.ask_outcome = lambda: None                                   # cancel
     n = len(ros.sent)
     btn(win, 'Stop episode').click()
@@ -187,3 +189,13 @@ def test_console_ros_protective_stop_ignores_busy():
     assert ConsoleRos.protective_stop(fake) is True
     assert called.wait(2.0), fake.notes
     assert fake.busy == 'run path'                                   # the other action keeps its slot
+
+
+def test_stop_right_after_an_outcome_click_does_not_ask_again(app):
+    """Status arrives at 2 Hz: Success then Stop within half a second asked 'No outcome is set' (seen live)."""
+    ros, win, refresh = make(app, REC)
+    win.ask_outcome = lambda: (_ for _ in ()).throw(AssertionError('asked although Success was just clicked'))
+    btn(win, 'Success').click()
+    btn(win, 'Stop episode').click()                                  # status not refreshed in between
+    assert ros.sent[-2:] == [{'cmd': 'outcome', 'value': 'success'}, {'cmd': 'start_stop'}]
+    win.close()
