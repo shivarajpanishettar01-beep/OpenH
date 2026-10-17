@@ -63,6 +63,19 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 - Gravity compensation with the probe + camera + handle payload; hand in the wrist camera view; F/T reading
   with the handle above the sensor.
 
+## Audit fixes of 16-17 Oct 2026 (docs/COLLECTION_READINESS_AUDIT.md)
+- Protective-stop / not-RUNNING detection (`getSafetyMode`, `robot_mode`), FAULT on a refused speedL / forceMode,
+  and `reuploadScript` on acknowledge: checked against the kinematic fake only. Check on the UR7e: trigger a
+  protective stop (pendant) during teleop -> FAULT, labels NONE; unlock on the pendant -> ack -> teleop again.
+  RTDE `safety_mode` is deprecated in favour of `safety_status_bits` (PolyScope 5.4+): confirm getSafetyMode
+  still reports a protective stop on this controller.
+- Live T_base_phantom update of robot_state: verified on URSim (read-only, 17 Oct); register_phantom's push
+  and the Start check are not yet run against a real registration.
+- Stage 2 loop changes (cross-session progress, redo pass, next row shown, N before every row): unit-tested,
+  not run end to end (needs robot_control and taught waypoints).
+- One ultrasound frame missing from the bag (present in the micrus HDF5) in 2 of 4 sim episodes on this PC
+  (recorder at normal priority). Re-check on the capture PC with rtprio set.
+
 ## Operator console (14 Oct 2026)
 - Checked under ROS 2 Humble (15 Oct): tests with a scripted ROS side, an offscreen render (Stage 2, episode 7
   waiting for an outcome), and the real `ConsoleRos` fed by a fake publisher (status / control / state received,

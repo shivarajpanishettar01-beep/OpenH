@@ -21,7 +21,7 @@ GR00T-H is out of scope for now (separate task).
 | P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
 
 ## Done
-**Code base** (12 ROS 2 packages, 225 tests, all passed under ROS 2 Humble on 16 Oct; fresh clone builds in a clean shell)
+**Code base** (12 ROS 2 packages, 283 tests, all passed under ROS 2 Humble on 17 Oct; fresh clone builds in a clean shell)
 - Operator console (14 Oct): `ros2 run usrig_dashboard operator_console` / `console:=true`, the collection GUI
   (no images): session and episode details (number, date, start time, elapsed, paused), start / stop / pause /
   resume, outcomes and failure / recovery marks, teleop and safety controls, preset waypoints (go, descend,

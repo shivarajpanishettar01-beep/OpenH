@@ -90,9 +90,12 @@ held, or LOST when the keyboard or SpaceMouse dropped out) and which status stre
   (it must not run during freedrive collection).
 - *Session*: collection mode (teleoperation Stage 0, preset paths Stage 1, planned episodes Stage 2,
   freedrive, or set-up only for teaching and verifying), teleop input, operator, phantom, session id
-  (*New id* follows `session.yaml id_pattern`), simulation and wrist camera; *Pre-session check*,
-  *Rig status*, *Launch collection (new terminal)* and *Copy command*. The full launch command is shown
-  before anything starts.
+  (*New id* follows `session.yaml id_pattern`), simulation, wrist camera and *Planned hours* (needed by the
+  disk row of the check); *Pre-session check*, *Rig status*, *Launch collection (new terminal)* and *Copy
+  command*. The full launch command is shown before anything starts. Order: Launch collection, then
+  Pre-session check (it measures the running streams), then Start: episode_manager waits for a passing
+  check (the prompt says why Start is refused) instead of exiting. In Stage 2 the prompt shows the next plan
+  row (type, target, failure mode, staging method) before N starts it.
 - *Events*: the episode event stream (phases, motions, pauses, outcomes) with local times.
 - *Health*: per-topic rate, stamp age and largest gap from `qc_monitor`, disk and USB state, and which
   nodes are running, including whether the bag recorder is active.

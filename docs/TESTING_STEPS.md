@@ -325,8 +325,10 @@ Freedrive (pedal, nothing commanded):
 ```bash
 ros2 launch usrig_bringup test4_full_system.launch.py session_id:=<ID> session_json:=$HOME/data/sessions/<ID>/session.json input:=freedrive
 ```
-Start the launch first, then run 4.1 (it measures the live streams). If 4.1 failed, stop the launch, fix
-it, and start again.
+Start the launch first, then run 4.1 (it measures the live streams). episode_manager stays up without a
+passing check and refuses Start with the reason (status / console prompt); when 4.1 passes, press Start: no
+relaunch. It also refuses Start below `session.min_free_disk_gb` free and while robot_state's phantom
+registration differs from session.json (run register_phantom again: it updates the running robot_state).
 
 **4.3 Operator view (terminal 3)**
 ```bash
