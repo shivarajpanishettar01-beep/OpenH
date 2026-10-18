@@ -137,7 +137,7 @@ The whole export chain is checked on synthetic episodes with `python export/pipe
 - micrus is never modified; it is driven only through its CLI and ROS 2 interface.
 
 ## Status
-Builds from a fresh clone (12 packages); 283 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
+Builds from a fresh clone (12 packages); 296 tests (`bash scripts/test.sh`). Verified so far: micrus simulator bringup
 (27.35 Hz, 0 frame gaps in 5 min, clean power-down), robot state on URSim, recording and crash recovery
 in simulation, data integrity under load on the development PC (C++ robot_state: 0 of ~31,000 samples
 lost per minute), and the export chain end to end on synthetic episodes. Not yet run: the D415 on USB 3,

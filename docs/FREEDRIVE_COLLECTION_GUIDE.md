@@ -75,6 +75,7 @@ Zero the F/T sensor in free air at the start of the session from the pendant (a 
 ## 3. One episode
 | Step | You | Rig |
 |---|---|---|
+| 0 | set the task in the console (Recording box: **target** + **instruction**, Set task); it stays for the next episodes until changed | Start is refused without a task (Open-H needs task + target per episode) |
 | 1 | probe in free air, pedal released, press **B** | recording starts after the readiness gate |
 | 2 | keep still ~1.5 s (`free_air_hold_s`) | `free_air` phase: F/T offset window |
 | 3 | | `start` event (episode t0) |
@@ -92,9 +93,13 @@ when released. If it never shows FREEDRIVE, the pedal input or `freedrive.input`
 | `freedrive_speed` | peak TCP speed (20 ms windows) ≤ `limits.max_linear_speed_mm_s` (unset while null) |
 | `force_band` | as for robot episodes; **n/a** when `force_label_valid` is false (grip on the probe) |
 | `control_timing` | n/a (no robot_control) |
+| `unlabelled_motion` | the arm did not move (> 5 mm/s on > 1 % of the window) while labelled IDLE: freedrive by the **pendant button** is not seen by robot_state, so use the pedal |
+| `free_air_window` | also measures this episode's F/T offset (mean / std over the free-air hold); exported as `observation.meta.ft_free_air_offset` |
 All other checks (ultrasound gaps, robot sample gaps, camera, events) are the same as for robot episodes.
 
 ## 5. Export
+Raw force stays as recorded; the per-episode free-air offset is exported beside it, and every 500 Hz F/T sample is
+kept in `meta/force_torque_full/episode_NNNNNN.parquet` (the step data has F/T at the 25 fps step rate).
 `stage_bags.py` includes `kinesthetic` episodes whatever their stage, in the **train** split (after success
 episodes, before recovery / failure); `--exclude-kinesthetic` leaves them out. Per step:
 | Field | Freedrive value |

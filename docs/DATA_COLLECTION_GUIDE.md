@@ -77,7 +77,16 @@ ros2 run usrig_qc collection_plan --by 2026-12-01 --hours-per-day 2.5 --goal vas
 `--include-stage1`, freedrive at any stage unless `--exclude-kinesthetic`), each as `duration_s - paused_s`;
 the dataset card counts the same time (in-episode, unpaused steps). Pass the same options as to `stage_bags`.
 
-## 6. Episode lifecycle
+## 6. What one episode is
+One episode = one attempt at one target view: from the probe in free air (the free-air window) to the view
+acquired and held (success), or to the end of the recovery / a declared failure. Aim for the proposal's 20-30 s
+(`targets.episode_s`; QC reports `episode_length`, the console's elapsed time turns amber past 30 s); the outcome,
+not the clock, ends an attempt. Do not record long takes to split later: every episode needs its own task text,
+outcome, labels and QC, and there is no splitting tool. Pause for interruptions; Discard what you would cut out.
+Freedrive and free teleop (Stage 0): set the **task** (target + instruction) in the console before Start; Stage 0
+with a task is recorded as `teleop` (exported), without one as a `shakedown` test (not exported).
+
+## 6b. Episode lifecycle
 | Step | Who | What is written |
 |---|---|---|
 | select | operator (B in Stage 0) or the stage / plan row | `.ep_NNNN.partial.json` (crash record) |
@@ -124,10 +133,12 @@ synchronization from the stamps alone.
 if every check is pass or n/a. Checks: `micrus_fps`, `micrus_frame_gaps`, `settings_constant`,
 `robot_rate`, `robot_sample_gaps`, `us_robot_stamp_gap`, `coupling`, `force_band`, `free_air_window`,
 `expert_flag`, `events`, `control_timing`, `speed_tracking` (Stage 1), `failure_labels` (Stage 2),
-`free_disk`, `wrist_rate`, `wrist_stamp_offset`, `wrist_usb`, `valid_depth`.
-Re-run on any episode:
+`wrist_rate`, `wrist_stamp_offset`, `wrist_usb`, `valid_depth`, `stream_coverage` (every stream covers the
+window), `bag_closed`, `unlabelled_motion`; information only: `episode_length`, `free_disk` (the disk floor is
+checked before Start). While thresholds are null (unset = fail) no episode counts as kept; the data is recorded
+anyway. Once they are set, re-check whole sessions and write the result into episode.json:
 ```bash
-ros2 run usrig_qc episode_qc ~/data/sessions/<SESSION_ID>/ep_0001
+ros2 run usrig_qc episode_qc ~/data/sessions/<SESSION_ID> --update
 ```
 
 ## 8b. Labelling and label agreement (expert annotation QA)

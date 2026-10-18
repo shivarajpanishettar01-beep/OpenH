@@ -63,6 +63,14 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 - Gravity compensation with the probe + camera + handle payload; hand in the wrist camera view; F/T reading
   with the handle above the sensor.
 
+## Collection gaps closed 18 Oct 2026
+- Console task (target + instruction) -> episode_manager -> episode.json / task.txt: unit-tested, not run live.
+- `meta/force_torque_full/` (500 Hz F/T sidecar) and `observation.meta.ft_free_air_offset`: pipeline check only;
+  whether Open-H's validator accepts the extra meta folder is not checked (run it on the first sample).
+- `unlabelled_motion` threshold (5 mm/s, 1 % of the window) chosen as a QC heuristic, not measured on the arm.
+- UR freedrive with the hand on the handle above the F/T sensor (does the arm move? does the hand force stay out
+  of actual_TCP_force?) and the frame of actual_TCP_force: check in the first freedrive session.
+
 ## Audit fixes of 16-17 Oct 2026 (docs/COLLECTION_READINESS_AUDIT.md)
 - Protective-stop / not-RUNNING detection (`getSafetyMode`, `robot_mode`), FAULT on a refused speedL / forceMode,
   and `reuploadScript` on acknowledge: checked against the kinematic fake only. Check on the UR7e: trigger a
