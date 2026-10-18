@@ -252,6 +252,13 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     else:
         checks['failure_labels'] = {'status': 'n/a', 'reason': ep.get('type')}
 
+    # ---- episode length vs the proposal's target (information: the outcome decides when an attempt ends)
+    lo_s, hi_s = (scfg.get('targets') or {}).get('episode_s') or [None, None]
+    rec_s = ((t1 - t0) * 1e-9 - float(ep.get('paused_s') or 0.0)) if t0 is not None and t1 is not None else None
+    checks['episode_length'] = {'status': 'n/a', 'recorded_s': rec_s, 'target_s': [lo_s, hi_s],
+                                'within_target': (rec_s is not None and lo_s is not None
+                                                  and lo_s <= rec_s <= hi_s)}
+
     # ---- disk
     from shutil import disk_usage
     free = disk_usage(ep_dir).free / 1e9

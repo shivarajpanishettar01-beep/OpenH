@@ -373,3 +373,13 @@ def test_rerun_qc_over_a_session_updates_episode_json(tmp_path, monkeypatch):
     assert e1['qc']['pass'] is True and e1['qc_previous'] == {'pass': False, 'old': 1}
     e2 = json.loads((sdir / 'ep_0002' / 'episode.json').read_text())
     assert e2['qc'] == {'pass': False, 'old': 1}                     # discards are left alone
+
+
+def test_episode_length_is_reported_against_the_target(tmp_path):
+    """The proposal's 20-30 s episodes were not visible anywhere; reported (information, not a fail)."""
+    write_bag(tmp_path / 'ep_l1')
+    scfg, rig = config()
+    r = run_episode_qc(tmp_path / 'ep_l1', EP, scfg, rig)                 # 3.1 s window
+    c = r['checks']['episode_length']
+    assert c['status'] == 'n/a' and c['within_target'] is False and c['target_s'] == [20, 30]
+    assert c['recorded_s'] == pytest.approx(3.1, abs=0.01) and r['pass']

@@ -938,6 +938,11 @@ def build_window(ros, scfg=None, rig=None):
         # episode card
         lbl_epnum.setText(f'Episode {ep["number"]}' if ep.get('number') else 'Episode -')
         lbl_elapsed.setText(cm.fmt_s(ep.get('elapsed_s')) if ep.get('elapsed_s') is not None else '')
+        # the proposal's episode length: amber once past the upper target (the outcome still decides when to stop)
+        lo_s, hi_s = (scfg.get('targets') or {}).get('episode_s') or [None, None]
+        el = (ep.get('elapsed_s') or 0) - (ep.get('paused_s') or 0)
+        lbl_elapsed.setStyleSheet('color:#b26a00' if hi_s and el > hi_s else '')
+        lbl_elapsed.setToolTip(f'episode length target {lo_s}-{hi_s} s (session.yaml targets.episode_s)')
         marks = []
         for k, n in (('onset_t', 'onset'), ('recovery_start_t', 'recovery start'), ('recovery_end_t', 'recovery end')):
             if ep.get(k) is not None:
