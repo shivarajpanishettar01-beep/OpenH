@@ -207,6 +207,21 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     checks['free_air_window'] = _status(bool(fa) and bool(np.any(r_st >= fa[0])), samples=int(len(w_fa)),
                                         wrench_mean=w_fa.mean(axis=0).tolist() if len(w_fa) else None,
                                         wrench_std=w_fa.std(axis=0).tolist() if len(w_fa) else None)
+    # the arm moving while the samples say nobody moved it (IDLE / none): typically freedrive by the pendant
+    # button instead of the pedal input, which robot_state cannot see -> the demonstration is not labelled
+    win_rs = [m for _, m in rs if in_win(stamp_ns(m))]
+    if len(win_rs) > 20:
+        pos = np.array([[m.tcp_base.position.x, m.tcp_base.position.y, m.tcp_base.position.z] for m in win_rs])
+        tt = np.array([stamp_ns(m) for m in win_rs], np.float64) * 1e-9
+        k = 10                                         # 20 ms at 500 Hz: above encoder noise
+        v = np.linalg.norm(pos[k:] - pos[:-k], axis=1) / np.maximum(tt[k:] - tt[:-k], 1e-6)
+        idle = np.array([m.mode == 0 and m.action_source == 4 for m in win_rs[k:]])
+        moving_idle = float(np.mean((v > 0.005) & idle))                   # > 5 mm/s
+        checks['unlabelled_motion'] = _status(moving_idle <= 0.01, frac=moving_idle,
+                                              hint='arm moved while labelled idle: pedal input not held? '
+                                                   '(the pendant freedrive button is not seen)')
+    else:
+        checks['unlabelled_motion'] = {'status': 'n/a', 'reason': 'too few robot samples'}
     bad_expert = sum(1 for _, m in rs if m.action_is_expert and m.action_source not in EXPERT_SOURCES)
     checks['expert_flag'] = _status(bad_expert == 0, samples_flagged_wrongly=bad_expert)
     need = {'start', 'end', 'outcome'}

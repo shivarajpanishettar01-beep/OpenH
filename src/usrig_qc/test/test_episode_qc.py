@@ -393,3 +393,15 @@ def test_free_air_offset_is_measured_per_episode(tmp_path):
     c = run_episode_qc(tmp_path / 'ep_f1', EP, scfg, rig)['checks']['free_air_window']
     assert c['status'] == 'pass' and c['samples'] > 200
     assert c['wrench_mean'][2] == pytest.approx(-4.0) and c['wrench_std'][2] == pytest.approx(0.0)
+
+
+def test_arm_moving_while_labelled_idle_is_flagged(tmp_path):
+    """Freedrive by the pendant button (not the pedal input) is recorded as IDLE / none / not expert: the
+    demonstration would be lost from the expert data without any warning."""
+    write_bag(tmp_path / 'ep_m1', mode=0, source=4, vx_mm_s=50.0)        # moving, labelled idle
+    r = run_episode_qc(tmp_path / 'ep_m1', EP, *config())
+    assert r['checks']['unlabelled_motion']['status'] == 'fail'
+    write_bag(tmp_path / 'ep_m2', mode=7, source=5, vx_mm_s=50.0)        # moving, labelled freedrive
+    assert run_episode_qc(tmp_path / 'ep_m2', EP, *config())['checks']['unlabelled_motion']['status'] == 'pass'
+    write_bag(tmp_path / 'ep_m3', mode=0, source=4)                       # still, idle
+    assert run_episode_qc(tmp_path / 'ep_m3', EP, *config())['checks']['unlabelled_motion']['status'] == 'pass'
