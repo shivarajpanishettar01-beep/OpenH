@@ -15,7 +15,7 @@ T0 = 1_760_000_000_000_000_000
 
 
 def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mode=3, vx_mm_s=0.0,
-              camera=False, camera_stop_s=None, us_stop_s=None):
+              camera=False, camera_stop_s=None, us_stop_s=None, free_air=None):
     from rosbags.rosbag2 import StoragePlugin, Writer
     ts = _typestore()
     Image = ts.types['sensor_msgs/msg/Image']
@@ -56,7 +56,8 @@ def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mo
                wrench=np.array([0.0, 0.0, -4.0, 0.0, 0.0, 0.0]), force_setpoint_n=4.0, mode=mode,
                safety_flags=0, action_source=source, action_is_expert=source in (0, 1, 5))
         msgs.append(('/robot/state', ns, m, RS))
-    for t, kind, val in ((0.05, 'phase', {'phase': 'free_air'}), (0.6, 'phase', {'phase': 'contact'}),
+    fa_events = (((free_air[1], 'phase', {'phase': 'free_air_end'}),) if free_air else ())
+    for t, kind, val in fa_events + ((0.05, 'phase', {'phase': 'free_air'}), (0.6, 'phase', {'phase': 'contact'}),
                          (0.7, 'start', {}), (1.0, 'phase', {'phase': 'search'}),
                          (1.5, 'phase', {'phase': 'onset'}), (2.0, 'phase', {'phase': 'recovery_start'}),
                          (2.5, 'phase', {'phase': 'recovery_end'}), (2.6, 'phase', {'phase': 'hold'}),
@@ -383,3 +384,12 @@ def test_episode_length_is_reported_against_the_target(tmp_path):
     c = r['checks']['episode_length']
     assert c['status'] == 'n/a' and c['within_target'] is False and c['target_s'] == [20, 30]
     assert c['recorded_s'] == pytest.approx(3.1, abs=0.01) and r['pass']
+
+
+def test_free_air_offset_is_measured_per_episode(tmp_path):
+    """The free-air window records the F/T offset (freedrive: nothing zeroes the sensor) but nothing measured it."""
+    write_bag(tmp_path / 'ep_f1', free_air=(0.05, 0.6))
+    scfg, rig = config()
+    c = run_episode_qc(tmp_path / 'ep_f1', EP, scfg, rig)['checks']['free_air_window']
+    assert c['status'] == 'pass' and c['samples'] > 200
+    assert c['wrench_mean'][2] == pytest.approx(-4.0) and c['wrench_std'][2] == pytest.approx(0.0)

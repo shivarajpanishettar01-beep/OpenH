@@ -478,6 +478,14 @@ def verify(a):
     per_step = [f for f in fails if ' step ' in f]
     check(not per_step, 'per-step force setpoint / expert flag / command_valid / host stamp / depth / status + source / '
                         f'failure class / in_episode, paused, action_valid: {len(per_step)} mismatches {per_step[:3]}')
+    # every F/T sample of the bag (500 Hz) kept next to the per-step force, and the free-air offset column
+    n_bag = int(DURATION_S * 1e9) // 2_000_000
+    sidecars = sorted((meta / 'force_torque_full').glob('episode_*.parquet'))
+    import pyarrow.parquet as _pq
+    rows = [_pq.read_table(f).num_rows for f in sidecars]
+    check(len(sidecars) == ds.num_episodes and all(r == n_bag for r in rows),
+          f'full-rate F/T sidecar per episode: {len(sidecars)} files, rows {sorted(set(rows))} (bag: {n_bag} at 500 Hz)')
+    check('observation.meta.ft_free_air_offset' in feats, 'per-step free-air F/T offset column')
     # LeRobot query with history, as a training loader would use it
     q = LeRobotDataset(f'local/{out.name}', root=out, video_backend='pyav',
                        delta_timestamps={'action': [-2 / truth['fps'], -1 / truth['fps'], 0.0]})

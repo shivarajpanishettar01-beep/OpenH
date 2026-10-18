@@ -94,11 +94,12 @@ def stats_of(arr):
                 'std': np.nanstd(a, 0).tolist(), 'count': [len(a)]}
 
 
-def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic, want_depth):
+def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic, want_depth, ft_topic=None):
     from rosbags.highlevel import AnyReader
     from rosbags.typesys import Stores, get_typestore
-    out = {'us': [], 'depth_st': [], 'depth': [], 'color_info': None, 'depth_info': None}
-    topics = {us_topic, color_info_topic, depth_info_topic} | ({depth_topic} if want_depth else set())
+    out = {'us': [], 'depth_st': [], 'depth': [], 'color_info': None, 'depth_info': None, 'ft': []}
+    topics = ({us_topic, color_info_topic, depth_info_topic} | ({depth_topic} if want_depth else set())
+              | ({ft_topic} if ft_topic else set()))
     with AnyReader([Path(bag)], default_typestore=get_typestore(Stores.ROS2_HUMBLE)) as r:
         for c, _, raw in r.messages(connections=[c for c in r.connections if c.topic in topics]):
             if c.topic in (color_info_topic, depth_info_topic):
@@ -108,7 +109,10 @@ def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic,
                 continue
             m = r.deserialize(raw, c.msgtype)
             st = m.header.stamp.sec * 1_000_000_000 + m.header.stamp.nanosec
-            if c.topic == us_topic:
+            if c.topic == ft_topic:
+                w = m.wrench
+                out['ft'].append((st, w.force.x, w.force.y, w.force.z, w.torque.x, w.torque.y, w.torque.z))
+            elif c.topic == us_topic:
                 out['us'].append(st)
             else:
                 out['depth_st'].append(st)
@@ -118,7 +122,8 @@ def read_streams(bag, us_topic, depth_topic, color_info_topic, depth_info_topic,
 
 
 # Files the LeRobot v2.1 -> v3.0 converter does not keep (it rebuilds meta/): copied back afterwards.
-EXTRA_META = ('calibration', 'annotations.jsonl', 'provenance.jsonl', 'modality.json', 'micrus_sources.jsonl')
+EXTRA_META = ('calibration', 'annotations.jsonl', 'provenance.jsonl', 'modality.json', 'micrus_sources.jsonl',
+              'force_torque_full')
 
 
 def carry_meta(work, custom_info):
@@ -183,6 +188,10 @@ def main():
                          'time_offset_s values aligned the videos and are used for host stamps and depth too')
     ap.add_argument('--action-frame', choices=['base', 'tool'], default='base')
     ap.add_argument('--depth', choices=['png', 'none'], default='png')
+    ap.add_argument('--ft-full', choices=['on', 'off'], default='on',
+                    help='meta/force_torque_full/episode_NNNNNN.parquet: every F/T sample of the bag (500 Hz, '
+                         'host_stamp_ns + fx..tz), next to the per-step observation.meta.force_torque')
+    ap.add_argument('--ft-topic', default='/robot/wrench')
     ap.add_argument('--skip-convert', action='store_true')
     ap.add_argument('--pipeline-check', action='store_true',
                     help='synthetic episodes only (pipeline_check.py); output name must start with SYNTHETIC_')
@@ -273,7 +282,21 @@ def main():
         ann = F.A.load_merged(bag, episode=epj)
         n = t.num_rows
         t_steps = ((float(s['start_unix']) + np.arange(n) / float(s['fps'])) * 1e9).astype(np.int64)
-        st = read_streams(bag, a.us_topic, ct['depth'], ct['color_info'], ct['depth_info'], a.depth == 'png')
+        st = read_streams(bag, a.us_topic, ct['depth'], ct['color_info'], ct['depth_info'], a.depth == 'png',
+                          ft_topic=a.ft_topic if a.ft_full == 'on' else None)
+        if a.ft_full == 'on':
+            if not st['ft']:
+                sys.exit(f'{bag}: no {a.ft_topic} messages (full-rate F/T requested: --ft-full off to skip)')
+            ft = np.array(sorted(st['ft']), np.float64)
+            (meta / 'force_torque_full').mkdir(exist_ok=True)
+            pq.write_table(pa.table({'host_stamp_ns': pa.array(ft[:, 0].astype(np.int64), pa.int64()),
+                                     **{k: pa.array(ft[:, i + 1], pa.float64())
+                                        for i, k in enumerate(('fx', 'fy', 'fz', 'tx', 'ty', 'tz'))}}),
+                           meta / 'force_torque_full' / f'episode_{ep_index:06d}.parquet')
+        fa = ((epj.get('qc') or {}).get('checks') or {}).get('free_air_window') or {}
+        ft_offset = fa.get('wrench_mean')
+        ft_offset_valid = ft_offset is not None
+        ft_offset = ft_offset if ft_offset_valid else [0.0] * 6     # NaN in a list column becomes null in v3.0
         sid = session_id(bag)
         intrinsics.setdefault(sid, {'wrist_camera': st['color_info'], 'wrist_depth': st['depth_info']})
 
@@ -309,6 +332,10 @@ def main():
             'observation.meta.action_valid': pa.array(action_valid, pa.bool_()),
             'observation.meta.force_torque': t.column('observation.force_torque')
             if 'observation.force_torque' in t.column_names else pa.array([[np.nan] * 6] * n),
+            # this episode's free-air F/T (mean over the free-air window, from QC): raw force minus this =
+            # force referenced to free air; ..._valid false (offset 0) when the window was not measured
+            'observation.meta.ft_free_air_offset': pa.array([list(map(float, ft_offset))] * n, pa.list_(pa.float32(), 6)),
+            'observation.meta.ft_free_air_offset_valid': pa.array([ft_offset_valid] * n, pa.bool_()),
             'observation.meta.probe_type': pa.array([probe_type] * n),
             'observation.meta.probe_acquisition_param': t.column('observation.ultrasound.settings'),
             'observation.meta.prob_cali_mtx': pa.array([list(np.ravel(prob_cali).astype(float))] * n,

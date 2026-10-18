@@ -199,7 +199,14 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
 
     # ---- free air, expert flag, events
     fa = [s for s, k, v in events if k == 'phase' and v.get('phase') == 'free_air']
-    checks['free_air_window'] = _status(bool(fa) and bool(np.any(r_st >= fa[0])))
+    fa_end = [s for s, k, v in events if k == 'phase' and v.get('phase') == 'free_air_end']
+    # F/T offset of this episode (probe in free air): nothing zeroes the sensor in freedrive, and the export
+    # carries it so the force can be referenced to free air (open decision 18); raw values stay as recorded
+    w_fa = (np.array([m.wrench for _, m in rs if fa[0] <= stamp_ns(m) <= fa_end[0]], float)
+            if fa and fa_end else np.zeros((0, 6)))
+    checks['free_air_window'] = _status(bool(fa) and bool(np.any(r_st >= fa[0])), samples=int(len(w_fa)),
+                                        wrench_mean=w_fa.mean(axis=0).tolist() if len(w_fa) else None,
+                                        wrench_std=w_fa.std(axis=0).tolist() if len(w_fa) else None)
     bad_expert = sum(1 for _, m in rs if m.action_is_expert and m.action_source not in EXPERT_SOURCES)
     checks['expert_flag'] = _status(bad_expert == 0, samples_flagged_wrongly=bad_expert)
     need = {'start', 'end', 'outcome'}
