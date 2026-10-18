@@ -128,6 +128,7 @@ class EpisodeManager(Node):
         # operator console state (/episode/status): what we wait for, pause spans, last episode, counts
         self.pause_log = None
         self.waiting_for = set()
+        self.task = None                 # operator task (target + instruction) for freedrive / teleop episodes
         self.finishing = False
         self.last_ep = None
         self.plan_info = None
@@ -214,7 +215,8 @@ class EpisodeManager(Node):
                          'robot_control': self.control, 'operator_id': self.operator_id,
                          'phantom_id': self.phantom_id, 'sim': self.sim, 'session_dir': str(self.sdir),
                          'presession_problem': self.presession_problem,
-                         'stage_error': getattr(self, 'stage_error', None)},
+                         'stage_error': getattr(self, 'stage_error', None),
+                         'task': getattr(self, 'task', None)},
                 ep=self.ep, pause_log=self.pause_log, waiting_for=self.waiting_for, finishing=self.finishing,
                 last_ep=self.last_ep, counts=self.counts, plan=self.plan_info, now_ns=now_ns())
         self.pub_status.publish(String(data=json.dumps(payload, default=str)))
@@ -241,6 +243,12 @@ class EpisodeManager(Node):
             return
         cmd = c.get('cmd')
         if cmd == 'key':
+            return
+        if cmd == 'set_task':
+            # the operator's current task for the next freedrive / teleop episodes (Open-H: task + target per episode)
+            target, instr = (c.get('target') or '').strip(), (c.get('instruction') or '').strip()
+            if target and instr:
+                self.task = {'target': target, 'instruction': instr}
             return
         with self.ep_lock:
             ep = self.ep
@@ -393,6 +401,14 @@ class EpisodeManager(Node):
                 'depth_profile': f"{cam['depth_width']}x{cam['depth_height']}@{cam['fps']}",
                 'exposure_us': cam.get('exposure_us'), 'white_balance_k': cam.get('white_balance_k'),
                 'cali_ref': 'session.json:wrist_cam_cali_mtx'}
+
+    def _task_fields(self, mode):
+        """Episode fields from the operator's task. Freedrive episodes need one (None = refuse Start); Stage 0
+        teleop with a task is collection ('teleop', exported), without one a shakedown test (not exported)."""
+        task = getattr(self, 'task', None)
+        if mode == 'freedrive':
+            return None if not task else {'type': 'kinesthetic', **task}
+        return {'type': 'teleop', **task} if task else {'type': 'shakedown'}
 
     def _new_episode(self, **fields):
         self.finishing = False
@@ -592,7 +608,7 @@ class EpisodeManager(Node):
             if not self._presession_ready():
                 self.get_logger().error(f'episode not started: {self.presession_problem}')
                 continue
-            ep = self._new_episode(type='shakedown')
+            ep = self._new_episode(**self._task_fields('robot'))
             try:
                 wp_name = self.scfg['stage0'].get('approach_waypoint')
                 wp = self._waypoint(wp_name) if wp_name and self.control else None
@@ -642,7 +658,11 @@ class EpisodeManager(Node):
             if self.count_publishers('/robot/control_status') > 0:
                 self.get_logger().error('robot_control is running: stop it for freedrive collection (episode not started)')
                 continue
-            ep = self._new_episode(type='kinesthetic', collection_mode='freedrive', grip=grip,
+            task = self._task_fields('freedrive')
+            if task is None:
+                self.get_logger().error('episode not started: set the task (target + instruction) in the console first')
+                continue
+            ep = self._new_episode(**task, collection_mode='freedrive', grip=grip,
                                    force_label_valid=grip == 'wrist_handle', force_setpoint_n=None)
             try:
                 self._begin_recording(ep)          # includes the free-air hold (F/T offset window)

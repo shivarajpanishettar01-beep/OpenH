@@ -438,6 +438,30 @@ def build_window(ros, scfg=None, rig=None):
     rl.addWidget(button('Add note', 'note', add_note), 4, 3)
     rl.addWidget(gel, 5, 0, 1, 2)
     buttons.setdefault('gel_combo', []).append(gel)
+    # the task of the next freedrive / teleop episodes (Open-H: task and target per episode, never generic);
+    # Stage 1 / 2 episodes take theirs from the path / plan row
+    task_target = QtWidgets.QLineEdit()
+    task_target.setObjectName('task_target')
+    task_target.setPlaceholderText('target, e.g. ijv_long (waypoint / view name)')
+    task_instr = QtWidgets.QLineEdit()
+    task_instr.setObjectName('task_instruction')
+    task_instr.setPlaceholderText('instruction, e.g. Centre the right IJV in long axis')
+    lbl_task = QtWidgets.QLabel('Task: not set (freedrive Start is refused; teleop is a shakedown test)')
+    lbl_task.setWordWrap(True)
+
+    def set_task():
+        t, i = task_target.text().strip(), task_instr.text().strip()
+        if not (t and i):
+            return ros.note('task needs both a target and an instruction')
+        ros.send({'cmd': 'set_task', 'target': t, 'instruction': i})
+        task_target.clearFocus()
+        task_instr.clearFocus()
+    for w in (task_target, task_instr):
+        w.setFocusPolicy(Qt.ClickFocus)
+    rl.addWidget(task_target, 6, 0, 1, 2)
+    rl.addWidget(task_instr, 6, 2, 1, 2)
+    rl.addWidget(button('Set task', None, set_task, tip='applies to the next freedrive / teleop episodes'), 7, 0)
+    rl.addWidget(lbl_task, 7, 1, 1, 3)
     ll.addWidget(g_rec)
 
     g_prog = QtWidgets.QGroupBox('Session progress')
@@ -936,6 +960,9 @@ def build_window(ros, scfg=None, rig=None):
         else:
             lbl_last.setText('Last: -')
         b_ss.setText(cm.start_stop_label(c))
+        tk = c.session.get('task')
+        lbl_task.setText(f'Task: <b>{tk["target"]}</b> · {tk["instruction"]}' if tk else
+                         'Task: <b>not set</b> (freedrive Start is refused; teleop without a task is a shakedown test)')
 
         counts = (st or {}).get('counts') or {}
         plan = (st or {}).get('plan')

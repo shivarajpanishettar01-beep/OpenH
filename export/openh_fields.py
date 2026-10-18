@@ -98,6 +98,26 @@ def failure_class_problems(episodes, catalog=None):
     return out
 
 
+GENERIC_TASKS = {'scan the phantom', 'scan', 'find the view', 'find the view.', 'shakedown', ''}
+
+
+def task_problems(episodes):
+    """[episode.json] -> one message per episode whose task text is missing or generic, or has no target.
+    Open-H: per-episode task text states task and target, never a generic label. A staged ambiguous-instruction
+    failure (FM-12) is generic on purpose."""
+    out = []
+    for e in episodes:
+        instr = (e.get('instruction') or '').strip()
+        why = []
+        if e.get('failure_mode') != 'FM-12' and instr.lower() in GENERIC_TASKS:
+            why.append(f'task text {instr!r} is missing or generic')
+        if not (e.get('target') or '').strip():
+            why.append('no target')
+        if why:
+            out.append(f'{e.get("episode_id")}: ' + ', '.join(why) + ' (set the task in the console before Start)')
+    return out
+
+
 # exported name -> (rig.yaml / session snapshot key, exact frame definition)
 CALIBRATIONS = {
     'wrist_cali_mtx': ('wrist_cam_cali_mtx',

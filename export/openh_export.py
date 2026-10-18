@@ -234,6 +234,7 @@ def main():
                 problems.append(f'session {sid}: prob_cali_mtx neither in session.json nor in {a.rig_config} '
                                 '(Open-H needs it)')
     problems += F.failure_class_problems(staged, catalog)
+    problems += F.task_problems([epj for epj, _ in staged])
     problems += [f'{epj.get("episode_id")}: episode.json has no t_start_ns / t_end_ns (episode window unknown)'
                  for epj, _ in staged if epj.get('t_start_ns') is None or epj.get('t_end_ns') is None]
     if problems:

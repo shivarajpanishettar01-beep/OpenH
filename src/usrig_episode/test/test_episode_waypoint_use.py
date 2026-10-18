@@ -249,3 +249,23 @@ def test_micrus_stop_fallback_cannot_outlive_its_parent(monkeypatch):
     monkeypatch.setattr(_sp, 'run', lambda argv, **k: seen.append(argv))
     record_guard.stop_micrus_recording(timeout=7)
     assert seen[0][:2] == ['timeout', '7'] and 'ros2' in seen[0]
+
+
+def test_operator_task_goes_into_the_next_episodes():
+    """Freedrive / free-teleop episodes carry the operator's current task (target + instruction)."""
+    import json as _j
+    import queue as _q
+    import threading as _th
+    import types as _t
+    from std_msgs.msg import String
+    fake = _t.SimpleNamespace(ep_lock=_th.Lock(), ep=None, cmds=_q.Queue(), pause_log=None, task=None,
+                              event=lambda *a: None)
+    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'set_task', 'target': 'ijv_long',
+                                                       'instruction': 'Centre the right IJV in long axis'})))
+    assert fake.task == {'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis'}
+    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'set_task', 'target': ' ', 'instruction': 'x'})))
+    assert fake.task['target'] == 'ijv_long'                         # incomplete tasks are ignored
+    assert EpisodeManager._task_fields(_t.SimpleNamespace(task=None), 'freedrive') is None
+    assert EpisodeManager._task_fields(_t.SimpleNamespace(task=fake.task), 'freedrive')['type'] == 'kinesthetic'
+    assert EpisodeManager._task_fields(_t.SimpleNamespace(task=None), 'robot')['type'] == 'shakedown'
+    assert EpisodeManager._task_fields(_t.SimpleNamespace(task=fake.task), 'robot')['type'] == 'teleop'

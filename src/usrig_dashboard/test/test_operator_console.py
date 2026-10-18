@@ -199,3 +199,12 @@ def test_stop_right_after_an_outcome_click_does_not_ask_again(app):
     btn(win, 'Stop episode').click()                                  # status not refreshed in between
     assert ros.sent[-2:] == [{'cmd': 'outcome', 'value': 'success'}, {'cmd': 'start_stop'}]
     win.close()
+
+
+def test_set_task_sends_target_and_instruction(app):
+    ros, win, refresh = make(app, IDLE)
+    win.findChild(QtWidgets.QLineEdit, 'task_target').setText('ijv_long')
+    win.findChild(QtWidgets.QLineEdit, 'task_instruction').setText('Centre the right IJV in long axis')
+    btn(win, 'Set task').click()
+    assert ros.sent[-1] == {'cmd': 'set_task', 'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis'}
+    win.close()

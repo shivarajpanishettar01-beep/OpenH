@@ -209,3 +209,22 @@ def test_temporal_calib_recovers_known_lag(lag_ms, invert):
     assert TC.dominant_freq(t_ref, x_ref) == pytest.approx(f, rel=0.05)
     lag_s, _ = TC.sine_lag(t_ref, x_ref, t_sig, x_sig, f)
     assert lag_s * 1000 == pytest.approx(lag_ms, abs=1.5)
+
+
+def test_task_text_must_name_task_and_target():
+    """Open-H: per-episode task text must state task and target, never a generic label. Freedrive and free
+    teleop episodes had none and fell back to the converter default "Scan the phantom"."""
+    ok = {'episode_id': 'e1', 'instruction': 'Centre the right IJV in long axis', 'target': 'ijv_long'}
+    assert F.task_problems([ok]) == []
+    msgs = F.task_problems([{'episode_id': 'e2'}, dict(ok, episode_id='e3', instruction='Scan the phantom'),
+                            dict(ok, episode_id='e4', target=None)])
+    assert [m.split(':')[0] for m in msgs] == ['e2', 'e3', 'e4']
+    # a staged ambiguous-instruction failure (FM-12) is generic on purpose
+    assert F.task_problems([dict(ok, instruction='Find the view.', failure_mode='FM-12')]) == []
+
+
+def test_stage0_teleop_with_a_task_is_exported_shakedown_is_not():
+    from usrig_common.export_rules import exportable
+    base = {'stage': 0, 'outcome': 'success', 'qc': {'pass': True}}
+    assert exportable(dict(base, type='teleop')) == (True, '')
+    assert exportable(dict(base, type='shakedown')) == (False, 'stage0')

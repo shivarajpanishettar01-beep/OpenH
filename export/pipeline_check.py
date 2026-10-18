@@ -231,7 +231,7 @@ def write_session(root):
         extra.update({'operator_id': 'op_synthetic', 'phantom_id': 'vascular_4vein', 'rig_git_commit': 'synthetic'})
         (d / 'episode.json').write_text(json.dumps({**extra,
             'episode_id': eid, 'session_id': 'SYNTHETIC_session', 'type': typ, 'stage': stage,
-            'instruction': instr, 'outcome': 'recovered' if fail else 'success', 'qc': {'pass': True},
+            'instruction': instr, 'target': 'vessel_long', 'outcome': 'recovered' if fail else 'success', 'qc': {'pass': True},
             'failure_mode': 'FM-SYN' if fail else None, 'sim': False, 'synthetic_pipeline_check': True,
             'time_offsets_s': {'ultrasound': -0.020, 'camera': 0.0}, 'capture_host': 'synthetic',
             't_start_ns': T0_NS + int(WINDOW_S[0] * 1e9), 't_end_ns': T0_NS + int(WINDOW_S[1] * 1e9),

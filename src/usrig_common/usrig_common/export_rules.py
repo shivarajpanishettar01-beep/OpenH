@@ -20,7 +20,8 @@ def exportable(ep, include_stage0=False, include_stage1=False, include_kinesthet
         return False, 'qc_fail'
     if ep.get('type') == 'kinesthetic':
         return (True, '') if include_kinesthetic else (False, 'kinesthetic')
-    if ep.get('stage') == 0 and not include_stage0:
+    # Stage 0 with an operator-set task is teleop collection (type 'teleop'); without one it is a shakedown test
+    if ep.get('stage') == 0 and not include_stage0 and ep.get('type') != 'teleop':
         return False, 'stage0'
     if ep.get('stage') == 1 and not include_stage1:
         return False, 'stage1'
