@@ -20,16 +20,34 @@ from usrig_common.timeutil import now_ns
 from usrig_common.tool_node import run_tool
 
 
+def phantom_file(scfg, session):
+    """<root>/phantoms/<phantom>.yaml of the session's phantom (session.json, written by episode_manager from the
+    launch's phantom_id; session.yaml's default only if the session has none)."""
+    from usrig_common.session import data_dir, read_json, session_is_sim
+    pid = read_json(Path(session) / 'session.json').get('phantom_id') or scfg['session'].get('phantom_id')
+    if not pid:
+        raise ValueError('no phantom_id in session.json or session.yaml: give --phantom-file')
+    return data_dir(scfg, 'phantoms', session_is_sim(session)) / f'{pid}.yaml'
+
+
+def load_fiducials(path):
+    """{name: [x, y, z] mm} from phantoms/<id>.yaml; every value must be measured (no nulls), at least 4."""
+    fid = (config.load_yaml(path) or {}).get('fiducials_mm') or {}
+    bad = [k for k, v in fid.items() if not isinstance(v, (list, tuple)) or len(v) != 3
+           or any(not isinstance(x, (int, float)) for x in v)]
+    if bad:
+        raise ValueError(f'{path}: fiducials {bad} are not three measured numbers (mm, phantom frame)')
+    if len(fid) < 4:
+        raise ValueError(f'{path}: need at least 4 fiducials, has {len(fid)}')
+    return fid
+
+
 def _register(node, a):
     max_res = config.get_path(node.rig, 'registration_max_residual_mm')
     if max_res is None:
         raise config.UnsetLimitError(['registration_max_residual_mm'], 'rig.yaml')
-    from usrig_common.session import data_dir, session_is_sim
-    pf = a.phantom_file or (data_dir(node.scfg, 'phantoms', session_is_sim(a.session))
-                            / f"{node.scfg['session']['phantom_id']}.yaml")
-    fid = config.load_yaml(pf)['fiducials_mm']
-    if len(fid) < 4:
-        raise ValueError('need at least 4 fiducials')
+    pf = a.phantom_file or phantom_file(node.scfg, a.session)
+    fid = load_fiducials(pf)
     src, dst = [], []
     for name, p_mm in fid.items():
         input(f'Put the probe tip on fiducial {name} {p_mm} mm and press Enter... ')

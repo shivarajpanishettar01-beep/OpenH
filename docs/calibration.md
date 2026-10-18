@@ -26,6 +26,22 @@ Order: TCP setting -> pointer pivot -> hand-eye -> phantom registration (each se
    good divot) and the orientation spread is above ~40 deg; then run again with `--write`.
    The tool reads the robot only; it never commands motion.
 
+## Phantom fiducial files (one per phantom, before registration)
+`register_phantom` needs `<data root>/phantoms/<phantom_id>.yaml` for the session's phantom
+(`vascular_4vein.yaml`, `central_line_gen2.yaml`). Neither exists yet. The coordinates must come from the
+phantom's drawing / datasheet or your own measurement of marked points; nothing in the rig proposes them, and
+fiducials with null or missing values are refused:
+```yaml
+# <root>/phantoms/vascular_4vein.yaml   (phantom frame, millimetres; at least 4 points, not all in one line)
+fiducials_mm:
+  F1: [null, null, null]
+  F2: [null, null, null]
+  F3: [null, null, null]
+  F4: [null, null, null]
+```
+Use points the probe tip or the calibrated pointer can touch reproducibly (corner marks, divots). The phantom
+frame you choose here is the frame of every waypoint and of `tcp_phantom` in the data.
+
 ## Wrist-camera hand-eye
 1. Set `wrist_camera.calib_board` in `session.yaml` (checkerboard: `squares_x`, `squares_y`, `square_mm`;
    ChArUco also `marker_mm`, `dictionary`). Measure the printed square size with calipers.

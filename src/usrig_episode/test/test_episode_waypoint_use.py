@@ -269,3 +269,21 @@ def test_operator_task_goes_into_the_next_episodes():
     assert EpisodeManager._task_fields(_t.SimpleNamespace(task=fake.task), 'freedrive')['type'] == 'kinesthetic'
     assert EpisodeManager._task_fields(_t.SimpleNamespace(task=None), 'robot')['type'] == 'shakedown'
     assert EpisodeManager._task_fields(_t.SimpleNamespace(task=fake.task), 'robot')['type'] == 'teleop'
+
+
+def test_registration_uses_the_session_phantom_and_refuses_unset_fiducials(tmp_path):
+    """register_phantom read session.yaml phantom_id (not the session's) and accepted null fiducial values."""
+    import json as _j
+    import pytest as _pt
+    from usrig_episode import registration as R
+    scfg = {'session': {'phantom_id': None, 'root': str(tmp_path), 'sim_root': str(tmp_path / 'sim')}}
+    sdir = tmp_path / 'sessions' / 's1'
+    sdir.mkdir(parents=True)
+    (sdir / 'session.json').write_text(_j.dumps({'phantom_id': 'central_line_gen2'}))
+    assert R.phantom_file(scfg, sdir) == tmp_path / 'phantoms' / 'central_line_gen2.yaml'
+    f = tmp_path / 'f.yaml'
+    f.write_text('fiducials_mm: {F1: [0, 0, 0], F2: [100, 0, 0], F3: [0, 80, 0], F4: [null, 80, 0]}\n')
+    with _pt.raises(ValueError, match='F4'):
+        R.load_fiducials(f)
+    f.write_text('fiducials_mm: {F1: [0, 0, 0], F2: [100, 0, 0], F3: [0, 80, 0], F4: [100, 80, 5]}\n')
+    assert len(R.load_fiducials(f)) == 4
