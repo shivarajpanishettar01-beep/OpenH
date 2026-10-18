@@ -431,3 +431,11 @@ def test_episode_output_path():
     assert episode_paths('2026-10-16_s01_ep_0003', None, '~/data/')[2] == '~/data/sessions/2026-10-16_s01/ep_0003/'
     assert episode_paths('other_ep_0001', sim)[2] == '~/data/sessions/other/ep_0001/'
     assert episode_paths(None, sim) == (None, None, None)
+
+
+def test_demo_gui_pauses_during_test_recordings():
+    """test1-3 record:=true and temporal-calibration bags run without episode_manager; the demo GUI's load
+    (about one core) belongs to the recorder then."""
+    from usrig_demo_gui.collection_guard import collection_lock
+    assert collection_lock({'robot_state', 'rosbag2_recorder'}, None, None)
+    assert collection_lock({'robot_state', 'micrus'}, None, None) is None

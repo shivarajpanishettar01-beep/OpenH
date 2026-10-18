@@ -28,6 +28,9 @@ def collection_lock(nodes_up: Optional[set], status: Optional[dict], status_age_
     if nodes_up is None:
         return 'Checking for a running collection session.'
     if EPISODE_MANAGER not in nodes_up:
+        # test recordings (test1-3 record:=true, temporal calibration) run without episode_manager
+        if any(n.startswith('rosbag2_recorder') for n in nodes_up):
+            return 'A recording (ros2 bag record) is running.'
         return None
     fresh = status is not None and status_age_s is not None and status_age_s < STATUS_STALE_S
     session = ((status or {}).get('session') or {}) if fresh else {}

@@ -205,6 +205,9 @@ class ConsoleRos(Node):
             return dict(self.latest), live, list(self.events), list(self.log), set(self.keys_held), \
                 self.input_lost, dict(self.fd)
 
+    def node_names(self):
+        return {n for n, _ in self.get_node_names_and_namespaces()}
+
     def session_dir(self):
         st = self.latest.get('status') or {}
         sd = (st.get('session') or {}).get('session_dir')
@@ -748,10 +751,12 @@ def build_window(ros, scfg=None, rig=None):
     if scfg['session'].get('phantom_id'):
         s_phantom.setCurrentText(scfg['session']['phantom_id'])
     s_id = QtWidgets.QLineEdit(ros.session_param or '')
+    s_id.setObjectName('session_id')
     s_sim = QtWidgets.QCheckBox('simulation (sim_root, never exported)')
     s_sim.setChecked(bool(ros.sim))
     s_cam = QtWidgets.QCheckBox('wrist camera')
-    s_cam.setChecked(True)
+    # this PC's settings (machine.yaml): no camera here -> unticked
+    s_cam.setChecked(bool(scfg['wrist_camera'].get('enabled') and scfg['recording'].get('include_wrist_camera', True)))
     s_hours = QtWidgets.QDoubleSpinBox()
     s_hours.setRange(0.0, 12.0)
     s_hours.setSingleStep(0.5)
@@ -845,6 +850,11 @@ def build_window(ros, scfg=None, rig=None):
         c = collect_cmd()
         if c is None:
             return ros.note('set a session id first')
+        running = {'episode_manager', 'micrus', 'robot_state', 'robot_control'} & (
+            ros.node_names() if hasattr(ros, 'node_names') else set())
+        if running:
+            # a second micrus / robot_state / episode_manager on the same graph would fight over the devices
+            return ros.note(f'not launched: {sorted(running)} already running (stop that collection first)')
         m = cm.COLLECTION_MODES[s_mode.currentData()]
         if m['control'] and not confirm('Start the robot nodes', 'This starts robot_control (the arm can be commanded). '
                                         'Area clear, e-stop at hand? (Then run the Pre-session check; episodes start only after it passes.)'):

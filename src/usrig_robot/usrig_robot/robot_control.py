@@ -364,7 +364,12 @@ class RobotControlNode(Node):
         elif cmd == 'force_step':
             lo, hi = self.lim.force_band_n
             self.force_setpoint = float(np.clip(self.force_setpoint + float(c.get('delta', 0.0)), lo, hi))
-            self._event('note', {'force_setpoint_n': self.force_setpoint})
+            # a held SpaceMouse cap push sends this at 100 Hz: note it at most every 0.5 s (the setpoint of every
+            # sample is in /robot/state anyway); a flood could crowd out outcome / onset events (queue depth 50)
+            now = time.monotonic()
+            if now - getattr(self, '_t_force_note', 0.0) >= 0.5:
+                self._t_force_note = now
+                self._event('note', {'force_setpoint_n': self.force_setpoint})
         elif cmd == 'reload_registration':
             self._load_registration()
         elif cmd == 'set_local_tilt_axis':

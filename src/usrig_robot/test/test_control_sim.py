@@ -917,3 +917,14 @@ def test_in_contact_hold_is_held_before_it_is_installed(sim, monkeypatch):
     assert node._hold_in_contact_if_idle()
     assert held_at_install == [True]
     node.destroy_node()
+
+
+def test_held_force_step_does_not_flood_the_event_stream(sim):
+    """A held SpaceMouse cap push sends force_step at 100 Hz and every one became an /episode/events note."""
+    node, robot = sim()
+    n0 = len([k for k, v in node.events if k == 'note'])
+    for _ in range(100):
+        cmd(node, {'cmd': 'force_step', 'delta': 0.01})
+    notes = [v for k, v in node.events if k == 'note'][n0:]
+    assert 1 <= len(notes) <= 5
+    node.destroy_node()

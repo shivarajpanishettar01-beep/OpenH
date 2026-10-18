@@ -208,3 +208,26 @@ def test_set_task_sends_target_and_instruction(app):
     btn(win, 'Set task').click()
     assert ros.sent[-1] == {'cmd': 'set_task', 'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis'}
     win.close()
+
+
+def test_launch_refused_while_a_collection_runs(app, monkeypatch):
+    """Launch collection did not check the graph: a second micrus / robot_state / episode_manager could start."""
+    import subprocess as _sp
+    ros, win, refresh = make(app, IDLE)
+    ros.node_names = lambda: {'episode_manager', 'micrus', 'robot_state'}
+    started = []
+    monkeypatch.setattr(_sp, 'Popen', lambda *a, **k: started.append(a))
+    win.findChild(QtWidgets.QLineEdit, 'session_id').setText('S1')
+    btn(win, 'Launch collection (new terminal)').click()
+    assert not started
+
+
+def test_camera_checkbox_follows_this_pc(app, monkeypatch):
+    """The wrist-camera box was always ticked: on a PC without the camera the launch included it."""
+    from usrig_dashboard.operator_console import build_window
+    ros = FakeRos(IDLE)
+    ros.scfg['wrist_camera']['enabled'] = False
+    win, refresh = build_window(ros)
+    box = next(b for b in win.findChildren(QtWidgets.QCheckBox) if b.text() == 'wrist camera')
+    assert not box.isChecked()
+    win.close()
