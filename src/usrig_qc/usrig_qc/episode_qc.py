@@ -334,18 +334,43 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
 
 
 def main():
-    ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument('episode_dir')
+    """episode_qc <episode_dir | session_dir> [--update]: one episode, or every ep_* of a session (discards skipped).
+    --update writes the result into episode.json (the previous one kept as qc_previous): progress and the export
+    read episode.json, so episodes recorded before the QC thresholds were set count once they pass. The recorded
+    data is never touched."""
+    ap = argparse.ArgumentParser(description=__doc__ + main.__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
+    ap.add_argument('path', help='episode folder (ep_NNNN) or session folder')
     ap.add_argument('--config-dir')
+    ap.add_argument('--update', action='store_true', help='write the result into episode.json')
     a, _ = ap.parse_known_args()
-    ep = json.loads((Path(a.episode_dir) / 'episode.json').read_text())
-    r = run_episode_qc(a.episode_dir, ep, config.load_config('session', a.config_dir),
-                       config.load_config('rig', a.config_dir))
-    for k, c in r['checks'].items():
-        extra = {x: y for x, y in c.items() if x != 'status'}
-        print(f'{c["status"].upper():6s} {k:22s} {json.dumps(extra, default=float)}')
-    print('EPISODE QC', 'PASS' if r['pass'] else 'FAIL')
-    sys.exit(0 if r['pass'] else 1)
+    p = Path(a.path).expanduser()
+    eps = [p] if (p / 'episode.json').exists() and p.name.startswith('ep_') else sorted(p.glob('ep_*'))
+    scfg, rig = config.load_config('session', a.config_dir), config.load_config('rig', a.config_dir)
+    n_pass = n_run = 0
+    for d in eps:
+        f = d / 'episode.json'
+        if not f.exists():
+            continue
+        ep = json.loads(f.read_text())
+        if len(eps) > 1 and ep.get('outcome') == 'discard':
+            continue
+        r = run_episode_qc(d, ep, scfg, rig)
+        n_run += 1
+        n_pass += bool(r['pass'])
+        if len(eps) == 1:
+            for k, c in r['checks'].items():
+                extra = {x: y for x, y in c.items() if x != 'status'}
+                print(f'{c["status"].upper():6s} {k:22s} {json.dumps(extra, default=float)}')
+        print(f'{d.name}: EPISODE QC {"PASS" if r["pass"] else "FAIL " + str(r.get("failed"))}')
+        if a.update:
+            ep['qc_previous'] = ep.get('qc')
+            ep['qc'] = r
+            tmp = f.with_suffix('.json.tmp')
+            tmp.write_text(json.dumps(ep, indent=2, default=float) + '\n')
+            tmp.replace(f)
+    if len(eps) > 1:
+        print(f'{n_pass} of {n_run} episodes pass' + ('' if a.update else ' (not written: add --update)'))
+    sys.exit(0 if n_run and n_pass == n_run else 1)
 
 
 if __name__ == '__main__':

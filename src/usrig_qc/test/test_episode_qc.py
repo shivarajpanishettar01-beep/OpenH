@@ -353,3 +353,23 @@ def test_pick_for_double_rating_covers_every_type():
     assert len(pick) == 2 and {c['type'] for c in pick} <= {'success', 'failure', 'recovery-mid'}
     assert len({c['type'] for c in pick_for_double_rating(cov, 0.2)}) == 3
     assert pick == pick_for_double_rating(cov, 0.15)    # seeded
+
+
+def test_rerun_qc_over_a_session_updates_episode_json(tmp_path, monkeypatch):
+    """Episodes recorded before the QC thresholds were set (unset = fail) must be re-checkable later; the CLI
+    wrote qc.json only, while progress and the export read episode.json."""
+    import sys as _sys
+    from usrig_qc import episode_qc as EQ
+    sdir = tmp_path / 'S1'
+    for name, outcome in (('ep_0001', 'success'), ('ep_0002', 'discard')):
+        write_bag(sdir / name)
+        (sdir / name / 'episode.json').write_text(json.dumps(dict(EP, outcome=outcome, qc={'pass': False, 'old': 1})))
+    scfg, rig = config()
+    monkeypatch.setattr(EQ.config, 'load_config', lambda name, d=None: scfg if name == 'session' else rig)
+    monkeypatch.setattr(_sys, 'argv', ['episode_qc', str(sdir), '--update'])
+    with pytest.raises(SystemExit):
+        EQ.main()
+    e1 = json.loads((sdir / 'ep_0001' / 'episode.json').read_text())
+    assert e1['qc']['pass'] is True and e1['qc_previous'] == {'pass': False, 'old': 1}
+    e2 = json.loads((sdir / 'ep_0002' / 'episode.json').read_text())
+    assert e2['qc'] == {'pass': False, 'old': 1}                     # discards are left alone
