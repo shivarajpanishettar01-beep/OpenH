@@ -191,8 +191,11 @@ order file) instead of stopping the conversion; `--depth none` if the export run
 python export/stage_bags.py --sessions ~/data/sessions/S1 ~/data/sessions/S2 --test-sessions ~/data/sessions/S3 -o ~/datasets/staging
 ```
 ```bash
-cd export && python "$BAG_TO_LEROBOT" -c lerobot_rig.yaml -o ~/datasets/us_v21 ~/datasets/staging
+cd export && python run_bag_to_lerobot.py -c lerobot_rig.yaml -o ~/datasets/us_v21 ~/datasets/staging
 ```
+`run_bag_to_lerobot.py` runs `$BAG_TO_LEROBOT` unchanged, but lets rosbags read the RealSense `Metadata`
+definition (it has a CRLF line ending; calling the converter directly stops on every bag with
+`/wrist/d415/color/metadata`).
 In the `openh-export` env (Python 3.12, LeRobot 0.6.0):
 ```bash
 ~/miniconda3/envs/openh-export/bin/python export/openh_export.py --v21 ~/datasets/us_v21 --order ~/datasets/staging_order.json --out ~/datasets/iitmandi_us

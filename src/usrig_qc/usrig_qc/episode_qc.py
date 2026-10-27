@@ -24,6 +24,8 @@ UNSTAMPED = {'/micrus/frame_info', '/qc/status', '/operator/command'}   # std_ms
 
 def _typestore():
     from rosbags.typesys import Stores, get_typestore, get_types_from_msg
+    from usrig_common.bag_io import tolerate_crlf_msgdefs
+    tolerate_crlf_msgdefs()          # every caller opens a bag next; realsense Metadata.msg has a CRLF line
     ts = get_typestore(Stores.ROS2_HUMBLE)
     try:
         from ament_index_python.packages import get_package_share_directory

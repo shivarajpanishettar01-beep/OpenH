@@ -89,6 +89,9 @@ def sine_lag(t_ref, x_ref, t_sig, x_sig, f):
 def read(bag, a):
     from rosbags.highlevel import AnyReader
     from rosbags.typesys import Stores, get_types_from_msg, get_typestore
+    sys.path.insert(0, str(REPO / 'src/usrig_common'))
+    from usrig_common.bag_io import tolerate_crlf_msgdefs   # realsense Metadata.msg has a CRLF line
+    tolerate_crlf_msgdefs()
     ts = get_typestore(Stores.ROS2_HUMBLE)
     for f in (REPO / 'src/usrig_interfaces/msg').glob('*.msg'):
         ts.register(get_types_from_msg(f.read_text(), f'usrig_interfaces/msg/{f.stem}'))

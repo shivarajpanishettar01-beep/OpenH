@@ -240,6 +240,8 @@ def main(argv=None):
         print(f'{r["topic"]:45s} {r["n"]:7d} {r["hz"]:8.2f} {g:>11s} {s:>13s}')
     size_mb = sum(f.stat().st_size for f in Path(a.bag).rglob('*') if f.is_file()) / 1e6
     from rosbags.highlevel import AnyReader
+    from usrig_common.bag_io import tolerate_crlf_msgdefs
+    tolerate_crlf_msgdefs()
     with AnyReader([Path(a.bag)]) as rd:
         dur = (rd.end_time - rd.start_time) * 1e-9
     if dur > 0:
