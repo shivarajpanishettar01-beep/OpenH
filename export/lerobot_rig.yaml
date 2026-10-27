@@ -4,24 +4,27 @@
 # below. Re-check with:  python bag_to_lerobot.py --list-topics <bag>   (NOT VERIFIED on real bags)
 
 dataset:
-  fps: 25                       # ~27 fps ultrasound gives a new frame at every step
+  fps: 30                       # Open-H reference rate (~28.6 fps ultrasound repeats about one step in 20)
   robot_type: ur7e_telemed_probe
   task: "Scan the phantom"      # default; <bag>/task.txt (the episode instruction) overrides it
   video:
-    codec: h264
+    codec: av1                  # Open-H reference: AV1 yuv420p, g=2 (libsvtav1)
     crf: 23
     gop: 2
 
 images:
   observation.images.ultrasound:
     topic: /micrus/bmode
+    resize: [480, 640]          # [h, w] as Open-H (stretched; captured size in usimg_org_resolution)
     time_offset_s: -0.020       # PLACEHOLDER: set to the CAPTURE PC's measured ultrasound offset (its machine.yaml,
                                 # also in every episode.json time_offsets_s; openh_export refuses every episode where they differ)
   observation.images.wrist_camera:          # proposal name (Open-H ultrasound schema)
     topic: /wrist/d415/color/image_raw
+    resize: [480, 640]
     time_offset_s: 0.0          # PLACEHOLDER until the P9c camera temporal calibration
   observation.images.tpv_camera:            # third-person view (fixed, whole scene); NAME TO CONFIRM against the
     topic: /tpv/camera/color/image_raw      # earlier Open-H datasets' scene-camera key
+    resize: [480, 640]
     time_offset_s: 0.0          # PLACEHOLDER until temporal_calib --camera tpv_camera (capture PC's tpv_camera offset)
   # observation.images.wrist_depth is NOT exported through this converter: it reduces 16UC1 to
   # 8 bits (>> 8) and encodes lossy video. openh_export.py adds it losslessly (16-bit PNG, mm).
@@ -44,7 +47,7 @@ state:
     names: [tcp_x, tcp_y, tcp_z, tcp_qx, tcp_qy, tcp_qz, tcp_qw]
     interp: hold                # quaternions must not be linearly interpolated; openh_export.py re-samples the
                                 # TCP from the bag with SLERP and overwrites these columns (a held 20 Hz pose
-                                # at 25 fps repeated about one step in four)
+                                # at 30 fps repeated about one step in three)
 
 # Action: the executed probe-frame TCP motion (after the safety filter) + the force setpoint.
 # Raw key presses are never the action. Absolute vs relative TCP for Open-H: open decision 3.

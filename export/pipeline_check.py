@@ -42,8 +42,8 @@ HERE = Path(__file__).resolve().parent
 REPO = HERE.parent
 T0_NS = 1_800_000_000 * 10**9          # synthetic epoch: 2027-01-15, far from any real recording
 DURATION_S = 4.0
-US_HZ = 27.3                            # not a divisor of the dataset fps: no frame lands on a step
-FPS = 25
+US_HZ = 27.4                            # >= 0.24 ms from every step at 25 and 30 fps (27.3 hit step 100 at 30 fps)
+FPS = 30                                # must equal dataset.fps in lerobot_rig.yaml
 DOWN = np.diag([1.0, -1.0, -1.0])
 EPISODES = [  # (episode_id, type, stage, instruction, failure interval s, recovery interval s)
     ('ep_0001', 'success', 2, 'Find the long-axis view of the vessel', None, None),
@@ -542,7 +542,7 @@ def verify(a):
     check(worst['delta'] < 1e-5, f'delta_action vs ground truth, max error {worst["delta"]:.2e}')
     check(worst['force'] < 1e-3, f'force/torque in the probe-tip frame vs ground truth, max error {worst["force"]:.2e}')
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')
-    check(worst['us_px'] <= 3.0, f'ultrasound frame selection + pixels (h264), max error {worst["us_px"]:.2f} grey levels')
+    check(worst['us_px'] <= 3.0, f'ultrasound frame selection + pixels (av1), max error {worst["us_px"]:.2f} grey levels')
     check(flag_counts['outside'] > 0 and flag_counts['paused'] > 0,
           f'pre-/post-roll and paused steps present and flagged ({flag_counts})')
     per_step = [f for f in fails if ' step ' in f]

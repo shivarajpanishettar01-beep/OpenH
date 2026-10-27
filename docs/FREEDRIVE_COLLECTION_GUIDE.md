@@ -99,7 +99,7 @@ All other checks (ultrasound gaps, robot sample gaps, camera, events) are the sa
 
 ## 5. Export
 Raw force stays as recorded; the per-episode free-air offset is exported beside it, and every 500 Hz F/T sample is
-kept in `meta/force_torque_full/episode_NNNNNN.parquet` (the step data has F/T at the 25 fps step rate).
+kept in `meta/force_torque_full/episode_NNNNNN.parquet` (the step data has F/T at the 30 fps step rate).
 `stage_bags.py` includes `kinesthetic` episodes whatever their stage, in the **train** split (after success
 episodes, before recovery / failure); `--exclude-kinesthetic` leaves them out. Per step:
 | Field | Freedrive value |

@@ -73,7 +73,7 @@ Also reported, minor or unverified [A]:
 - No hours-vs-target in the console (I11).
 - The "Robot may move" confirmation appears on every Start (M12).
 - The phantom combo silently preselects a phantom; waypoints use session.yaml `phantom_id`, not the active session (I5, I6).
-- [Hypothesis] Open-H may require lossless or 1-channel ultrasound; it is now h264 CRF 23 with grey copied into 3 channels.
+- [Hypothesis] Open-H may require lossless or 1-channel ultrasound; it is now AV1 CRF 23, 640x480, with grey copied into 3 channels.
 
 Found correct by the auditors (no action): the pivot, Kabsch and hand-eye math; the force sign; unit conversions; the C++ quaternion and inverse; Python and C++ label rules matching; the deadman / watchdog / ack paths; the demo GUI has no publishers.
 

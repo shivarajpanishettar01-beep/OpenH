@@ -81,7 +81,7 @@ tested stale code. Fixed: it now puts `src/` first on `PYTHONPATH` (`IMPLEMENTAT
 Two synthetic episodes (success, recovery-mid), 3.84 s each, every recorded topic with known values:
 TCP trajectory, executed twist, force setpoint, expert flag, ultrasound frames whose pixel value encodes
 the frame index (27.3 Hz), 16-bit depth whose value encodes the frame index (30 Hz), failure / recovery
-intervals. Chain: `stage_bags --pipeline-check` → `bag_to_lerobot` (v2.1, 25 fps) → `openh_export
+intervals. Chain: `stage_bags --pipeline-check` → `bag_to_lerobot` (v2.1, 30 fps) → `openh_export
 --pipeline-check` → LeRobot 0.6.0 v2.1→v3.0 converter → `LeRobotDataset(..., video_backend='pyav')`.
 
 | Check | Result |
@@ -89,7 +89,7 @@ intervals. Chain: `stage_bags --pipeline-check` → `bag_to_lerobot` (v2.1, 25 f
 | codebase v3.0, 2 episodes, 192 frames, splits `train 0:1`, `recovery 1:2` | pass |
 | incremental TCP action vs the action recomputed from the ground-truth trajectory | max error 4.2e-8 |
 | executed twist (`observation.meta.commanded_twist`) | max error 1.1e-9 |
-| ultrasound frame selection (sample-and-hold, -20 ms offset) and pixels after H.264 | max 1 grey level |
+| ultrasound frame selection (sample-and-hold, -20 ms offset) and pixels after AV1 | max 1 grey level |
 | ultrasound host stamps, depth (lossless, exact), force setpoint, expert flag, g_t status per step | 0 mismatches |
 | meta: calibration files, annotations, README, synthetic marker survive the v3.0 conversion | pass |
 | `delta_timestamps` query (action history) | pass |
