@@ -156,7 +156,9 @@ def limitations(s):
         out.append('Ultrasound image-to-probe calibration (prob_cali_mtx) missing (in at least one session).')
     if not cal_present(cal.get('wrist_cali_mtx'), 'wrist_cali_mtx'):
         out.append('Wrist camera hand-eye calibration (wrist_cali_mtx) missing (in at least one session).')
-    fallback = sorted({f'{k} ({sid})' for k in ('prob_cali_mtx', 'wrist_cali_mtx')
+    if 'tpv_cali_mtx' in cal and not cal_present(cal.get('tpv_cali_mtx'), 'tpv_cali_mtx'):
+        out.append('Third-person view camera calibration (tpv_cali_mtx) missing (in at least one session).')
+    fallback = sorted({f'{k} ({sid})' for k in ('prob_cali_mtx', 'wrist_cali_mtx', 'tpv_cali_mtx')
                        for sid, v in ((cal.get(k) or {}).get('per_session') or {}).items()
                        if 'exporting PC' in str((v or {}).get('source'))})
     if fallback:
@@ -230,7 +232,7 @@ def card(s, name):
     L += ['', '## Splits', f'`meta/info.json` splits: {i.get("splits")} (test = whole held-out sessions).', '',
           '## Calibration and timing']
     for k, v in sorted(s['cal'].items()):
-        present = (cal_present(v, k) if k in ('prob_cali_mtx', 'wrist_cali_mtx') else
+        present = (cal_present(v, k) if k in ('prob_cali_mtx', 'wrist_cali_mtx', 'tpv_cali_mtx') else
                    any(x is not None for x in v.values()) if isinstance(v, dict) else v is not None)
         frame = f' ({v["frame"]})' if isinstance(v, dict) and v.get('frame') else ''
         L.append(f'- `meta/calibration/{k}.json`: {"present" if present else "MISSING"}{frame}')
@@ -240,7 +242,7 @@ def card(s, name):
           'Every stream is stamped on the capture PC clock at acquisition (header stamps; one stamp per 500 Hz robot '
           'sample). The export samples all streams onto the fixed-fps step grid; `timestamp` is frame_index / fps and '
           'the raw clock is kept in `observation.meta.host_stamp_ns`. Measured temporal offsets per capture PC '
-          '(ultrasound: sinusoidal compress test; wrist camera: ArUco) are listed above and applied by the export.']
+          '(ultrasound: sinusoidal compress test; wrist and TPV cameras: ArUco) are listed above and applied by the export.']
     L += ['', '## Provenance',
           f'- Capture PCs: {dict(s["hosts"])}', f'- Rig code commits: {dict(s["commits"])}', '',
           '## Known limitations'] + [f'- {x}' for x in limitations(s)] + [

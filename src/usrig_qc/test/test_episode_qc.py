@@ -15,7 +15,7 @@ T0 = 1_760_000_000_000_000_000
 
 
 def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mode=3, vx_mm_s=0.0,
-              camera=False, camera_stop_s=None, us_stop_s=None, free_air=None):
+              camera=False, camera_stop_s=None, us_stop_s=None, free_air=None, tpv=False, tpv_drop_every=None):
     from rosbags.rosbag2 import StoragePlugin, Writer
     ts = _typestore()
     Image = ts.types['sensor_msgs/msg/Image']
@@ -84,6 +84,15 @@ def write_bag(path, drop_frame=None, duration_s=4.0, drop_robot=(), source=0, mo
             dep = Image(header=hdr(ns), height=4, width=4, encoding='16UC1', is_bigendian=0, step=8,
                         data=np.full(32, 7, np.uint8))
             msgs += [(ct['color'], ns, col, Image), (ct['depth'], ns, dep, Image)]
+    if tpv:
+        # TPV colour at 30 Hz (colour only); tpv_drop_every: every n-th frame missing
+        for k in range(int(duration_s * 30)):
+            if tpv_drop_every and k % tpv_drop_every == 0:
+                continue
+            ns = T0 + int(k * 1e9 / 30)
+            col = Image(header=hdr(ns), height=4, width=4, encoding='rgb8', is_bigendian=0, step=12,
+                        data=np.full(48, 90, np.uint8))
+            msgs.append((SCFG['tpv_camera']['topics']['color'], ns, col, Image))
 
     with Writer(path, version=8, storage_plugin=StoragePlugin.MCAP) as w:
         conns = {}
@@ -405,3 +414,23 @@ def test_arm_moving_while_labelled_idle_is_flagged(tmp_path):
     assert run_episode_qc(tmp_path / 'ep_m2', EP, *config())['checks']['unlabelled_motion']['status'] == 'pass'
     write_bag(tmp_path / 'ep_m3', mode=0, source=4)                       # still, idle
     assert run_episode_qc(tmp_path / 'ep_m3', EP, *config())['checks']['unlabelled_motion']['status'] == 'pass'
+
+
+def test_tpv_camera_rate_and_coverage(tmp_path):
+    """The third-person view camera (colour only) is checked like the wrist colour: rate in the window and
+    coverage; not recorded -> n/a, so wrist-only sessions are unchanged."""
+    scfg, rig = config()
+    assert run_episode_qc(write_tpv(tmp_path / 'ep_t0', tpv=False), EP, scfg, rig)['checks']['tpv_rate']['status'] == 'n/a'
+    scfg['tpv_camera']['enabled'] = True
+    r = run_episode_qc(write_tpv(tmp_path / 'ep_t1'), EP, scfg, rig)['checks']
+    assert r['tpv_rate']['status'] == 'pass' and r['tpv_rate']['hz'] == pytest.approx(30, rel=0.02), r['tpv_rate']
+    assert r['stream_coverage']['status'] == 'pass', r['stream_coverage']
+    r = run_episode_qc(write_tpv(tmp_path / 'ep_t2', tpv_drop_every=4), EP, scfg, rig)['checks']
+    assert r['tpv_rate']['status'] == 'fail'
+    r = run_episode_qc(write_tpv(tmp_path / 'ep_t3', tpv=False), EP, scfg, rig)['checks']   # enabled, nothing recorded
+    assert r['tpv_rate']['status'] == 'fail' and 'tpv.color' in r['stream_coverage']['short']
+
+
+def write_tpv(path, tpv=True, tpv_drop_every=None):
+    write_bag(path, tpv=tpv, tpv_drop_every=tpv_drop_every)
+    return path

@@ -62,7 +62,7 @@ def _fake_manager(tmp_path, session_json):
     (tmp_path / 'session.json').write_text(_j.dumps(session_json))
     logs = []
     log = _t.SimpleNamespace(error=logs.append, warn=logs.append, info=logs.append)
-    return _t.SimpleNamespace(sim=False, sdir=tmp_path, stage=0, control=False, camera_recorded=False,
+    return _t.SimpleNamespace(sim=False, sdir=tmp_path, stage=0, control=False, camera_recorded=False, tpv_recorded=False,
                               scfg={'session': {'presession_max_age_h': 12, 'min_free_disk_gb': 0}}, presession_problem=None,
                               get_logger=lambda: log, logs=logs)
 

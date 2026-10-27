@@ -1,4 +1,7 @@
-"""Wrist RealSense D415 via realsense2_camera's rs_launch.py, settings from session.yaml.
+"""A RealSense camera via realsense2_camera's rs_launch.py, settings from session.yaml.
+
+camera:=wrist_camera (default, the wrist D415) or camera:=tpv_camera (the fixed third-person view camera,
+tpv_camera.launch.py): the session.yaml block to start.
 
 Refuses to start while serial, exposure or white balance are null, unless auto:=true
 (auto exposure / auto white balance, only for sampling values with camera_autolock).
@@ -26,14 +29,17 @@ def config_dir():
 def _setup(context):
     import tempfile
     from usrig_common import config               # shared session.yaml + this PC's machine.yaml
-    cam = config.load_config('session', str(config_dir()))['wrist_camera']
+    name = LaunchConfiguration('camera').perform(context)
+    if name not in config.CAMERAS:
+        return [LogInfo(msg=f'camera:={name}: not one of {sorted(config.CAMERAS)}'), Shutdown(reason='unknown camera')]
+    cam = config.load_config('session', str(config_dir()))[name]
     if not cam.get('enabled'):
-        return [LogInfo(msg='wrist_camera: disabled on this PC (wrist_camera.enabled false, see machine.yaml); not starting')]
+        return [LogInfo(msg=f'{name}: disabled on this PC ({name}.enabled false, see machine.yaml); not starting')]
     auto = LaunchConfiguration('auto').perform(context).lower() == 'true'
     missing = [k for k in ['serial'] + ([] if auto else ['exposure_us', 'white_balance_k']) if cam.get(k) is None]
     if missing:
-        return [LogInfo(msg=f'wrist_camera: null in session.yaml: {missing}; not starting'),
-                Shutdown(reason='wrist camera settings missing')]
+        return [LogInfo(msg=f'{name}: null in session.yaml: {missing}; not starting'),
+                Shutdown(reason=f'{name} settings missing')]
     try:
         from ament_index_python.packages import get_package_share_directory
         rs_share = get_package_share_directory('realsense2_camera')
@@ -50,11 +56,11 @@ def _setup(context):
         args['rgb_camera.enable_auto_exposure'] = 'true'
         params = {k: v for k, v in params.items() if k not in ('rgb_camera.exposure', 'rgb_camera.white_balance')}
         params['rgb_camera.enable_auto_white_balance'] = True
-    f = tempfile.NamedTemporaryFile('w', prefix='usrig_d415_', suffix='.yaml', delete=False)
+    f = tempfile.NamedTemporaryFile('w', prefix=f'usrig_{name}_', suffix='.yaml', delete=False)
     yaml.safe_dump(params, f)
     f.close()
     args['config_file'] = f.name
-    return [LogInfo(msg=f'wrist_camera: {"AUTO exposure/WB (sampling only)" if auto else "locked exposure/WB"}; '
+    return [LogInfo(msg=f'{name}: {"AUTO exposure/WB (sampling only)" if auto else "locked exposure/WB"}; '
                         f'params {params}'),
             IncludeLaunchDescription(
                 PythonLaunchDescriptionSource(os.path.join(rs_share, 'launch', 'rs_launch.py')),
@@ -63,6 +69,8 @@ def _setup(context):
 
 def generate_launch_description():
     return LaunchDescription([
+        DeclareLaunchArgument('camera', default_value='wrist_camera',
+                              description='session.yaml camera block: wrist_camera | tpv_camera'),
         DeclareLaunchArgument('auto', default_value='false',
                               description='auto exposure / WB, only for camera_autolock sampling'),
         OpaqueFunction(function=_setup)])

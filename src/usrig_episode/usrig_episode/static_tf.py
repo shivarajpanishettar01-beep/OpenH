@@ -1,6 +1,7 @@
 """Publishes rig calibrations on /tf_static from session.json and rig.yaml:
   base -> phantom          (phantom registration, when present)
   flange -> wrist_camera  (eye-in-hand calibration wrist_cam_cali_mtx = T_flange_camera, when present)
+  base -> tpv_camera      (eye-to-hand calibration tpv_cam_cali_mtx = T_base_camera, when present)
 """
 import numpy as np
 import rclpy
@@ -36,6 +37,7 @@ class RigStaticTf(Node):
         self.declare_parameter('base_frame', 'base')
         self.declare_parameter('flange_frame', 'flange')
         self.declare_parameter('camera_frame', 'wrist_camera')
+        self.declare_parameter('tpv_frame', 'tpv_camera')
         self.br = StaticTransformBroadcaster(self)
         self.publish()
         # register_phantom announces a new registration: publish it now (it was read only at start-up)
@@ -61,6 +63,9 @@ class RigStaticTf(Node):
         cam = sess.get('wrist_cam_cali_mtx') or config.get_path(rig, 'calibration.wrist_cam_cali_mtx')
         if cam is not None:
             tfs.append(_tf(self.get_parameter('flange_frame').value, self.get_parameter('camera_frame').value, cam))
+        tpv = sess.get('tpv_cam_cali_mtx') or config.get_path(rig, 'calibration.tpv_cam_cali_mtx')
+        if tpv is not None:
+            tfs.append(_tf(self.get_parameter('base_frame').value, self.get_parameter('tpv_frame').value, tpv))
         if tfs:
             self.br.sendTransform(tfs)
         self.tfs = tfs

@@ -103,6 +103,45 @@ wrist_camera:
     marker_mm: null                             # charuco only
     dictionary: null                            # charuco only, e.g. DICT_5X5_100
 
+# Third-person view (TPV): a second RealSense fixed on a rigid mount, seeing the whole scene (arm, probe,
+# phantom), as in the earlier Open-H datasets. Never moved during a campaign: its calibration
+# (rig.yaml calibration.tpv_cam_cali_mtx = T_base_camera) holds only while it stays put; tools/import_tpv_calibration.py
+# brings it in from the eye-to-hand calibration. Colour only while recording: depth is off, because two
+# RealSense cameras on one PC share the USB bandwidth (the phantom depth for planning is a snapshot before
+# the session). Same launch file as the wrist camera (wrist_camera.launch.py camera:=tpv_camera).
+tpv_camera:
+  enabled: false                                # true once the TPV camera is mounted (per PC: machine.yaml)
+  serial: null                                  # rs-enumerate-devices -s (must differ from wrist_camera.serial)
+  camera_namespace: tpv
+  camera_name: camera
+  color_width: 640
+  color_height: 480
+  fps: 30
+  exposure_us: null                             # camera_autolock --camera tpv_camera --write
+  white_balance_k: null
+  rs_launch_args:
+    serial_no: "'{serial}'"
+    camera_namespace: "{camera_namespace}"
+    camera_name: "{camera_name}"
+    rgb_camera.color_profile: "{color_width},{color_height},{fps}"
+    enable_depth: "false"                       # NOT VERIFIED: argument name in realsense2_camera 4.58.4
+    align_depth.enable: "false"
+    enable_infra1: "false"
+    enable_infra2: "false"
+    pointcloud.enable: "false"
+    rgb_camera.enable_auto_exposure: "false"
+  rs_params:
+    rgb_camera.exposure: "{exposure_us}"
+    rgb_camera.enable_auto_white_balance: false
+    rgb_camera.white_balance: "{white_balance_k}"
+    rgb_camera.global_time_enabled: true
+  topics:
+    color: /tpv/camera/color/image_raw
+    color_info: /tpv/camera/color/camera_info
+    depth: null                                 # not recorded (see above)
+    depth_info: null
+    metadata: /tpv/camera/color/metadata
+
 recording:
   storage: mcap
   rt_priority: 70                               # chrt -f for ros2 bag record (needs the rtprio limit); 0 = off
@@ -126,8 +165,9 @@ recording:
     - /qc/status
     - /tf_static
   include_wrist_camera: true
+  include_tpv_camera: true                      # recorded when tpv_camera.enabled is true too
   # The readiness gate waits until the bag has subscribed and these have produced a message.
-  ready_topics: [/micrus/bmode, /robot/state, wrist.color, wrist.depth]
+  ready_topics: [/micrus/bmode, /robot/state, wrist.color, wrist.depth, tpv.color]
   ready_timeout_s: 20.0
   free_air_hold_s: 1.5                          # recorded before zero_ft / contact
 

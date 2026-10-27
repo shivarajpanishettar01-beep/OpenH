@@ -74,7 +74,9 @@ def test_session_id_and_commands():
     cmd = cm.launch_command('preset_s2', sid, session_json='/d/s.json', input_device='spacemouse', sim=True)
     assert 'stage:=2' in cmd and 'input:=spacemouse' in cmd and 'sim:=true' in cmd and 'control:=true' in cmd
     pc = cm.presession_command(2, '/d', control=True, camera=False)
-    assert pc[-2:] == ['--control', '--no-camera']
+    assert pc[-3:] == ['--control', '--no-camera', '--no-tpv']          # the TPV camera follows camera
+    assert 'tpv:=false' in cm.launch_command('setup', sid, session_json='/d/s.json', camera=False)
+    assert cm.presession_command(2, '/d', control=True, camera=True, tpv=False)[-1] == '--no-tpv'
 
 
 def test_terminal_is_detached_and_absent_terminal_is_reported():

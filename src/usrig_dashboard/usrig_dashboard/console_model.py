@@ -205,10 +205,12 @@ def make_session_id(pattern, phantom_id, operator_id, existing, date=None):
 
 
 def launch_command(mode, session_id, *, session_json, sim=False, camera=True, input_device='keyboard',
-                   operator_id='', phantom_id=''):
-    """argv for `ros2 launch usrig_bringup collect.launch.py ...` for a collection mode."""
+                   operator_id='', phantom_id='', tpv=None):
+    """argv for `ros2 launch usrig_bringup collect.launch.py ...` for a collection mode. tpv (third-person view
+    camera) follows camera unless given."""
     m = COLLECTION_MODES[mode]
     args = {'session_id': session_id, 'session_json': session_json, 'sim': sim, 'camera': camera,
+            'tpv': camera if tpv is None else tpv,
             'control': m['control'], 'teleop': m['teleop'], 'episode_manager': m['episode_manager'],
             'input': m['input'] or input_device}
     if m['stage'] is not None:
@@ -221,7 +223,7 @@ def launch_command(mode, session_id, *, session_json, sim=False, camera=True, in
     return ['ros2', 'launch', 'usrig_bringup', 'collect.launch.py'] + [f'{k}:={fmt(v)}' for k, v in args.items()]
 
 
-def presession_command(stage, session_dir, *, control, sim=False, camera=True, planned_hours=None):
+def presession_command(stage, session_dir, *, control, sim=False, camera=True, planned_hours=None, tpv=None):
     cmd = ['ros2', 'run', 'usrig_qc', 'presession_check', '--stage', str(stage), '--session', str(session_dir)]
     if planned_hours:
         cmd += ['--planned-hours', f'{float(planned_hours):g}']      # without it the disk row is UNSET (= fail)
@@ -231,6 +233,8 @@ def presession_command(stage, session_dir, *, control, sim=False, camera=True, p
         cmd.append('--sim')
     if not camera:
         cmd.append('--no-camera')
+    if not (camera if tpv is None else tpv):
+        cmd.append('--no-tpv')
     return cmd
 
 

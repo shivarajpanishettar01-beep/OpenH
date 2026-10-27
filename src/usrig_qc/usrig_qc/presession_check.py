@@ -8,6 +8,8 @@ data root is used; before the first episode, a conservative estimate from the la
 (docs/TESTING_STEPS.md); otherwise the disk check reports "unset".
 --no-camera: the session runs without the wrist camera (collect / test4 camera:=false): camera rows are N/A.
 episode_manager then refuses to record the camera on this check's PASS.
+--no-tpv: the same for the third-person view camera (collect / test4 tpv:=false). Where session.yaml
+tpv_camera.enabled is false the TPV rows are left out anyway.
 
 The result (every row, PASS / FAIL, with or without --control) is written to <session>/session.json
 under presession.stage<N>. episode_manager refuses to start a real (non-sim) session without a
@@ -69,6 +71,12 @@ def expected_rates(scfg, rig, control):
         for k in ('color', 'depth', 'color_info', 'depth_info'):
             if cam['topics'].get(k):
                 r[cam['topics'][k]] = (0.95 * f, 1.05 * f)
+    if config.camera_recorded(scfg, 'tpv_camera'):
+        tpv = scfg['tpv_camera']
+        f = float(tpv['fps'])
+        for k in ('color', 'color_info'):
+            if tpv['topics'].get(k):
+                r[tpv['topics'][k]] = (0.95 * f, 1.05 * f)
     return r
 
 
@@ -112,6 +120,7 @@ def main():
     ap.add_argument('--control', action='store_true', help='robot_control will run')
     ap.add_argument('--sim', action='store_true', help='simulated run (session.sim_root)')
     ap.add_argument('--no-camera', action='store_true', help='session without the wrist camera (camera:=false)')
+    ap.add_argument('--no-tpv', action='store_true', help='session without the TPV camera (tpv:=false)')
     ap.add_argument('--listen-s', type=float, default=5.0)
     ap.add_argument('--config-dir')
     a, _ = ap.parse_known_args()
@@ -121,6 +130,9 @@ def main():
         scfg['wrist_camera']['enabled'] = False
         scfg['recording']['include_wrist_camera'] = False
     camera = bool(scfg['wrist_camera'].get('enabled') and scfg['recording'].get('include_wrist_camera'))
+    if a.no_tpv:
+        scfg['recording']['include_tpv_camera'] = False
+    tpv = config.camera_recorded(scfg, 'tpv_camera')
     tab = Table()
 
     # micrus licence / USB (no public way to check the licence: run `micrus machine-id`)
@@ -148,6 +160,16 @@ def main():
         else:
             sp = devs[0]['speed_mbps']
             tab.add('D415 on USB 3.x', 'PASS' if sp >= 5000 else 'FAIL', f'{devs[0]["product"]} {sp} Mb/s')
+    # TPV camera: colour only, so USB 2 is allowed (speed shown); its own serial, not the wrist camera's
+    tcam = scfg.get('tpv_camera') or {}
+    if tpv:
+        if tcam.get('serial') is None or tcam.get('serial') == cam.get('serial'):
+            tab.add('TPV camera serial', 'FAIL', f'tpv_camera.serial {tcam.get("serial")!r}: set it, different from '
+                                                 'the wrist camera (rs-enumerate-devices -s)')
+        else:
+            devs = realsense_usb(tcam['serial'])
+            tab.add('TPV camera on USB', 'PASS' if devs else 'FAIL',
+                    f'{devs[0]["product"]} {devs[0]["speed_mbps"]} Mb/s' if devs else 'not on the bus')
 
     rclpy.init()
     rates = expected_rates(scfg, rig, a.control)
@@ -191,6 +213,14 @@ def main():
             tab.add('D415 exposure / WB locked', 'FAIL', f'cannot read params of {node} (names NOT VERIFIED)')
         else:
             tab.add('D415 exposure / WB locked', 'PASS' if v == [False, False] else 'FAIL',
+                    f'auto_exposure={v[0]} auto_wb={v[1]}')
+    if tpv:
+        node = f'/{tcam["camera_namespace"]}/{tcam["camera_name"]}'
+        v = p.get_param(node, ['rgb_camera.enable_auto_exposure', 'rgb_camera.enable_auto_white_balance'])
+        if v is None:
+            tab.add('TPV exposure / WB locked', 'FAIL', f'cannot read params of {node} (names NOT VERIFIED)')
+        else:
+            tab.add('TPV exposure / WB locked', 'PASS' if v == [False, False] else 'FAIL',
                     f'auto_exposure={v[0]} auto_wb={v[1]}')
 
     # gates, limits, plan
@@ -251,7 +281,8 @@ def main():
     ok = tab.print()
     Path(a.session).mkdir(parents=True, exist_ok=True)
     update_session_json(a.session, presession={f'stage{a.stage}': {
-        'pass': ok, 'control': bool(a.control), 'sim': bool(a.sim), 'camera': camera, 'checked_ns': now_ns(),
+        'pass': ok, 'control': bool(a.control), 'sim': bool(a.sim), 'camera': camera, 'tpv': tpv,
+        'checked_ns': now_ns(),
         'rows': [{'check': n, 'result': s, 'detail': d} for n, s, d in tab.rows]}})
     raise SystemExit(0 if ok else 1)
 

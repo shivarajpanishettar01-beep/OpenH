@@ -3,15 +3,15 @@
 On the capture PC:
   ros2 launch usrig_bringup wrist_camera.launch.py auto:=true      # point at the phantom, rig lit as for collection
   ros2 run usrig_qc camera_autolock --settle-s 5 --sample-s 5 [--write]
+TPV camera: tpv_camera.launch.py auto:=true, then camera_autolock --camera tpv_camera [--write].
 
 Reads the per-frame metadata the camera reports (actual_exposure, white_balance) on the
 colour metadata topic, takes the median over --sample-s after --settle-s, and with --write puts
-them into session.yaml (exposure_us, white_balance_k). Then restart the camera without auto:=true.
+them into session.yaml (<camera>.exposure_us, <camera>.white_balance_k). Then restart the camera without auto:=true.
 Metadata keys are those of realsense2_camera 4.x (NOT VERIFIED until run with the camera).
 """
 import argparse
 import json
-import re
 import time
 from pathlib import Path
 
@@ -31,13 +31,13 @@ def _first(d, keys):
     return None
 
 
-def write_session(path, exposure, wb):
-    text = Path(path).read_text()
-    text, n1 = re.subn(r'^(\s*exposure_us:\s*)\S+', rf'\g<1>{int(round(exposure))}', text, count=1, flags=re.M)
-    text, n2 = re.subn(r'^(\s*white_balance_k:\s*)\S+', rf'\g<1>{int(round(wb))}', text, count=1, flags=re.M)
-    if n1 != 1 or n2 != 1:
-        raise RuntimeError(f'could not find exposure_us / white_balance_k in {path}')
-    Path(path).write_text(text)
+def write_session(path, exposure, wb, camera='wrist_camera'):
+    """The camera block's exposure_us / white_balance_k (comments and the other camera's values kept)."""
+    try:
+        config.write_yaml_path(path, f'{camera}.exposure_us', int(round(exposure)))
+        config.write_yaml_path(path, f'{camera}.white_balance_k', int(round(wb)))
+    except KeyError as e:
+        raise RuntimeError(f'could not find {camera}.exposure_us / white_balance_k in {path}') from e
 
 
 def main():
@@ -45,12 +45,13 @@ def main():
     ap.add_argument('--settle-s', type=float, default=5.0)
     ap.add_argument('--sample-s', type=float, default=5.0)
     ap.add_argument('--write', action='store_true', help='write the values into session.yaml')
+    ap.add_argument('--camera', choices=sorted(config.CAMERAS), default='wrist_camera')
     ap.add_argument('--config-dir')
     a, _ = ap.parse_known_args()
     scfg = config.load_config('session', a.config_dir)
-    topic = scfg['wrist_camera']['topics'].get('metadata')
+    topic = scfg[a.camera]['topics'].get('metadata')
     if not topic:
-        raise SystemExit('wrist_camera.topics.metadata is null in session.yaml')
+        raise SystemExit(f'{a.camera}.topics.metadata is null in session.yaml')
     from realsense2_camera_msgs.msg import Metadata
     rclpy.init()
     n = rclpy.create_node('camera_autolock')
@@ -84,8 +85,8 @@ def main():
     if a.write:
         cfg_dir = Path(a.config_dir) if a.config_dir else config.default_config_dir()
         target = cfg_dir / 'session.yaml'
-        write_session(target, e_med, w_med)
-        print(f'wrote exposure_us={int(round(e_med))}, white_balance_k={int(round(w_med))} to {target}')
+        write_session(target, e_med, w_med, a.camera)
+        print(f'wrote {a.camera}: exposure_us={int(round(e_med))}, white_balance_k={int(round(w_med))} to {target}')
         if 'install' in str(target):
             print('note: that is the installed copy; with --symlink-install it is the source file')
 

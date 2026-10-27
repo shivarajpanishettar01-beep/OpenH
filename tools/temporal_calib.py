@@ -6,6 +6,8 @@ position of the TCP (RTDE, 500 Hz). Sensor signals:
   ultrasound   depth of a tracked bright structure (row centroid in a band), B-mode
   wrist camera (a) --aruco: distance to a fixed ArUco marker (solvePnP on the colour image), or
                (b) --depth-roi: median depth of the phantom surface in an ROI
+  TPV camera   --camera tpv_camera --aruco: the camera is fixed, so the marker goes on the probe holder
+               (it moves with the arm); colour only, no --depth-roi
 Each signal is compared with the robot reference two ways: cross-correlation, and fitting a
 sinusoid at the robot's dominant frequency (phase difference -> lag). Both are reported.
 
@@ -145,15 +147,16 @@ def calibrate(bag, a):
     rz_t, rz, us_t, us, c_t, c = read(bag, a)
     f = dominant_freq(rz_t, rz)
     res = {'bag': str(bag), 'robot_freq_hz': f}
-    for name, t, x in (('ultrasound', us_t, us), ('wrist_camera', c_t, c)):
+    cam = a.camera
+    for name, t, x in (('ultrasound', us_t, us), (cam, c_t, c)):
         if len(x) < 10:
             continue
         lag_x, corr = xcorr_lag(rz_t, rz, t, x, a.max_lag_ms / 1000)
         lag_s, rel_res = sine_lag(rz_t, rz, t, x, f)
         res[name] = {'lag_xcorr_ms': lag_x * 1000, 'xcorr_abs': corr, 'lag_sine_ms': lag_s * 1000,
                      'sine_fit_rel_residual': rel_res, 'frames': int(len(x)),
-                     'time_offset_s': -lag_x, 'method': 'aruco' if (name == 'wrist_camera' and a.aruco) else
-                     ('depth_roi' if name == 'wrist_camera' else 'bright_structure')}
+                     'time_offset_s': -lag_x, 'method': 'aruco' if (name == cam and a.aruco) else
+                     ('depth_roi' if name == cam else 'bright_structure')}
     return res
 
 
@@ -165,12 +168,20 @@ def main():
     ap.add_argument('--aruco', help='e.g. DICT_4X4_50 (marker fixed on the phantom / table)')
     ap.add_argument('--marker-mm', type=float, default=40.0)
     ap.add_argument('--depth-roi', type=int, nargs=4)
-    ap.add_argument('--color-topic', default='/wrist/d415/color/image_raw')
-    ap.add_argument('--color-info-topic', default='/wrist/d415/color/camera_info')
-    ap.add_argument('--depth-topic', default='/wrist/d415/aligned_depth_to_color/image_raw')
+    ap.add_argument('--camera', choices=['wrist_camera', 'tpv_camera'], default='wrist_camera',
+                    help='which camera the colour / depth topics are from (result key, default topics)')
+    ap.add_argument('--color-topic')
+    ap.add_argument('--color-info-topic')
+    ap.add_argument('--depth-topic')
     ap.add_argument('--max-lag-ms', type=float, default=200.0)
     ap.add_argument('--session', help='write the result into <session>/session.json')
     a = ap.parse_args()
+    ns = {'wrist_camera': '/wrist/d415', 'tpv_camera': '/tpv/camera'}[a.camera]   # session.yaml <camera>.topics
+    a.color_topic = a.color_topic or f'{ns}/color/image_raw'
+    a.color_info_topic = a.color_info_topic or f'{ns}/color/camera_info'
+    a.depth_topic = a.depth_topic or (f'{ns}/aligned_depth_to_color/image_raw' if a.camera == 'wrist_camera' else '')
+    if a.camera == 'tpv_camera' and a.depth_roi:
+        sys.exit('--depth-roi needs depth: the TPV camera records colour only (use --aruco)')
     if not a.us_rows and not a.aruco and not a.depth_roi:
         sys.exit('nothing to calibrate: give --us-rows (ultrasound) and / or --aruco / --depth-roi (camera)')
     if len(a.bags) > 2:
@@ -178,7 +189,7 @@ def main():
     results = [calibrate(b, a) for b in a.bags]
     for r in results:
         print(f'{r["bag"]}: robot sinusoid {r["robot_freq_hz"]:.3f} Hz')
-        for name in ('ultrasound', 'wrist_camera'):
+        for name in ('ultrasound', a.camera):
             if name in r:
                 x = r[name]
                 print(f'  {name:13s} lag xcorr {x["lag_xcorr_ms"]:7.1f} ms (|corr| {x["xcorr_abs"]:.3f}), '
@@ -188,7 +199,7 @@ def main():
     if len(results) == 2:
         out['end'] = results[1]
         out['drift_ms'] = {n: results[1][n]['lag_xcorr_ms'] - results[0][n]['lag_xcorr_ms']
-                           for n in ('ultrasound', 'wrist_camera') if n in results[0] and n in results[1]}
+                           for n in ('ultrasound', a.camera) if n in results[0] and n in results[1]}
         print(f'drift start -> end: {json.dumps({k: round(v, 1) for k, v in out["drift_ms"].items()})} ms')
     if a.session:
         sys.path.insert(0, str(REPO / 'src/usrig_common'))

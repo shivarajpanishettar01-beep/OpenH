@@ -1,7 +1,7 @@
 """Everything for a collection session.
 
   ros2 launch usrig_bringup collect.launch.py session_id:=<id> [sim:=true] [control:=false]
-      [camera:=true] [teleop:=true] [episode_manager:=true] [qc:=true] [dashboard:=false]
+      [camera:=true] [tpv:=true] [teleop:=true] [episode_manager:=true] [qc:=true] [dashboard:=false]
       [input:=keyboard|spacemouse|freedrive] [stage:=0|1|2] [operator_id:=..] [phantom_id:=..] [console:=true]
       [demo_gui:=true]
 
@@ -9,8 +9,9 @@ console:=true starts the operator console (no images; usable during collection).
 dashboard:=true. demo_gui:=true starts the read-only demo screen (usrig_demo_gui) for demonstrations only:
 while episode_manager runs a real (non-sim) session it drops all its subscriptions and shows "paused".
 
-sim:=true -> micrus --simulate and the robot nodes on URSim. The wrist camera has no simulator:
-use camera:=false in simulation.
+sim:=true -> micrus --simulate and the robot nodes on URSim. The cameras have no simulator:
+use camera:=false tpv:=false in simulation. tpv:=true starts the third-person view camera only where
+session.yaml tpv_camera.enabled is true (machine.yaml per PC).
 """
 import os
 from pathlib import Path
@@ -49,6 +50,7 @@ def generate_launch_description():
         DeclareLaunchArgument('sim', default_value='false'),
         DeclareLaunchArgument('control', default_value='false'),
         DeclareLaunchArgument('camera', default_value='true'),
+        DeclareLaunchArgument('tpv', default_value='true', description='third-person view camera (tpv_camera)'),
         DeclareLaunchArgument('teleop', default_value='false'),
         DeclareLaunchArgument('input', default_value='keyboard',
                               description='keyboard | spacemouse (D1) | freedrive (arm guided by hand with the UR '
@@ -68,6 +70,9 @@ def generate_launch_description():
         IncludeLaunchDescription(
             PythonLaunchDescriptionSource(PathJoinSubstitution([share, 'launch', 'wrist_camera.launch.py'])),
             condition=IfCondition(L('camera'))),
+        IncludeLaunchDescription(
+            PythonLaunchDescriptionSource(PathJoinSubstitution([share, 'launch', 'tpv_camera.launch.py'])),
+            condition=IfCondition(L('tpv'))),
         inc('robot.launch.py', {'sim': L('sim'), 'control': L('control'),
                                 'session_json': L('session_json'), 'robot_ip': L('robot_ip')}),
         Node(package='usrig_teleop', executable='keyboard_teleop', output='screen',
@@ -82,6 +87,7 @@ def generate_launch_description():
         Node(package='usrig_episode', executable='episode_manager', output='screen',
              parameters=params + [{'robot_control': ParameterValue(L('control'), value_type=bool),
                                    'camera': ParameterValue(L('camera'), value_type=bool),
+                                   'tpv': ParameterValue(L('tpv'), value_type=bool),
                                    'stage': ParameterValue(L('stage'), value_type=int),
                                    'operator_id': ParameterValue(L('operator_id'), value_type=str),
                                    'phantom_id': ParameterValue(L('phantom_id'), value_type=str),

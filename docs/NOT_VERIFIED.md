@@ -48,6 +48,18 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 - Minimum depth distance vs camera-to-phantom distance at contact.
 - `easy_handeye2` on Humble: not checked; `handeye_calib` uses OpenCV directly.
 
+## TPV camera (third-person view, added 25 Oct 2026)
+- No second camera yet: `tpv_camera.enabled: false`, serial / exposure / white balance null. Launch,
+  recording, QC (`tpv_rate`, `stream_coverage`, presession rows, `bag_check --expect tpv`) and export
+  (`observation.images.tpv_camera`, `observation.meta.tpv_cali_mtx`, `meta/calibration/tpv_cali_mtx.json`,
+  TPV intrinsics) were tested on synthetic bags and the export pipeline check only.
+- rs_launch.py argument `enable_depth` (colour-only TPV) in realsense2_camera 4.58.4.
+- Two RealSense cameras on the capture PC at once (USB bandwidth, wrist USB 3 + TPV colour 640x480@30).
+- `T_base_cam` of the calibration rig is in the same UR base frame as OpenH's `/robot/tcp_pose`
+  (both the controller's base frame; check once with a probe-tip touch seen by the TPV camera).
+- The dataset key `observation.images.tpv_camera`: confirm against the earlier Open-H datasets' scene camera name.
+- Since lerobot_rig.yaml lists the TPV image, `stage_bags` skips bags without TPV frames (reported).
+
 ## Freedrive (kinesthetic) collection
 - Pedal on a configurable input set to "Freedrive": the input bit in `actual_digital_input_bits` (8 + input)
   and freedrive behaviour on the UR7e (works in Remote Control mode as well: user, 14 Oct 2026).

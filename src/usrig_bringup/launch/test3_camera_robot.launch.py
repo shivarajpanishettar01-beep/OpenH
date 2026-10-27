@@ -1,11 +1,13 @@
-"""TEST 3: wrist D415 + robot, and the camera calibrations (docs/TESTING_STEPS.md, test 3).
+"""TEST 3: wrist D415 (+ TPV camera where enabled) + robot, and the camera calibrations (docs/TESTING_STEPS.md, test 3).
 
   ros2 launch usrig_bringup test3_camera_robot.launch.py [record:=true] [auto:=false] [control:=false]
       [session_json:=...] [session_id:=<ID>]
 
 Starts the wrist camera (locked exposure; auto:=true only for camera_autolock sampling), robot_state_cpp,
 rig_static_tf (/tf_static base -> flange -> wrist_camera once the hand-eye result is in rig.yaml) and
-qc_monitor. record:=true records the camera and robot topics into <root>/checks/test3_camera_robot_<stamp>/.
+qc_monitor. With session.yaml tpv_camera.enabled, the third-person view camera too (tpv:=false leaves it out;
+/tf_static base -> tpv_camera once tpv_cam_cali_mtx is in rig.yaml). record:=true records the camera(s) and
+robot topics into <root>/checks/test3_camera_robot_<stamp>/.
 The camera has no simulator: run this on the capture PC with the D415 on USB 3.
 """
 import sys
@@ -24,10 +26,13 @@ def _setup(context):
             T.include('robot.launch.py', {'sim': 'false', 'control': T.value(context, 'control'), 'session_json': sj,
                                           'robot_ip': T.value(context, 'robot_ip')}),
             T.static_tf(sj)]
+    tpv = T.truthy(context, 'tpv') and bool(T.session_cfg().get('tpv_camera', {}).get('enabled'))
+    if tpv:
+        acts.append(T.include('tpv_camera.launch.py', {'auto': T.value(context, 'auto')}))
     if T.truthy(context, 'qc'):
         acts.append(T.qc_monitor(sid, False))
     if T.truthy(context, 'record'):
-        acts += T.recording('test3_camera_robot', ['robot', 'camera'], False)
+        acts += T.recording('test3_camera_robot', ['robot', 'camera'] + (['tpv'] if tpv else []), False)
     return acts
 
 
@@ -38,6 +43,7 @@ def generate_launch_description():
         DeclareLaunchArgument('session_json', default_value=''),
         DeclareLaunchArgument('control', default_value='false'),
         DeclareLaunchArgument('qc', default_value='true'),
+        DeclareLaunchArgument('tpv', default_value='true', description='also the TPV camera (where enabled)'),
         DeclareLaunchArgument('record', default_value='false'),
         DeclareLaunchArgument('robot_ip', default_value='', description='overrides rig.yaml robot.ip'),
         OpaqueFunction(function=_setup)])

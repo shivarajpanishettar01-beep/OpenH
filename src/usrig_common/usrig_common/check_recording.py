@@ -18,13 +18,13 @@ MICRUS = ['/micrus/bmode', '/micrus/frame_info']
 OPERATOR = ['/teleop/twist', '/operator/command', '/episode/events', '/qc/status']
 
 
-def camera_topics(scfg):
-    t = scfg['wrist_camera']['topics']
+def camera_topics(scfg, name='wrist_camera'):
+    t = (scfg.get(name) or {}).get('topics') or {}
     return [t[k] for k in ('color', 'depth', 'color_info', 'depth_info', 'metadata') if t.get(k)]
 
 
 def topics_for(scfg, parts):
-    """Topics for a set of parts: robot, micrus, camera (operator topics always)."""
+    """Topics for a set of parts: robot, micrus, camera (wrist), tpv (operator topics always)."""
     out = []
     if 'robot' in parts:
         out += ROBOT
@@ -32,6 +32,8 @@ def topics_for(scfg, parts):
         out += MICRUS
     if 'camera' in parts:
         out += camera_topics(scfg)
+    if 'tpv' in parts:
+        out += camera_topics(scfg, 'tpv_camera')
     return out + OPERATOR
 
 

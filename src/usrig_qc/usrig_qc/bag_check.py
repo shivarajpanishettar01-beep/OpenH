@@ -1,6 +1,6 @@
 """bag_check: is a recorded test bag complete and consistent? (staged tests, docs/TESTING_STEPS.md)
 
-  ros2 run usrig_qc bag_check <bag_dir> --expect robot [micrus] [camera] [--json out.json]
+  ros2 run usrig_qc bag_check <bag_dir> --expect robot [micrus] [camera] [tpv] [--json out.json]
 
 Reads header stamps from the raw messages (images are not decoded) and reports per topic: messages,
 rate, largest gap, stamps going backwards, and header stamp vs bag time. Then the checks for the parts
@@ -14,6 +14,7 @@ under test (PASS / FAIL):
   micrus  /micrus/bmode in micrus.expected_fps, 0 frame_index gaps, settings constant, every frame has a
           robot sample within qc.ultrasound_robot_max_gap_ms on both sides (with robot)
   camera  colour and depth at wrist_camera.fps (+-5 %), camera_info present, depth 16UC1
+  tpv     third-person view colour at tpv_camera.fps (+-5 %), camera_info present
 Prints what the robot data shows: how far the TCP moved and turned, the force / torque range, and the
 samples labelled freedrive (pedal held), so you can check them against what you did during the recording.
 """
@@ -132,6 +133,14 @@ def check(bag, expect, scfg, rig):
         dm = data.get(ct['depth'], {'msgs': []})['msgs']
         enc = dm[0].encoding if dm else None
         add('camera: depth is 16-bit (16UC1, mm)', enc in ('16UC1', 'mono16'), f'encoding {enc}')
+    if 'tpv' in expect:
+        tpv = scfg['tpv_camera']
+        fps = float(tpv['fps'])
+        d = data.get(tpv['topics']['color'], {'log': [], 'stamps': []})
+        r = topic_row(tpv['topics']['color'], d) if d['log'] else {'hz': 0.0}
+        add('tpv: color rate', abs(r['hz'] - fps) <= 0.05 * fps, f'{r["hz"]:.2f} Hz (expected {fps:g})')
+        add('tpv: color_info', len(data.get(tpv['topics']['color_info'], {'log': []})['log']) > 0,
+            tpv['topics']['color_info'])
     for r in rows:
         if r['backwards']:
             add(f'stamps in order: {r["topic"]}', False, f'{r["backwards"]} stamps not increasing')
@@ -217,7 +226,7 @@ def robot_content(msgs, data, add):
 def main(argv=None):
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument('bag')
-    ap.add_argument('--expect', nargs='+', choices=['robot', 'micrus', 'camera'], default=['robot'])
+    ap.add_argument('--expect', nargs='+', choices=['robot', 'micrus', 'camera', 'tpv'], default=['robot'])
     ap.add_argument('--json')
     ap.add_argument('--config-dir')
     a = ap.parse_args(argv)

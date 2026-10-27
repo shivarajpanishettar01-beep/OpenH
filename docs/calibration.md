@@ -53,6 +53,20 @@ frame you choose here is the frame of every waypoint and of `tcp_phantom` in the
 4. `q` solves with all OpenCV methods and keeps the lowest residual. Accept, then store with
    `--write-rig` (re-solve the same captures without the robot: `handeye_calib --resolve <capture dir> --write-rig`).
 
+## Third-person view (TPV) camera
+The TPV camera is fixed (rigid mount, never moved during a campaign) and sees the whole scene. Its
+calibration is `T_base_camera` (`calibration.tpv_cam_cali_mtx`), made on the calibration rig
+(`~/calib/ur7e_calib/tpv`: `manual_gui.py`, then `relocate.py` from the fixed board after any move).
+1. `session.yaml tpv_camera`: set `serial` (`rs-enumerate-devices -s`; not the wrist camera's) and
+   `enabled: true` on the capture PC; lock exposure with `ros2 launch usrig_bringup tpv_camera.launch.py auto:=true`
+   + `ros2 run usrig_qc camera_autolock --camera tpv_camera --write`.
+2. `python tools/import_tpv_calibration.py ~/calib/ur7e_calib/tpv/calibration.json` shows the matrix, its residuals
+   and the camera serial; add `--write-rig` (all later sessions) and / or `--session <dir>` (that session).
+   Re-run after every relocate: episode_manager snapshots it into session.json at session start.
+3. Temporal offset: a compress test with an ArUco marker on the probe holder (the TPV camera does not move,
+   the marker must): `tools/temporal_calib.py BAG --camera tpv_camera --aruco DICT_4X4_50`, result into
+   rig.yaml `calibration.tpv_camera_time_offset_s` (machine.yaml per capture PC) and `export/lerobot_rig.yaml`.
+
 ## Ultrasound image to probe (pending)
 When the lab's calibration file is available, it is added as `calibration.prob_cali_mtx` with its
 provenance (source file, method, residual); the format and frame direction will be confirmed then.

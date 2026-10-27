@@ -10,7 +10,7 @@ tool has its own path setting.
 ├── sessions/<session_id>/
 │   ├── session.json                         registration, gates, pre-session result, plan lock, calibration
 │   │                                        snapshot (`calibration.<rig.yaml key>`, e.g. prob_cali_mtx,
-│   │                                        wrist_cam_cali_mtx; the export uses it per session)
+│   │                                        wrist_cam_cali_mtx, tpv_cam_cali_mtx; the export uses it per session)
 │   ├── plan_progress.json                   Stage 2 rows done / redo
 │   ├── .ep_NNNN.record.log                  bag recorder log
 │   └── ep_NNNN/

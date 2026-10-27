@@ -91,6 +91,9 @@ waypoint_verify_min_ncc: null
 calibration:
   wrist_cam_cali_mtx: null          # 4x4 T_flange_camera (camera colour optical frame in the flange frame), from handeye_calib --write-rig
   wrist_cam_cali_info: null         # provenance written by handeye_calib (method, residual, poses, board, date, files)
+  tpv_cam_cali_mtx: null            # 4x4 T_base_camera (TPV colour optical frame in the robot base frame), from tools/import_tpv_calibration.py --write-rig
+  tpv_cam_cali_info: null           # provenance written by import_tpv_calibration (source file, residuals, camera, date)
   ultrasound_time_offset_s: -0.020  # PLACEHOLDER until temporal calibration (P9c)
   camera_time_offset_s: 0.0         # PLACEHOLDER until temporal calibration (P9c)
+  tpv_camera_time_offset_s: 0.0     # PLACEHOLDER until temporal calibration (temporal_calib --camera tpv_camera)
   prob_cali_mtx: null               # ultrasound image to probe calibration: file from the lab's calibration (pending)

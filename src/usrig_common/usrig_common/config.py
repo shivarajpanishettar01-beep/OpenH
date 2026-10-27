@@ -76,9 +76,19 @@ def load_yaml(path) -> dict:
 # that matters for safety can hide outside the shared rig.yaml.
 MACHINE_KEYS = {
     'session': ('session.root', 'session.sim_root', 'micrus.command', 'micrus.licence_file', 'micrus.usb_vendor_id',
-                'wrist_camera.enabled', 'recording.include_wrist_camera', 'recording.rt_priority'),
-    'rig': ('robot.rt_priority', 'calibration.ultrasound_time_offset_s', 'calibration.camera_time_offset_s'),
+                'wrist_camera.enabled', 'recording.include_wrist_camera', 'tpv_camera.enabled',
+                'recording.include_tpv_camera', 'recording.rt_priority'),
+    'rig': ('robot.rt_priority', 'calibration.ultrasound_time_offset_s', 'calibration.camera_time_offset_s',
+            'calibration.tpv_camera_time_offset_s'),
 }
+
+# The RealSense cameras in session.yaml: block name -> its recording switch (recording.<switch>).
+CAMERAS = {'wrist_camera': 'include_wrist_camera', 'tpv_camera': 'include_tpv_camera'}
+
+
+def camera_recorded(scfg, name) -> bool:
+    """A camera (wrist_camera / tpv_camera) is enabled on this PC and its topics are recorded."""
+    return bool((scfg.get(name) or {}).get('enabled') and (scfg.get('recording') or {}).get(CAMERAS[name]))
 
 
 class MachineConfigError(RuntimeError):

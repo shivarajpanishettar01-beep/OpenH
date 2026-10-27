@@ -51,3 +51,7 @@
     plane and FM-06 wrong view -> target_view_loss; FM-12 wrong instruction -> task_performance_failure.
     `auto_annotate` writes it as an automated label on failure / recovery episodes; a `failure_class` key on a
     catalog entry overrides the table; an annotator's label wins. Confirm with the failure-mode / safety protocol.
+21. **TPV camera dataset key** (25 Oct 2026): exported as `observation.images.tpv_camera` (colour) with
+    `observation.meta.tpv_cali_mtx` (T_base_camera). The proposal names only the wrist streams; use the name the
+    earlier Open-H datasets use for their scene camera if it differs. TPV depth is not recorded (USB bandwidth);
+    the planning depth is a snapshot before the session.

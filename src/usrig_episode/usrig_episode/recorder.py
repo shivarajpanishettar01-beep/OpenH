@@ -56,7 +56,11 @@ class EpisodeRecorder:
         if rec.get('include_wrist_camera') and cam.get('enabled'):
             cam_topics = {k: v for k, v in cam['topics'].items() if v}
             self.topics += list(cam_topics.values())
-        alias = {'wrist.color': cam['topics'].get('color'), 'wrist.depth': cam['topics'].get('depth')}
+        tpv = session_cfg.get('tpv_camera') or {'topics': {}}
+        if rec.get('include_tpv_camera') and tpv.get('enabled'):
+            self.topics += [v for v in tpv['topics'].values() if v]
+        alias = {'wrist.color': cam['topics'].get('color'), 'wrist.depth': cam['topics'].get('depth'),
+                 'tpv.color': tpv['topics'].get('color')}
         self.ready_topics = []
         for t in rec['ready_topics']:
             t = alias.get(t, t)

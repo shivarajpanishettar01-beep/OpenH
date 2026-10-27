@@ -67,7 +67,7 @@ class EpisodeManager(Node):
         for name, default in (('config_dir', ''), ('session_id', ''), ('session_json', ''),
                               ('stage', -1), ('robot_control', False), ('adhoc_json', ''),
                               ('operator_id', ''), ('phantom_id', ''), ('sim', False),
-                              ('collection_mode', 'robot'), ('camera', True)):
+                              ('collection_mode', 'robot'), ('camera', True), ('tpv', True)):
             self.declare_parameter(name, default)
         p = lambda n: self.get_parameter(n).value  # noqa: E731
         cfg_dir = p('config_dir') or None
@@ -77,6 +77,9 @@ class EpisodeManager(Node):
             self.scfg['recording']['include_wrist_camera'] = False
         self.camera_recorded = bool(self.scfg['recording'].get('include_wrist_camera')
                                     and self.scfg['wrist_camera'].get('enabled'))
+        if not bool(self.get_parameter('tpv').value):
+            self.scfg['recording']['include_tpv_camera'] = False     # tpv:=false: as camera:=false, for the TPV
+        self.tpv_recorded = config.camera_recorded(self.scfg, 'tpv_camera')
         self.rig = config.load_config('rig', cfg_dir)
         self.session_id = p('session_id')
         if not self.session_id:
@@ -167,6 +170,9 @@ class EpisodeManager(Node):
         sess = read_json(self.sdir / 'session.json')
         if sess.get('wrist_cam_cali_mtx') is None:
             update_session_json(self.sdir, wrist_cam_cali_mtx=config.get_path(self.rig, 'calibration.wrist_cam_cali_mtx'))
+        if sess.get('tpv_cam_cali_mtx') is None:
+            update_session_json(self.sdir, tpv_cam_cali_mtx=config.get_path(self.rig, 'calibration.tpv_cam_cali_mtx'),
+                                tpv_cam_cali=config.get_path(self.rig, 'calibration.tpv_cam_cali_info'))
 
     def _presession_ready(self):
         """A passing, recent pre-session check for this stage in session.json (re-read every time: the operator
@@ -174,7 +180,7 @@ class EpisodeManager(Node):
         sess = read_json(self.sdir / 'session.json')
         ok, why = (True, None) if self.sim else gates.presession_ok(
             sess, self.stage, self.control, now_ns(), self.scfg['session'].get('presession_max_age_h', 12),
-            self.camera_recorded)
+            self.camera_recorded, self.tpv_recorded)
         if ok:
             from shutil import disk_usage
             free = disk_usage(self.sdir).free / 1e9
@@ -402,6 +408,14 @@ class EpisodeManager(Node):
                 'exposure_us': cam.get('exposure_us'), 'white_balance_k': cam.get('white_balance_k'),
                 'cali_ref': 'session.json:wrist_cam_cali_mtx'}
 
+    def _tpv_info(self):
+        cam = self.scfg['tpv_camera']
+        return {'serial': cam.get('serial'), 'firmware': provenance.camera_firmware(cam.get('serial')),
+                **provenance.realsense_versions(),
+                'color_profile': f"{cam['color_width']}x{cam['color_height']}@{cam['fps']}",
+                'exposure_us': cam.get('exposure_us'), 'white_balance_k': cam.get('white_balance_k'),
+                'cali_ref': 'session.json:tpv_cam_cali_mtx'}
+
     def _task_fields(self, mode):
         """Episode fields from the operator's task. Freedrive episodes need one (None = refuse Start); Stage 0
         teleop with a task is collection ('teleop', exported), without one a shakedown test (not exported)."""
@@ -432,10 +446,12 @@ class EpisodeManager(Node):
             'robot_tcp_setting': config.get_path(self.rig, 'robot.tcp_setting'),
             # this PC's measured stream offsets (machine.yaml), carried with the data for the export
             'time_offsets_s': {'ultrasound': config.get_path(self.rig, 'calibration.ultrasound_time_offset_s'),
-                               'camera': config.get_path(self.rig, 'calibration.camera_time_offset_s')},
+                               'camera': config.get_path(self.rig, 'calibration.camera_time_offset_s'),
+                               'tpv_camera': config.get_path(self.rig, 'calibration.tpv_camera_time_offset_s')},
             'capture_host': __import__('socket').gethostname(),
             't_start_ns': None, 't_end_ns': None, 't_bag_ready_ns': None, 'duration_s': None, 'qc': None,
             'wrist_camera': self._wrist_info() if self.camera_recorded else None,
+            'tpv_camera': self._tpv_info() if self.tpv_recorded else None,
         }
         ep.update(fields)
         ep.update(self.adhoc)

@@ -72,6 +72,22 @@ def _status(ok, **kw):
     return {'status': 'pass' if ok else 'fail', **kw}
 
 
+def _frame_number_gaps(data, metadata_topic):
+    """Frames lost by the RealSense frame_number in a camera's metadata topic, or None without metadata."""
+    if not metadata_topic or not data.get(metadata_topic):
+        return None
+    fns = []
+    for _, m in data[metadata_topic]:
+        try:
+            fns.append(int(json.loads(m.json_data).get('frame_number')))
+        except (ValueError, TypeError):
+            pass
+    if len(fns) < 2:
+        return None
+    d = np.diff(np.array(fns))
+    return int(np.sum(d[d > 1] - 1))
+
+
 def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     ep_dir = Path(ep_dir)
     cam = scfg['wrist_camera']
@@ -81,6 +97,11 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
     use_cam = bool(scfg['recording'].get('include_wrist_camera') and cam.get('enabled'))
     if use_cam:
         topics += [ct['color'], ct['depth']] + ([ct['metadata']] if ct.get('metadata') else [])
+    tpv = scfg.get('tpv_camera') or {}
+    tpv_t = tpv.get('topics') or {}
+    use_tpv = config.camera_recorded(scfg, 'tpv_camera')
+    if use_tpv:
+        topics += [tpv_t['color']] + ([tpv_t['metadata']] if tpv_t.get('metadata') else [])
     t0, t1 = ep.get('t_start_ns'), ep.get('t_end_ns')
     win = {}
     data, counts = read_bag(ep_dir, topics, decode_every={ct.get('depth'): 5} if use_cam else None,
@@ -142,6 +163,8 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
                    'robot': ('/robot/state', rate)}
         if use_cam:
             streams.update({'wrist.color': (ct['color'], float(cam['fps'])), 'wrist.depth': (ct['depth'], float(cam['fps']))})
+        if use_tpv:
+            streams['tpv.color'] = (tpv_t['color'], float(tpv['fps']))
         short, ends = [], {}
         for name, (topic, hz) in streams.items():
             n, first, last = win.get(topic, (0, None, None))
@@ -303,17 +326,7 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
             n, first, last = win.get(ct[name], (0, 0, 0))
             res[name] = (n - 1) / ((last - first) * 1e-9) if n > 1 and last > first else 0.0
         ok = all(abs(h - fps_cfg) <= 0.05 * fps_cfg for h in res.values())
-        fn_gaps = None
-        if ct.get('metadata') and data.get(ct['metadata']):
-            fns = []
-            for _, m in data[ct['metadata']]:
-                try:
-                    fns.append(int(json.loads(m.json_data).get('frame_number')))
-                except (ValueError, TypeError):
-                    pass
-            if len(fns) > 1:
-                d = np.diff(np.array(fns))
-                fn_gaps = int(np.sum(d[d > 1] - 1))
+        fn_gaps = _frame_number_gaps(data, ct.get('metadata'))
         checks['wrist_rate'] = _status(ok and (fn_gaps in (None, 0)), hz=res, configured=fps_cfg,
                                        frames_lost_by_frame_number=fn_gaps if fn_gaps is not None
                                        else 'n/a (no metadata in bag)')
@@ -342,6 +355,18 @@ def run_episode_qc(ep_dir, ep, scfg, rig, write=True):
         else:
             checks['valid_depth'] = _status(bool(fr) and float(np.mean(fr)) >= min_frac,
                                             mean_valid_frac=float(np.mean(fr)) if fr else None)
+
+    # ---- TPV camera (colour only; it may sit on USB 2, so no USB speed check)
+    if not use_tpv:
+        checks['tpv_rate'] = {'status': 'n/a', 'reason': 'TPV camera not recorded'}
+    else:
+        fps_cfg = float(tpv['fps'])
+        n, first, last = win.get(tpv_t['color'], (0, 0, 0))
+        hz = (n - 1) / ((last - first) * 1e-9) if n > 1 and last > first else 0.0
+        fn_gaps = _frame_number_gaps(data, tpv_t.get('metadata'))
+        checks['tpv_rate'] = _status(abs(hz - fps_cfg) <= 0.05 * fps_cfg and fn_gaps in (None, 0), hz=hz,
+                                     configured=fps_cfg, frames_lost_by_frame_number=fn_gaps if fn_gaps is not None
+                                     else 'n/a (no metadata in bag)')
 
     # ---- speed tracking (Stage 1)
     if stage != 1:
