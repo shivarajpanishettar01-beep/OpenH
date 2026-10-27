@@ -28,9 +28,11 @@ pointer:                            # calibration pointer (PH_calibration_pointe
   tip_calibration: null             # provenance written by pivot_calib (date, rms, poses, file)
 
 probe:
-  type: null                        # e.g. MPRO-L40S
+  type: null                        # Open-H naming Company_Model_linear|convex, e.g. Telemed_MPRO-L40S_linear
   tcp_already_includes_probe: null  # true if the controller TCP is the probe tip (offset never applied twice)
-  tip_offset_flange_m: null         # [x, y, z, rx, ry, rz], only used if the TCP is the flange
+  tip_offset_flange_m: null         # [x, y, z, rx, ry, rz] (m, rotation vector): probe tip in the flange frame.
+                                    # Always needed by the export: it is Open-H's probe_cali_mtx, and the action is
+                                    # the tip pose (applied to the TCP only when tcp_already_includes_probe is false)
 
 limits:
   max_contact_force_n: null         # hard ceiling on |F|: FAULT above

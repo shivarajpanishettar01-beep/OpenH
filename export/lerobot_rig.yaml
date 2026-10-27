@@ -42,7 +42,9 @@ state:
     fields: [pose.position.x, pose.position.y, pose.position.z,
              pose.orientation.x, pose.orientation.y, pose.orientation.z, pose.orientation.w]
     names: [tcp_x, tcp_y, tcp_z, tcp_qx, tcp_qy, tcp_qz, tcp_qw]
-    interp: hold                # quaternions must not be linearly interpolated
+    interp: hold                # quaternions must not be linearly interpolated; openh_export.py re-samples the
+                                # TCP from the bag with SLERP and overwrites these columns (a held 20 Hz pose
+                                # at 25 fps repeated about one step in four)
 
 # Action: the executed probe-frame TCP motion (after the safety filter) + the force setpoint.
 # Raw key presses are never the action. Absolute vs relative TCP for Open-H: open decision 3.
@@ -89,7 +91,9 @@ custom_msgs:
   usrig_interfaces/msg/RobotState: ../src/usrig_interfaces/msg/RobotState.msg
   usrig_interfaces/msg/EpisodeEvent: ../src/usrig_interfaces/msg/EpisodeEvent.msg
 
-# GR00T-H is out of scope for now (separate task); this block only writes meta/modality.json.
+# GR00T-H is out of scope for now (separate task); this block only writes the v2.1 meta/modality.json, which
+# openh_export.py replaces with the Open-H reference layout (state = joints + force/torque + eef_pose,
+# action = eef_pose).
 groot:
   state_groups:
     joints: [0, 6]

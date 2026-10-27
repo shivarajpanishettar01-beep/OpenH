@@ -215,9 +215,12 @@ def card(s, name):
     for k, f in sorted(i.get('features', {}).items()):
         L.append(f'| `{k}` | {f.get("dtype")} | {f.get("shape")} |')
     L += ['', '## Action',
-          '`action` = incremental TCP pose from step t to t+1, `[dx, dy, dz, drx, dry, drz]` (m, rotation vector in rad), '
-          f'frame `{i.get("features", {}).get("action", {}).get("info", {}).get("frame", "?")}`, computed from the measured '
-          'robot trajectory for every collection mode.',
+          '`action` = absolute probe-tip pose `[x, y, z, roll, pitch, yaw]` in the robot base frame (m; extrinsic xyz '
+          'Euler in rad, R = Rz(yaw) Ry(pitch) Rx(roll)), as the published Open-H ultrasound data, from the measured '
+          'robot trajectory (re-sampled with SLERP) for every collection mode. '
+          '`observation.meta.delta_action` = the pose change to the next step `[dx, dy, dz, drx, dry, drz]` '
+          '(rotation vector), frame '
+          f'`{i.get("features", {}).get("observation.meta.delta_action", {}).get("info", {}).get("frame", "?")}`.',
           '`observation.meta.commanded_twist` / `force_setpoint_n` are the controller command where one existed; '
           '`observation.meta.command_valid` is false where nothing was commanded (freedrive by hand)'
           + (f' ({(1 - s["command_valid_share"]) * 100:.1f} % of steps).' if s['command_valid_share'] is not None else '.'),

@@ -111,6 +111,117 @@ def test_calibration_per_session_with_exact_frames():
     assert m['prob_cali_mtx'] is None and m['per_session']['S1']['matrix'] == I     # sessions differ
     w = F.calibration_meta({'S1': s1, 'S2': s2}, 'wrist_cali_mtx')
     assert w['wrist_cali_mtx'] == I and 'T_flange_camera' in w['frame'] and 'end-effector' not in w['frame']
+    assert s1['tpv_cali_mtx'] == (None, None)                                # no TPV camera: nothing invented
+    s3 = F.session_calibration({'calibration': {'tpv_cam_cali_mtx': I}}, rig_cal)
+    assert s3['tpv_cali_mtx'] == (I, 'session.json:calibration.tpv_cam_cali_mtx')
+    assert 'T_base_camera' in F.calibration_meta({'S3': s3}, 'tpv_cali_mtx')['frame']
+
+
+def test_missing_wrist_or_tpv_calibration_is_zeros_flagged_invalid_never_nan():
+    """A session without hand-eye or TPV camera used to export NaN matrices: LeRobot v3.0 stores NaN in a list
+    column as null and the dataset then fails to load. Missing = 7 zeros + valid false; present = the matrix as
+    [tx, ty, tz, qx, qy, qz, qw] (the Open-H reference layout)."""
+    pa = pytest.importorskip('pyarrow')
+    s = F.session_calibration({'calibration': {'prob_cali_mtx': np.eye(4).tolist()}}, {})
+    assert s['wrist_cali_mtx'] == (None, None) and s['tpv_cali_mtx'] == (None, None)
+    for name in ('wrist_cali_mtx', 'tpv_cali_mtx'):
+        row, valid = F.pose7(s[name][0])
+        assert row == [0.0] * 7 and valid is False
+        col = pa.array([row] * 3, pa.list_(pa.float32(), 7))      # as openh_export builds the per-step column
+        assert np.isfinite(np.asarray(col.to_pylist())).all()
+    T = F.offset_matrix([0.0, 0.0, 0.22, 0.0, 0.0, np.pi / 2])
+    row, valid = F.pose7(T.tolist())
+    assert valid is True and np.allclose(row, [0, 0, 0.22, 0, 0, np.sin(np.pi / 4), np.cos(np.pi / 4)])
+
+
+def test_tcp_resampled_with_slerp_never_held_and_quaternion_sign_continuous():
+    """A 20 Hz robot pose exported at 25 fps used to be held: about one step in four repeated the previous pose
+    (a zero action, then a double one). SLERP sampling gives a pose per step, on the true trajectory, and a
+    quaternion sign flip in the data (q and -q) does not show up as a jump."""
+    tau = np.arange(0, 2.0, 0.05)                                  # 20 Hz
+    R = Rotation.from_euler('z', 30 * tau, degrees=True) * Rotation.from_euler('x', 180, degrees=True)
+    q = R.as_quat()
+    q[::3] *= -1                                                    # sign flips, as in the recorded bags
+    P = np.hstack([np.stack([0.4 + 0.02 * tau, 0.01 * tau, 0.2 - 0.01 * tau], 1), q])
+    t_steps = (np.arange(0, 1.9, 1 / 25) * 1e9).astype(np.int64)
+    out = F.interp_poses((tau * 1e9).astype(np.int64), P, t_steps)
+    s = t_steps * 1e-9
+    assert not (np.abs(np.diff(out, axis=0)).sum(1) == 0).any()     # no held step
+    assert np.allclose(out[:, 0], 0.4 + 0.02 * s, atol=1e-9) and np.allclose(out[:, 2], 0.2 - 0.01 * s, atol=1e-9)
+    want = Rotation.from_euler('z', 30 * s, degrees=True) * Rotation.from_euler('x', 180, degrees=True)
+    assert (Rotation.from_quat(out[:, 3:]) * want.inv()).magnitude().max() < 1e-9
+    assert (np.einsum('ij,ij->i', out[1:, 3:], out[:-1, 3:]) > 0).all()
+    d = F.delta_actions(out, 'base')[:-1]
+    assert np.allclose(np.linalg.norm(d[:, :3], axis=1), np.linalg.norm([0.02, 0.01, -0.01]) / 25, rtol=1e-6)
+
+
+def test_action_is_the_absolute_tip_pose_in_the_reference_euler_convention():
+    """Open-H reference action: [x, y, z, roll, pitch, yaw], R = Rz(yaw) Ry(pitch) Rx(roll), of the probe tip."""
+    R = Rotation.from_euler('xyz', [3.0, -0.2, 0.7])
+    tcp = np.array([[0.5, -0.1, 0.3, *R.as_quat()]])
+    tip = F.tip_poses(tcp, F.offset_matrix([0, 0, 0.22, 0, 0, 0]))
+    assert np.allclose(tip[0, :3], tcp[0, :3] + R.apply([0, 0, 0.22]))   # 0.22 m along the tool axis
+    a = F.pose_xyzrpy(tip)[0]
+    r, p, y = a[3:]
+    Rz, Ry, Rx = (Rotation.from_euler(ax, v).as_matrix() for ax, v in (('z', y), ('y', p), ('x', r)))
+    assert np.allclose(Rz @ Ry @ Rx, R.as_matrix(), atol=1e-12) and np.allclose(a[3:], [3.0, -0.2, 0.7])
+    T_tcp_tip, T_flange_tip, probs = F.probe_tip_offset({'tcp_already_includes_probe': True,
+                                                         'tip_offset_flange_m': [0, 0, 0.22, 0, 0, 0]})
+    assert probs == [] and np.allclose(T_tcp_tip, np.eye(4)) and T_flange_tip[2, 3] == 0.22
+    assert len(F.probe_tip_offset({'tip_offset_flange_m': None, 'tcp_already_includes_probe': None})[2]) == 2
+
+
+def test_wrench_in_probe_frame_pressing_into_tissue_is_negative_fz():
+    """Probe pointing down (tool z = -base z), tissue pushing up with 10 N (UR base-frame external wrench): the
+    reference convention reads Fz = -10 N in the probe frame; moments are moved from the flange to the tip."""
+    down = Rotation.from_euler('x', 180, degrees=True).as_quat()
+    tcp = np.array([[0.5, 0.0, 0.4, *down]])
+    tip = F.tip_poses(tcp, F.offset_matrix([0, 0, 0.2, 0, 0, 0]))       # tip 0.2 m below the flange
+    w = F.wrench_in_probe_frame(np.array([[2.0, 0.0, 10.0, 0.0, 0.0, 0.0]]), tcp, tip)[0]
+    assert np.allclose(w[:3], [2.0, 0.0, -10.0])
+    # base moment at the tip: tau - r x f with r = (0, 0, -0.2): -(r x f) = (0, 0.4, 0); in the probe frame y flips
+    assert np.allclose(w[3:], [0.0, -0.4, 0.0])
+
+
+def test_probe_acquisition_param_and_image_size_from_micrus_frame_info():
+    """Open-H probe_acquisition_param [MHz, elements, depth cm, linear fov mm, convex radius, convex fov deg] from a
+    real micrus frame_info (MPRO-L40S at 40 mm, recorded 26 Oct 2026)."""
+    fi = {'image': {'pixel_spacing_mm': [0.051253125, 0.051253125], 'width': 793, 'height': 800},
+          'geometry': {'linear': True, 'elements': 64, 'angle_rad': 0.0, 'radius_mm': 0.0, 'length_mm': 40.0},
+          'settings': {'depth_mm': 40, 'frequency_hz': 12000000}}
+    assert np.allclose(F.acquisition_param(fi), [12.0, 64, 4.0, 793 * 0.051253125, 0.0, 0.0])
+    assert F.usimg_resolution(fi) == [800, 793]
+    convex = {'geometry': {'linear': False, 'elements': 128, 'radius_mm': 62.5, 'angle_rad': np.radians(70)},
+              'settings': {'depth_mm': 160, 'frequency_hz': 3.6e6}, 'image': {}}
+    assert np.allclose(F.acquisition_param(convex), [3.6, 128, 16.0, 0.0, 62.5, 70.0])
+
+
+def test_modality_and_instruction_fields_follow_the_reference():
+    feats = {'observation.state': {'names': ['shoulder_pan_joint', 'a', 'b', 'c', 'd', 'e', 'tcp_x', 'tcp_y', 'tcp_z',
+                                             'tcp_qx', 'tcp_qy', 'tcp_qz', 'tcp_qw']},
+             'observation.images.ultrasound': {'dtype': 'video'}, 'observation.images.wrist_camera': {'dtype': 'video'},
+             'observation.images.wrist_depth': {'dtype': 'image'}, 'action': {'dtype': 'float32'}}
+    m = F.modality(feats)
+    assert m['action'] == {'eef_pose': {'start': 0, 'end': 6}}                 # 6 values, not twist + setpoint
+    assert m['state']['joint_angles'] == {'start': 0, 'end': 6}
+    assert m['state']['eef_pose']['original_key'] == 'action'
+    assert m['state']['force_torque']['original_key'] == 'observation.meta.force_torque'
+    assert set(m['video']) == {'ultrasound', 'wrist_camera'}
+    epj = {'task_type': 'scanning', 'sub_task': 'jugular transverse', 'phantom_id': 'neck_cl', 'cmd_sets': ['A.', 'B.']}
+    assert F.instruction_fields(epj) == {'instruction.task': 'scanning', 'instruction.sub_task': 'jugular transverse',
+                                         'instruction.phantom': 'neck_cl', 'instruction.cmd_sets': 'A.\nB.'}
+    assert F.instruction_fields({})['instruction.task'] == ''
+    assert len(F.instruction_problems([{'episode_id': 'e', 'task_type': 'sweep'}, epj])) == 1
+
+
+def test_tpv_camera_offset_checked_like_the_wrist_camera():
+    lr = {'images': {'observation.images.ultrasound': {'time_offset_s': -0.02},
+                     'observation.images.wrist_camera': {'time_offset_s': 0.0},
+                     'observation.images.tpv_camera': {'time_offset_s': 0.015}}}
+    used, _ = F.converter_offsets(lr)
+    assert used['tpv_camera'] == 0.015
+    assert F.offset_problems({'time_offsets_s': {'tpv_camera': 0.015}}, used) == []
+    assert len(F.offset_problems({'episode_id': 'e', 'time_offsets_s': {'tpv_camera': 0.0}}, used)) == 1
 
 
 def _staged_session(tmp_path, eps):

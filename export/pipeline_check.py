@@ -6,7 +6,7 @@
 
 Writes three synthetic episodes (success with an operator pause, freedrive, recovery-mid) as MCAP bags
 with every topic the rig records (ultrasound, frame info, robot state 500 Hz, executed twist 125 Hz,
-wrist colour + 16-bit depth 30 Hz, camera info, events), plus a fourth bag whose camera recorded nothing
+wrist colour + 16-bit depth 30 Hz, TPV colour 30 Hz, camera info, events), plus a fourth bag whose camera recorded nothing
 (stage_bags must skip and report it), with episode.json (start / end window, pauses) / session.json
 (calibration snapshot, different from the rig.yaml test values) / annotation.json marked
 ``synthetic_pipeline_check: true``. Then runs the real chain:
@@ -54,6 +54,10 @@ KINESTHETIC = {'ep_0003'}      # freedrive: no command (NaN marker on /robot/cmd
 FAILURE_CLASS = 'target_view_loss'   # expert label of ep_0002 (its FM-SYN id maps to no class)
 WINDOW_S = (0.5, 3.5)               # start / end events (s from T0): the bag also holds pre-roll and post-roll
 PAUSES_S = {'ep_0001': [(1.0, 1.4)]}  # operator pause (episode.json pauses_ns)
+# probe tip in the flange frame (session snapshot; rig.yaml gets a different one that must not be used). The synthetic
+# TCP is the flange, so the action is the TCP composed with this offset.
+TIP_OFFSET = [0.010, -0.005, 0.200, 0.0, 0.0, 0.3]
+SUB_TASK, CMD_SETS = 'vessel long-axis view', ['Find the long-axis view of the vessel.', 'Show the vessel lengthwise.']
 # a bag whose camera recorded nothing: stage_bags must skip and report it, the others still convert
 NO_CAMERA = ('ep_0004', 'success', 2, 'Find the long-axis view of the vessel', None, None)
 
@@ -181,6 +185,11 @@ def write_bag(bag_dir, ep, camera=True):
         ci.header = c.header
         msgs += [(t, '/wrist/d415/color/image_raw', c), (t, '/wrist/d415/aligned_depth_to_color/image_raw', d),
                  (t + 1, '/wrist/d415/color/camera_info', ci), (t + 1, '/wrist/d415/aligned_depth_to_color/camera_info', ci)]
+        v = Image()
+        v.header.stamp, v.header.frame_id = tm(t), 'tpv_color_optical_frame'
+        v.height, v.width, v.encoding, v.step = 48, 64, 'rgb8', 64 * 3
+        v.data = bytes([200, (20 + 5 * j) % 256, 30]) * (48 * 64)
+        msgs += [(t, '/tpv/camera/color/image_raw', v), (t + 1, '/tpv/camera/color/camera_info', ci)]
     for t, kind, value in ((int(WINDOW_S[0] * 1e9), 'start', {}), (int(WINDOW_S[1] * 1e9) - 1000, 'outcome', {'outcome': 'success'}),
                            (int(WINDOW_S[1] * 1e9), 'end', {})):
         e = EpisodeEvent()
@@ -196,6 +205,8 @@ def write_bag(bag_dir, ep, camera=True):
                        '/wrist/d415/aligned_depth_to_color/image_raw': 'sensor_msgs/msg/Image',
                        '/wrist/d415/color/camera_info': 'sensor_msgs/msg/CameraInfo',
                        '/wrist/d415/aligned_depth_to_color/camera_info': 'sensor_msgs/msg/CameraInfo',
+                       '/tpv/camera/color/image_raw': 'sensor_msgs/msg/Image',
+                       '/tpv/camera/color/camera_info': 'sensor_msgs/msg/CameraInfo',
                        '/episode/events': 'usrig_interfaces/msg/EpisodeEvent'}.items():
         w.create_topic(rosbag2_py.TopicMetadata(name=topic, type=typ, serialization_format='cdr'))
     for t, topic, m in sorted(msgs, key=lambda x: x[0]):
@@ -209,8 +220,11 @@ def write_session(root):
     # the session's calibration snapshot: the export must use it, not the (different) rig.yaml test values
     (sess / 'session.json').write_text(json.dumps({'session_id': 'SYNTHETIC_session', 'sim': False,
                                                    'synthetic_pipeline_check': True,
+                                                   'probe': {'tcp_already_includes_probe': False,
+                                                             'tip_offset_flange_m': TIP_OFFSET},
                                                    'calibration': {'prob_cali_mtx': np.eye(4).tolist(),
-                                                                   'wrist_cam_cali_mtx': np.eye(4).tolist()}},
+                                                                   'wrist_cam_cali_mtx': np.eye(4).tolist(),
+                                                                   'tpv_cam_cali_mtx': np.eye(4).tolist()}},
                                                   indent=1))
     for ep in EPISODES + [NO_CAMERA]:
         eid, typ, stage, instr, fail, rec = ep
@@ -233,11 +247,12 @@ def write_session(root):
             'episode_id': eid, 'session_id': 'SYNTHETIC_session', 'type': typ, 'stage': stage,
             'instruction': instr, 'target': 'vessel_long', 'outcome': 'recovered' if fail else 'success', 'qc': {'pass': True},
             'failure_mode': 'FM-SYN' if fail else None, 'sim': False, 'synthetic_pipeline_check': True,
-            'time_offsets_s': {'ultrasound': -0.020, 'camera': 0.0}, 'capture_host': 'synthetic',
+            'time_offsets_s': {'ultrasound': -0.020, 'camera': 0.0, 'tpv_camera': 0.0}, 'capture_host': 'synthetic',
             't_start_ns': T0_NS + int(WINDOW_S[0] * 1e9), 't_end_ns': T0_NS + int(WINDOW_S[1] * 1e9),
             'pauses_ns': [[T0_NS + int(p0 * 1e9), T0_NS + int(p1 * 1e9)] for p0, p1 in PAUSES_S.get(eid, [])],
             'paused_s': sum(p1 - p0 for p0, p1 in PAUSES_S.get(eid, [])),
-            'duration_s': WINDOW_S[1] - WINDOW_S[0]}, indent=1))
+            'duration_s': WINDOW_S[1] - WINDOW_S[0],
+            'task_type': 'scanning', 'sub_task': SUB_TASK, 'cmd_sets': CMD_SETS}, indent=1))
     return sess
 
 
@@ -268,7 +283,8 @@ def run(a):
     if not conv or not Path(conv).exists():
         sys.exit('BAG_TO_LEROBOT not set or missing (source scripts/env.sh)')
     v21 = work / 'v21'
-    sh([sys.executable, conv, '-c', 'lerobot_rig.yaml', '-o', str(v21), str(staging)], cwd=HERE)
+    sh([sys.executable, str(HERE / 'run_bag_to_lerobot.py'), '-c', 'lerobot_rig.yaml', '-o', str(v21), str(staging)],
+       cwd=HERE)
     srcs = [json.loads(x) for x in (v21 / 'meta' / 'micrus_sources.jsonl').read_text().splitlines() if x.strip()]
     lengths = {json.loads(x)['episode_index']: json.loads(x)['length']
                for x in (v21 / 'meta' / 'episodes.jsonl').read_text().splitlines() if x.strip()}
@@ -276,8 +292,11 @@ def run(a):
     print('[4/6] openh_export.py --pipeline-check (LeRobot 0.6.0 env)')
     rig = yaml.safe_load((REPO / 'src/usrig_bringup/config/rig.yaml').read_text())
     rig.setdefault('probe', {})['type'] = 'SYNTHETIC-PROBE'
+    rig['probe']['tcp_already_includes_probe'] = True                   # the session snapshot must win
+    rig['probe']['tip_offset_flange_m'] = [0.0, 0.0, 0.5, 0.0, 0.0, 0.0]
     rig.setdefault('calibration', {})['prob_cali_mtx'] = (2 * np.eye(4)).tolist()   # differs from the session
     rig['calibration']['wrist_cam_cali_mtx'] = (2 * np.eye(4)).tolist()            # snapshot: must not be used
+    rig['calibration']['tpv_cam_cali_mtx'] = (2 * np.eye(4)).tolist()
     rig_test = work / 'rig_pipeline_check.yaml'           # test values for this check only, never the rig's
     rig_test.write_text(yaml.safe_dump(rig, sort_keys=False))
     out = work / 'SYNTHETIC_openh_pipeline_check'
@@ -356,28 +375,55 @@ def verify(a):
           'info.json marks the dataset as synthetic')
     feats = info.features if hasattr(info, 'features') else info['features']
     meta = out / 'meta'
-    for f in ('calibration/prob_cali_mtx.json', 'calibration/wrist_cali_mtx.json', 'calibration/camera_intrinsics.json',
-              'annotations.jsonl', 'provenance.jsonl'):
+    for f in ('calibration/prob_cali_mtx.json', 'calibration/wrist_cali_mtx.json', 'calibration/tpv_cali_mtx.json',
+              'calibration/camera_intrinsics.json', 'annotations.jsonl', 'provenance.jsonl'):
         check((meta / f).exists(), f'meta/{f} survives the v3.0 conversion')
     raw_info = json.loads((meta / 'info.json').read_text())
     pc, wc = (json.loads((meta / 'calibration' / f).read_text()) for f in ('prob_cali_mtx.json', 'wrist_cali_mtx.json'))
     check(pc.get('prob_cali_mtx') == np.eye(4).tolist() and wc.get('wrist_cali_mtx') == np.eye(4).tolist()
           and all(v['source'].startswith('session.json') for c in (pc, wc) for v in c['per_session'].values())
           and 'T_flange_camera' in wc['frame'], 'calibrations from the session snapshot (not rig.yaml), exact frames')
+    tc = json.loads((meta / 'calibration' / 'tpv_cali_mtx.json').read_text())
+    check(tc.get('tpv_cali_mtx') == np.eye(4).tolist() and 'T_base_camera' in tc['frame']
+          and all(v['source'].startswith('session.json') for v in tc['per_session'].values()),
+          'TPV calibration (T_base_camera) from the session snapshot')
+    intr = json.loads((meta / 'calibration' / 'camera_intrinsics.json').read_text())
+    check(all('tpv_camera' in v for v in intr['per_session'].values()), 'TPV camera intrinsics per session')
     ann = [json.loads(x) for x in (meta / 'annotations.jsonl').read_text().splitlines() if x.strip()] \
         if (meta / 'annotations.jsonl').exists() else []
     check(len(ann) == len(EPISODES) and any((a.get('failure_class') or {}).get('value') == FAILURE_CLASS for a in ann),
           'annotations.jsonl content')
     for k in ('action', 'observation.state', 'observation.images.ultrasound', 'observation.images.wrist_camera',
+              'observation.images.tpv_camera', 'observation.meta.tpv_cali_mtx', 'observation.meta.tpv_cali_valid',
+              'observation.meta.wrist_cali_valid',
               'observation.images.wrist_depth', 'observation.meta.status', 'observation.meta.host_stamp_ns',
               'observation.meta.commanded_twist', 'observation.meta.force_setpoint_n',
               'observation.meta.action_is_expert', 'observation.meta.command_valid', 'observation.meta.status_source',
               'observation.meta.in_episode', 'observation.meta.paused', 'observation.meta.action_valid',
-              'instruction.text'):
+              'instruction.text', 'observation.meta.delta_action', 'observation.meta.probe_cali_mtx',
+              'observation.meta.usimg_org_resolution', 'instruction.task', 'instruction.sub_task',
+              'instruction.phantom', 'instruction.cmd_sets'):
         check(k in feats, f'feature {k}')
+    check('observation.force_torque' not in feats and 'observation.meta.prob_cali_mtx' not in feats,
+          'no duplicate base-frame wrench, no 4x4 per-step probe calibration')
+    mod = json.loads((meta / 'modality.json').read_text())
+    check(mod['action'] == {'eef_pose': {'start': 0, 'end': 6}}
+          and mod['state']['eef_pose'] == {'start': 0, 'end': 6, 'original_key': 'action'}
+          and mod['state']['force_torque']['original_key'] == 'observation.meta.force_torque'
+          and mod['state']['joint_angles'] == {'start': 0, 'end': 6}
+          and set(mod['video']) == {'ultrasound', 'wrist_camera', 'tpv_camera'},
+          'modality.json in the Open-H layout (action = eef_pose 0:6, state = joints + F/T + eef_pose, 3 cameras)')
+    # openh_export --files per-episode (default): one video file per camera and one data parquet per episode
+    n_ep = len(EPISODES)
+    cams = sorted(p.name for p in (out / 'videos').iterdir())
+    check(len(list((out / 'data').rglob('*.parquet'))) == n_ep
+          and all(len(list((out / 'videos' / c).rglob('*.mp4'))) == n_ep for c in cams),
+          f'one data parquet and one video file per camera per episode ({n_ep} each, cameras {cams})')
     act = raw_info['features']['action']
-    check(list(act['shape']) == [6] and act.get('names') == F.ACTION_NAMES and act['info']['frame'] == 'base',
-          'action is float32[6] dx..drz, base frame, rotation vector')
+    check(list(act['shape']) == [6] and act.get('names') == ['x', 'y', 'z', 'roll', 'pitch', 'yaw']
+          and act['info']['frame'] == 'base', 'action is float32[6] x..yaw, absolute probe-tip pose, base frame')
+    dlt = raw_info['features']['observation.meta.delta_action']
+    check(dlt.get('names') == F.DELTA_NAMES and dlt['info']['frame'] == 'base', 'delta_action is dx..drz, base frame')
     dep = raw_info['features']['observation.images.wrist_depth']
     check(dep['dtype'] == 'image' and dep['info'] == {'encoding': 'png16', 'units': 'mm'}, 'wrist_depth is a 16-bit PNG image in mm')
     check(ds.num_episodes == len(truth['episodes']), f'{ds.num_episodes} episodes')
@@ -394,16 +440,22 @@ def verify(a):
     t_cmd = (T0_NS + st['cmd']) * 1e-9
     t_us = (T0_NS + st['us']) * 1e-9 + truth['image_offset_s']
     t_cam_ns = T0_NS + st['cam']
-    poses = [tcp_pose(t * 1e-9) for t in st['robot']]
-    P = np.array([[*p, *Rotation.from_matrix(R).as_quat()] for p, R in poses])
-    worst = {'action': 0.0, 'twist': 0.0, 'us_px': 0.0}
+    T_tip = F.offset_matrix(TIP_OFFSET)
+    worst = {'action': 0.0, 'delta': 0.0, 'force': 0.0, 'twist': 0.0, 'us_px': 0.0}
     flag_counts = {'outside': 0, 'paused': 0}
     gidx = 0
     for e in truth['episodes']:
         n = e['length']
         ticks = e['start_unix'] + np.arange(n) / truth['fps']
         ir = hold(t_robot, ticks)
-        exp_action = F.delta_actions(P[ir], 'base')
+        # ground truth AT the step times (the trajectory is analytic): the probe tip = TCP (flange) x offset
+        tcp_q = np.array([[*p, *Rotation.from_matrix(R).as_quat()] for p, R in
+                          (tcp_pose(x - T0_NS * 1e-9) for x in ticks)])
+        tip_q = F.tip_poses(tcp_q, T_tip)
+        exp_delta = F.delta_actions(tip_q, 'base')
+        f_base = np.zeros((n, 6))
+        f_base[:, 2] = 2.0 + (ticks - T0_NS * 1e-9)                       # the bag's wrench: Fz = 2 + tau (base)
+        exp_ft = F.wrench_in_probe_frame(f_base, tcp_q, tip_q)
         exp_twist = np.array([twist(st['cmd'][i] * 1e-9) for i in hold(t_cmd, ticks)])
         iu = hold(t_us, ticks)
         t_steps_ns = ((float(e['start_unix']) + np.arange(n) / truth['fps']) * 1e9).astype(np.int64)
@@ -412,8 +464,14 @@ def verify(a):
         kin = e['episode_id'] in KINESTHETIC
         for k in range(n):
             item = ds[gidx + k]
-            act = item['action'].numpy()
-            worst['action'] = max(worst['action'], float(np.abs(act - exp_action[k]).max()))
+            act = item['action'].numpy().astype(float)
+            # position, and the rotation angle between got and expected (Euler angles wrap at +-pi)
+            rot_err = (Rotation.from_euler('xyz', act[3:]) * Rotation.from_quat(tip_q[k, 3:]).inv()).magnitude()
+            worst['action'] = max(worst['action'], float(np.abs(act[:3] - tip_q[k, :3]).max()), float(rot_err))
+            worst['delta'] = max(worst['delta'], float(np.abs(item['observation.meta.delta_action'].numpy()
+                                                               - exp_delta[k]).max()))
+            worst['force'] = max(worst['force'], float(np.abs(item['observation.meta.force_torque'].numpy()
+                                                               - exp_ft[k]).max()))
             tw = item['observation.meta.commanded_twist'].numpy()
             tau = st['robot'][ir[k]] * 1e-9
             fsp = float(item['observation.meta.force_setpoint_n'].numpy().ravel()[0])
@@ -467,10 +525,22 @@ def verify(a):
         check(abs(float(ds[gidx]['timestamp']) - 0.0) < 1e-6 and
               abs(float(ds[gidx + n - 1]['timestamp']) - (n - 1) / truth['fps']) < 1e-4, f'{e["episode_id"]}: timestamps')
         check(ds[gidx]['instruction.text'] in [x[3] for x in EPISODES], f'{e["episode_id"]}: instruction text')
-        check(np.allclose(np.asarray(ds[gidx]['observation.meta.prob_cali_mtx']).ravel(), np.eye(4).ravel()),
-              f'{e["episode_id"]}: per-step prob_cali_mtx = the session snapshot')
+        check(np.allclose(np.asarray(ds[gidx]['observation.meta.probe_cali_mtx']).ravel(), F.pose7(T_tip)[0], atol=1e-6),
+              f'{e["episode_id"]}: per-step probe_cali_mtx = the session snapshot tip offset, [t, quat]')
+        check(np.allclose(np.asarray(ds[gidx]['observation.meta.probe_acquisition_param']).ravel(),
+                          [12.0, 0.0, 4.0, 12.8, 0.0, 0.0], atol=1e-4)
+              and np.asarray(ds[gidx]['observation.meta.usimg_org_resolution']).ravel().tolist() == [96, 128],
+              f'{e["episode_id"]}: probe_acquisition_param [12 MHz, -, 4 cm, 12.8 mm, 0, 0] and usimg [96, 128]')
+        check(ds[gidx]['instruction.task'] == 'scanning' and ds[gidx]['instruction.sub_task'] == SUB_TASK
+              and ds[gidx]['instruction.phantom'] == 'vascular_4vein'
+              and ds[gidx]['instruction.cmd_sets'] == '\n'.join(CMD_SETS), f'{e["episode_id"]}: instruction.* fields')
+        check(bool(ds[gidx]['observation.meta.wrist_cali_valid']) and bool(ds[gidx]['observation.meta.tpv_cali_valid']),
+              f'{e["episode_id"]}: wrist / TPV calibration flagged valid (the session has both)')
         gidx += n
-    check(worst['action'] < 1e-6, f'incremental TCP action vs ground truth, max error {worst["action"]:.2e}')
+    check(worst['action'] < 1e-5, f'absolute probe-tip action vs ground truth at the step times (m / rad), '
+                                  f'max error {worst["action"]:.2e}')
+    check(worst['delta'] < 1e-5, f'delta_action vs ground truth, max error {worst["delta"]:.2e}')
+    check(worst['force'] < 1e-3, f'force/torque in the probe-tip frame vs ground truth, max error {worst["force"]:.2e}')
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')
     check(worst['us_px'] <= 3.0, f'ultrasound frame selection + pixels (h264), max error {worst["us_px"]:.2f} grey levels')
     check(flag_counts['outside'] > 0 and flag_counts['paused'] > 0,

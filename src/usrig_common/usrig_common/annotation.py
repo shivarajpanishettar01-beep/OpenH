@@ -49,6 +49,8 @@ FM_FAILURE_CLASS = {
     'FM-12': 'task_performance_failure',           # wrong / ambiguous instruction
 }
 FAILURE_TYPES = ('failure', 'recovery-start', 'recovery-mid')   # episode types that need a failure class
+# Open-H instruction.task (published Open-H ultrasound data): every episode is one of these
+TASK_TYPES = ('placement', 'navigation', 'scanning')
 STATUS = ['nominal', 'failure', 'recovery']
 PROVENANCE = ['expert', 'trainee', 'model_assisted', 'automated']
 QA_STATUS = ['unreviewed', 'flagged', 'accepted', 'rejected']
