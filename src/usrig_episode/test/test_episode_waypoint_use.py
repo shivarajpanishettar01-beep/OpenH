@@ -252,7 +252,8 @@ def test_micrus_stop_fallback_cannot_outlive_its_parent(monkeypatch):
 
 
 def test_operator_task_goes_into_the_next_episodes():
-    """Freedrive / free-teleop episodes carry the operator's current task (target + instruction)."""
+    """Freedrive / free-teleop episodes carry the operator's current task: Open-H task type, target,
+    instruction, sub-task and paraphrases (episode.json task_type / sub_task / cmd_sets -> instruction.*)."""
     import json as _j
     import queue as _q
     import threading as _th
@@ -260,13 +261,24 @@ def test_operator_task_goes_into_the_next_episodes():
     from std_msgs.msg import String
     fake = _t.SimpleNamespace(ep_lock=_th.Lock(), ep=None, cmds=_q.Queue(), pause_log=None, task=None,
                               event=lambda *a: None)
-    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'set_task', 'target': 'ijv_long',
-                                                       'instruction': 'Centre the right IJV in long axis'})))
-    assert fake.task == {'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis'}
-    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'set_task', 'target': ' ', 'instruction': 'x'})))
+    EpisodeManager._on_cmd(fake, String(data=_j.dumps({
+        'cmd': 'set_task', 'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis',
+        'task_type': 'navigation', 'sub_task': '', 'cmd_sets': ['Bring the right IJV to the centre, long axis.',
+                                                                'Centre the right IJV in long axis']})))
+    assert fake.task == {'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis',
+                         'task_type': 'navigation', 'sub_task': 'ijv_long',          # default: the target
+                         'cmd_sets': ['Centre the right IJV in long axis',             # instruction first, no repeat
+                                      'Bring the right IJV to the centre, long axis.']}
+    EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'set_task', 'target': ' ', 'instruction': 'x',
+                                                       'task_type': 'scanning'})))
     assert fake.task['target'] == 'ijv_long'                         # incomplete tasks are ignored
+    for bad in (None, 'sweep'):                                      # ... and so is a missing / unknown task type
+        EpisodeManager._on_cmd(fake, String(data=_j.dumps({'cmd': 'set_task', 'target': 'cca', 'instruction': 'y',
+                                                           'task_type': bad})))
+        assert fake.task['target'] == 'ijv_long'
     assert EpisodeManager._task_fields(_t.SimpleNamespace(task=None), 'freedrive') is None
-    assert EpisodeManager._task_fields(_t.SimpleNamespace(task=fake.task), 'freedrive')['type'] == 'kinesthetic'
+    ep_fields = EpisodeManager._task_fields(_t.SimpleNamespace(task=fake.task), 'freedrive')
+    assert ep_fields['type'] == 'kinesthetic' and ep_fields['task_type'] == 'navigation' and len(ep_fields['cmd_sets']) == 2
     assert EpisodeManager._task_fields(_t.SimpleNamespace(task=None), 'robot')['type'] == 'shakedown'
     assert EpisodeManager._task_fields(_t.SimpleNamespace(task=fake.task), 'robot')['type'] == 'teleop'
 

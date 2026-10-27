@@ -33,6 +33,7 @@ from std_msgs.msg import String
 from std_srvs.srv import SetBool, Trigger
 
 from usrig_common import config, geometry
+from usrig_common.annotation import TASK_TYPES
 from usrig_common.session import data_root, read_json, session_dir
 from usrig_common.timeutil import ns_from_stamp
 from usrig_interfaces.msg import ControlStatus, EpisodeEvent, RobotState
@@ -449,22 +450,42 @@ def build_window(ros, scfg=None, rig=None):
     task_instr = QtWidgets.QLineEdit()
     task_instr.setObjectName('task_instruction')
     task_instr.setPlaceholderText('instruction, e.g. Centre the right IJV in long axis')
+    # Open-H instruction.task / sub_task / cmd_sets: the task type is required, the rest optional
+    task_type = QtWidgets.QComboBox()
+    task_type.setObjectName('task_type')
+    task_type.addItems(['task type…', *TASK_TYPES])
+    task_type.setToolTip('placement: put the probe on a site · navigation: move to a target view · '
+                         'scanning: sweep along a structure')
+    task_sub = QtWidgets.QLineEdit()
+    task_sub.setObjectName('task_sub_task')
+    task_sub.setPlaceholderText('sub-task (optional, default = target), e.g. right IJV long axis')
+    task_cmds = QtWidgets.QPlainTextEdit()
+    task_cmds.setObjectName('task_cmd_sets')
+    task_cmds.setPlaceholderText('other ways to say the instruction, one per line (optional; 3-5 recommended)')
+    task_cmds.setFixedHeight(56)
     lbl_task = QtWidgets.QLabel('Task: not set (freedrive Start is refused; teleop is a shakedown test)')
     lbl_task.setWordWrap(True)
 
     def set_task():
-        t, i = task_target.text().strip(), task_instr.text().strip()
+        t, i, ty = task_target.text().strip(), task_instr.text().strip(), task_type.currentText()
         if not (t and i):
             return ros.note('task needs both a target and an instruction')
-        ros.send({'cmd': 'set_task', 'target': t, 'instruction': i})
-        task_target.clearFocus()
-        task_instr.clearFocus()
-    for w in (task_target, task_instr):
+        if ty not in TASK_TYPES:
+            return ros.note(f'choose the task type ({" / ".join(TASK_TYPES)})')
+        ros.send({'cmd': 'set_task', 'target': t, 'instruction': i, 'task_type': ty,
+                  'sub_task': task_sub.text().strip(),
+                  'cmd_sets': [x.strip() for x in task_cmds.toPlainText().splitlines() if x.strip()]})
+        for w in (task_target, task_instr, task_type, task_sub, task_cmds):
+            w.clearFocus()
+    for w in (task_target, task_instr, task_type, task_sub, task_cmds):
         w.setFocusPolicy(Qt.ClickFocus)
     rl.addWidget(task_target, 6, 0, 1, 2)
     rl.addWidget(task_instr, 6, 2, 1, 2)
-    rl.addWidget(button('Set task', None, set_task, tip='applies to the next freedrive / teleop episodes'), 7, 0)
-    rl.addWidget(lbl_task, 7, 1, 1, 3)
+    rl.addWidget(task_type, 7, 0)
+    rl.addWidget(task_sub, 7, 1, 1, 3)
+    rl.addWidget(task_cmds, 8, 0, 1, 4)
+    rl.addWidget(button('Set task', None, set_task, tip='applies to the next freedrive / teleop episodes'), 9, 0)
+    rl.addWidget(lbl_task, 9, 1, 1, 3)
     ll.addWidget(g_rec)
 
     g_prog = QtWidgets.QGroupBox('Session progress')
@@ -976,7 +997,9 @@ def build_window(ros, scfg=None, rig=None):
             lbl_last.setText('Last: -')
         b_ss.setText(cm.start_stop_label(c))
         tk = c.session.get('task')
-        lbl_task.setText(f'Task: <b>{tk["target"]}</b> · {tk["instruction"]}' if tk else
+        lbl_task.setText(f'Task: {tk.get("task_type") or "type?"} · <b>{tk["target"]}</b> · {tk["instruction"]}'
+                         + (f' (+{len(tk["cmd_sets"]) - 1} paraphrases)' if len(tk.get('cmd_sets') or []) > 1 else '')
+                         if tk else
                          'Task: <b>not set</b> (freedrive Start is refused; teleop without a task is a shakedown test)')
 
         counts = (st or {}).get('counts') or {}

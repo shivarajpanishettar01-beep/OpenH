@@ -251,10 +251,11 @@ class EpisodeManager(Node):
         if cmd == 'key':
             return
         if cmd == 'set_task':
-            # the operator's current task for the next freedrive / teleop episodes (Open-H: task + target per episode)
-            target, instr = (c.get('target') or '').strip(), (c.get('instruction') or '').strip()
-            if target and instr:
-                self.task = {'target': target, 'instruction': instr}
+            # the operator's current task for the next freedrive / teleop episodes (Open-H: task type, target,
+            # instruction and its paraphrases per episode); an incomplete one is ignored
+            task = es.operator_task(c)
+            if task:
+                self.task = task
             return
         with self.ep_lock:
             ep = self.ep
@@ -435,6 +436,7 @@ class EpisodeManager(Node):
             'operator_id': self.operator_id, 'phantom_id': self.phantom_id,
             'phantom_placement': self.scfg['session'].get('phantom_placement'),
             'target': None, 'type': None, 'instruction': None, 'start_offset': None,
+            'task_type': None, 'sub_task': None, 'cmd_sets': None,      # Open-H instruction.* (export)
             'disturbance': None, 'force_setpoint_n': config.get_path(self.rig, 'limits.force_setpoint_default_n'),
             'failure_mode': None, 'staging_method': None, 'onset_t': None, 'recovery_start_t': None,
             'recovered': None, 'recovery_end_t': None, 'onset_source': None,
@@ -486,7 +488,7 @@ class EpisodeManager(Node):
 
     def _start_event(self, ep):
         ep['t_start_ns'] = self.event('start', {k: ep.get(k) for k in
-                                                ('stage', 'type', 'target', 'instruction', 'plan_row')})
+                                                ('stage', 'type', 'task_type', 'target', 'instruction', 'plan_row')})
 
     def _finish(self, ep, task_text=None, post=True):
         """end event -> bag stops -> micrus stops -> task.txt / episode.json [-> QC, auto-annotation].
@@ -676,7 +678,7 @@ class EpisodeManager(Node):
                 continue
             task = self._task_fields('freedrive')
             if task is None:
-                self.get_logger().error('episode not started: set the task (target + instruction) in the console first')
+                self.get_logger().error('episode not started: set the task (type + target + instruction) in the console first')
                 continue
             ep = self._new_episode(**task, collection_mode='freedrive', grip=grip,
                                    force_label_valid=grip == 'wrist_handle', force_setpoint_n=None)
@@ -716,7 +718,8 @@ class EpisodeManager(Node):
             center = self._waypoint(spec['center']) if spec.get('center') else (named[0] if named else None)
             wps = resolve_path(spec['waypoints'], config.load_yaml(self._waypoint_file())['waypoints'])
             ep = self._new_episode(type='scripted', target=name, instruction=spec.get('instruction'),
-                                   path_waypoints=[w if isinstance(w, str) else w['name'] for w in spec['waypoints']], speed_mm_s=st1['speed_mm_s'])
+                                   path_waypoints=[w if isinstance(w, str) else w['name'] for w in spec['waypoints']], speed_mm_s=st1['speed_mm_s'],
+                                   **es.path_task(name, spec))
             try:
                 self._move(self._approach_pose(wps[0]), cone_T=center['T'] if center else None)
                 self._begin_recording(ep)
@@ -817,7 +820,8 @@ class EpisodeManager(Node):
                                type=row['type'], instruction=row['instruction'], start_offset=off,
                                planned_operator_id=row['operator_id'], plan_sha256=sha,
                                failure_mode=row['failure_mode'] or None,
-                               staging_method=row['staging_method'] or None)
+                               staging_method=row['staging_method'] or None,
+                               **es.row_task(row, self._waypoint_entry(row['target'])))
         if row['operator_id'] != self.operator_id:
             self.get_logger().warn(f'row {row["row"]} was planned for {row["operator_id"]}; '
                                    f'recorded as operated by {self.operator_id}')
@@ -898,6 +902,14 @@ class EpisodeManager(Node):
                 w['T'] = geometry.pose_from_pq(w['position_m'], w['quaternion_xyzw'])
                 return w
         raise Abort(f'waypoint {name} not found in {self._waypoint_file()}')
+
+    def _waypoint_entry(self, name):
+        """The taught waypoint as stored (organ, view, instructions), without the motion checks of _waypoint;
+        None if it cannot be read (the row then fails in _waypoint, with its reason)."""
+        try:
+            return next((w for w in config.load_yaml(self._waypoint_file())['waypoints'] if w['name'] == name), None)
+        except Exception:  # noqa: BLE001
+            return None
 
     def _approach_pose(self, T):
         back = float(self.rig['motion']['approach_offset_mm']) / 1000.0

@@ -169,7 +169,7 @@ def prompt(c: Ctx):
         # episode_manager sends the hold only with robot_control (freedrive: the arm is guided by hand)
         return 'PAUSED: recording continues, robot NOT held (no robot_control): release the pedal, keep the probe still. Resume to go on'
     if st == 'idle' and 'start_stop' in w and c.session.get('collection_mode') == 'freedrive' and not c.session.get('task'):
-        return 'Set the task (target + instruction, Recording box) before Start: freedrive episodes need one'
+        return 'Set the task (type + target + instruction, Recording box) before Start: freedrive episodes need one'
     if st == 'idle' and 'start_stop' in w:
         return 'Ready: probe in free air, then Start episode'
     if st == 'idle' and 'next' in w:

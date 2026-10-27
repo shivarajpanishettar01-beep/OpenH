@@ -77,3 +77,40 @@ def test_time_cap_does_not_count_paused_time():
     fake = types.SimpleNamespace(pause_log=p, ep_lock=threading.Lock())
     left = EpisodeManager._cap_left(fake, 30.0, t0)
     assert 14.5 < left < 15.5                                # 30 - (25 - 10)
+
+
+def test_scripted_paths_and_plan_rows_carry_open_h_task_fields():
+    """Stage 1 / 2 episodes fill episode.json task_type / sub_task / cmd_sets (exported as instruction.task,
+    sub_task, cmd_sets) without operator input: paths are scans, plan rows navigate to their target view."""
+    assert es.path_task('cca_sweep', {'instruction': 'Sweep the CCA.'}) == {
+        'task_type': 'scanning', 'sub_task': 'cca_sweep', 'cmd_sets': ['Sweep the CCA.']}
+    assert es.path_task('p', {'instruction': 'A.', 'instructions': ['B.', 'A.'], 'task_type': 'placement',
+                              'sub_task': 'site'}) == {'task_type': 'placement', 'sub_task': 'site',
+                                                      'cmd_sets': ['A.', 'B.']}
+    wp = {'name': 'ijv_long', 'organ': 'right IJV', 'view': 'long axis',
+          'instructions': ['Centre the right IJV in long axis.', 'Show the right IJV lengthwise.',
+                           'Bring the right IJV into long axis.']}
+    row = {'target': 'ijv_long', 'instruction': 'Show the right IJV lengthwise.', 'failure_mode': ''}
+    t = es.row_task(row, wp)
+    assert t['task_type'] == 'navigation' and t['sub_task'] == 'right IJV long axis'
+    assert t['cmd_sets'][0] == row['instruction'] and len(t['cmd_sets']) == 3      # row's phrasing first, no repeat
+    # FM-12 rows stage a wrong / ambiguous instruction: the target's paraphrases would contradict it
+    assert es.row_task({**row, 'instruction': 'Find the view.', 'failure_mode': 'FM-12'}, wp)['cmd_sets'] == \
+        ['Find the view.']
+    assert es.row_task({**row, 'task_type': 'scanning'}, None) == {
+        'task_type': 'scanning', 'sub_task': 'ijv_long', 'cmd_sets': [row['instruction']]}
+
+
+def test_episode_task_fields_are_what_the_export_reads():
+    """The contract between episode_manager (episode.json) and export/openh_fields.instruction_fields."""
+    import sys
+    from pathlib import Path
+    sys.path.insert(0, str(Path(__file__).resolve().parents[3] / 'export'))
+    import openh_fields as F
+    task = es.operator_task({'target': 'ijv_long', 'instruction': 'Centre the IJV.', 'task_type': 'navigation',
+                             'cmd_sets': ['Put the IJV in the middle.']})
+    out = F.instruction_fields({**task, 'phantom_id': 'central_line_gen2'})
+    assert out == {'instruction.task': 'navigation', 'instruction.sub_task': 'ijv_long',
+                   'instruction.phantom': 'central_line_gen2',
+                   'instruction.cmd_sets': 'Centre the IJV.\nPut the IJV in the middle.'}
+    assert F.instruction_problems([task]) == []

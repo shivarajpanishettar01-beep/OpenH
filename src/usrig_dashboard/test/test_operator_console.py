@@ -201,12 +201,22 @@ def test_stop_right_after_an_outcome_click_does_not_ask_again(app):
     win.close()
 
 
-def test_set_task_sends_target_and_instruction(app):
+def test_set_task_sends_type_target_instruction_and_paraphrases(app):
+    """Open-H needs a task type per episode (instruction.task) plus sub-task and paraphrases (cmd_sets)."""
     ros, win, refresh = make(app, IDLE)
     win.findChild(QtWidgets.QLineEdit, 'task_target').setText('ijv_long')
     win.findChild(QtWidgets.QLineEdit, 'task_instruction').setText('Centre the right IJV in long axis')
+    n = len(ros.sent)
+    btn(win, 'Set task').click()                                     # no task type chosen: refused
+    assert len(ros.sent) == n
+    win.findChild(QtWidgets.QComboBox, 'task_type').setCurrentText('navigation')
+    win.findChild(QtWidgets.QLineEdit, 'task_sub_task').setText('right IJV long axis')
+    win.findChild(QtWidgets.QPlainTextEdit, 'task_cmd_sets').setPlainText('Bring the right IJV to the centre.\n\n'
+                                                                          'Put the right IJV in the middle.')
     btn(win, 'Set task').click()
-    assert ros.sent[-1] == {'cmd': 'set_task', 'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis'}
+    assert ros.sent[-1] == {'cmd': 'set_task', 'target': 'ijv_long', 'instruction': 'Centre the right IJV in long axis',
+                            'task_type': 'navigation', 'sub_task': 'right IJV long axis',
+                            'cmd_sets': ['Bring the right IJV to the centre.', 'Put the right IJV in the middle.']}
     win.close()
 
 

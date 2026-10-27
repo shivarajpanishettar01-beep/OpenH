@@ -10,6 +10,8 @@ marked (``pause`` events in the bag, ``pauses`` / ``paused_s`` in episode.json) 
 """
 import datetime
 
+from usrig_common.annotation import TASK_TYPES
+
 # What episode_manager is waiting for -> the button the operator should press (console prompt).
 COMMAND_LABELS = {
     'start_stop': 'Start / Stop', 'outcome': 'an outcome (Success / Recovered / Fail)', 'discard': 'Discard',
@@ -114,6 +116,49 @@ def row_summary(row):
             'disturbance_kind': row.get('disturbance_kind') or None, 'instruction': row.get('instruction')}
 
 
+# Open-H task fields of an episode (episode.json task_type / sub_task / cmd_sets; the export writes them to
+# instruction.task / sub_task / cmd_sets): task type (placement | navigation | scanning), the sub-task the
+# instruction belongs to, and its paraphrases (the instruction itself first).
+def paraphrases(instruction, more=()):
+    """[instruction, *more], stripped, without empty or repeated lines."""
+    out = []
+    for t in [instruction, *(more or [])]:
+        t = (t or '').strip()
+        if t and t not in out:
+            out.append(t)
+    return out
+
+
+def operator_task(cmd):
+    """The console's set_task command -> the task of the next freedrive / teleop episodes, or None if incomplete
+    (target, instruction and an Open-H task type are all needed). sub_task defaults to the target."""
+    target, instr = (cmd.get('target') or '').strip(), (cmd.get('instruction') or '').strip()
+    task_type = (cmd.get('task_type') or '').strip()
+    if not (target and instr) or task_type not in TASK_TYPES:
+        return None
+    return {'target': target, 'instruction': instr, 'task_type': task_type,
+            'sub_task': (cmd.get('sub_task') or '').strip() or target,
+            'cmd_sets': paraphrases(instr, cmd.get('cmd_sets'))}
+
+
+def path_task(name, spec):
+    """Stage 1 scripted path: a scan unless the path says otherwise (paths.yaml task_type / sub_task /
+    instructions); the path name is the sub-task."""
+    return {'task_type': spec.get('task_type') or 'scanning', 'sub_task': spec.get('sub_task') or name,
+            'cmd_sets': paraphrases(spec.get('instruction'), spec.get('instructions'))}
+
+
+def row_task(row, waypoint=None):
+    """Stage 2 plan row: the row starts offset from its target view and moves to it, so navigation unless the
+    plan has a task_type column. Sub-task = the target waypoint's organ + view; paraphrases = its taught
+    instructions, except on FM-12 rows (a deliberately wrong / ambiguous instruction: only that one)."""
+    wp = waypoint or {}
+    sub = ' '.join(str(wp[k]) for k in ('organ', 'view') if wp.get(k)) or row.get('target')
+    more = [] if row.get('failure_mode') == 'FM-12' else wp.get('instructions')
+    return {'task_type': row.get('task_type') or 'navigation', 'sub_task': row.get('sub_task') or sub,
+            'cmd_sets': paraphrases(row.get('instruction'), more)}
+
+
 def status_payload(*, session, ep, pause_log, waiting_for, finishing, last_ep, counts, plan, now_ns):
     """The /episode/status message (a dict; published as JSON)."""
     cur = None
@@ -122,6 +167,7 @@ def status_payload(*, session, ep, pause_log, waiting_for, finishing, last_ep, c
         date, clock = wall_time(t0 or ep.get('t_created_ns'))
         cur = {'episode_id': ep.get('episode_id'), 'number': episode_number(ep), 'type': ep.get('type'),
                'target': ep.get('target'), 'instruction': ep.get('instruction'), 'plan_row': ep.get('plan_row'),
+               'task_type': ep.get('task_type'), 'sub_task': ep.get('sub_task'),
                'operator_id': ep.get('operator_id'), 'date': date, 'start_time': clock,
                'elapsed_s': round((now_ns - t0) * 1e-9, 1) if t0 else None,
                'paused': pause_log.paused if pause_log else False,
