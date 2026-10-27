@@ -18,8 +18,8 @@ from std_msgs.msg import String
 
 from usrig_interfaces.msg import ControlStatus, EpisodeEvent
 
-MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']
-SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic']
+MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE', 'POLICY']
+SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic', 'policy']
 FLAGS = {1: 'envelope', 2: 'tilt', 4: 'force_max', 8: 'deadman', 16: 'speed'}
 CLEAR = '\033[2J\033[H'
 STALE_S = {'ctl': 0.5, 'qc': 2.0}      # control status 125 Hz, QC 2 Hz

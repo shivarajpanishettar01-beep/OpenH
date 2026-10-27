@@ -8,8 +8,8 @@ import datetime
 import shlex
 from pathlib import Path
 
-MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']
-SOURCES = ['teleop', 'scripted', 'transit', 'perturbation', 'none', 'kinesthetic']
+MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE', 'POLICY']
+SOURCES = ['teleop', 'scripted', 'transit', 'perturbation', 'none', 'kinesthetic', 'policy']
 FLAGS = {1: 'envelope', 2: 'tilt cone', 4: 'force max', 8: 'deadman', 16: 'speed'}
 
 STATE_TEXT = {'idle': 'Idle', 'starting': 'Starting (approach, bag readiness)', 'preparing': 'Preparing (free air, contact)',

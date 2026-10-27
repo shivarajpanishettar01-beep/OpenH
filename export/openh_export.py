@@ -73,7 +73,8 @@ Meta:
                                          {session: matrix, source}; the top-level matrix only if all sessions agree
   meta/annotations.jsonl                 per episode: annotation.json + annotation.<annotator>.json merged (provenance, QA reviews, ratings)
   info.json splits: train / recovery / failure / test (contiguous, from stage_bags.py)
-  meta/provenance.jsonl                  per episode: session, phantom, operator, type, mode, capture PC, commit, offsets
+  meta/provenance.jsonl                  per episode: session, phantom, operator, type, mode, capture PC, commit, offsets,
+                                         the policy that drove it (model, checkpoint, runs, policy_steps) if any
   README.md + MANIFEST.sha256           afterwards with export/release_card.py (dataset card from the data itself)
 Then LeRobot's own v2.1 -> v3.0 converter, if this LeRobot version ships it (checked, not assumed),
 and Open-H's validate_formatting.py (not in this repo: NOT VERIFIED).
@@ -109,7 +110,7 @@ def write_jsonl(p, rows):
 PROVENANCE_KEYS = ('episode_id', 'session_id', 'phantom_id', 'operator_id', 'type', 'stage', 'outcome',
                    'collection_mode', 'grip', 'failure_mode', 'staging_method', 'instruction', 'duration_s',
                    'capture_host', 'rig_git_commit', 'micrus_version', 'robot_tcp_setting', 'time_offsets_s',
-                   'synthetic_pipeline_check')
+                   'policy', 'policy_runs', 'synthetic_pipeline_check')
 
 
 def stats_of(arr):
@@ -528,6 +529,8 @@ def main():
                            **{k: epj.get(k) for k in PROVENANCE_KEYS},
                            'session_sim': bool(sess.get('sim')), 'n_steps': n,
                            'n_steps_episode': int((in_episode & ~paused).sum()),      # what the card counts as hours
+                           # policy (GR00T-H) share of this episode: source POLICY steps, never expert
+                           'policy_steps': int(((src == 6) & in_episode & ~paused).sum()),
                            'failure_class': fc or None, 'failure_class_source': fc_src or None,
                            'time_offsets_used_s': offsets,
                            'probe_tip_offset_flange_m': probe.get('tip_offset_flange_m'),

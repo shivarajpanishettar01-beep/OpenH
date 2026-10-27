@@ -303,6 +303,9 @@ class EpisodeManager(Node):
                 ep['micrus_settings_constant'] = False
 
     def _on_event(self, msg):
+        if msg.kind == 'policy':
+            self._on_policy_event(msg)
+            return
         if msg.kind != 'perturbation':
             return
         with self.ep_lock:
@@ -314,6 +317,28 @@ class EpisodeManager(Node):
             if ep.get('t_start_ns') and v.get('onset_ns'):
                 ep['onset_t'] = (v['onset_ns'] - ep['t_start_ns']) * 1e-9
                 ep['onset_source'] = 'disturbance stamp'
+
+    def _on_policy_event(self, msg):
+        """robot_control's policy runs: which policy drove this episode (model, checkpoint) and when, for the
+        export's provenance. The per-step labels (source POLICY, not expert) are in /robot/state already."""
+        with self.ep_lock:
+            ep = self.ep
+            if ep is None:
+                return
+            try:
+                v = json.loads(msg.value)
+            except ValueError:
+                return
+            t_ns = ns_from_stamp(msg.header.stamp)
+            if v.get('enabled'):
+                info = {k: x for k, x in v.items() if k != 'enabled'}
+                if ep.get('policy') is None:
+                    ep['policy'] = info
+                elif ep['policy'] != info:
+                    ep['policy_changed'] = True       # two policies in one episode: flagged for review
+                ep.setdefault('policy_runs', []).append({'start_ns': t_ns, 'end_ns': None, 'reason': None})
+            elif ep.get('policy_runs') and ep['policy_runs'][-1]['end_ns'] is None:
+                ep['policy_runs'][-1].update(end_ns=t_ns, reason=v.get('reason'))
 
     # ------------------------------------------------------------------ helpers
     def event(self, kind, value, stamp_ns=None):
@@ -437,7 +462,7 @@ class EpisodeManager(Node):
             'phantom_placement': self.scfg['session'].get('phantom_placement'),
             'target': None, 'type': None, 'instruction': None, 'start_offset': None,
             'task_type': None, 'sub_task': None, 'cmd_sets': None,      # Open-H instruction.* (export)
-            'disturbance': None, 'force_setpoint_n': config.get_path(self.rig, 'limits.force_setpoint_default_n'),
+            'disturbance': None, 'policy': None, 'policy_runs': [], 'force_setpoint_n': config.get_path(self.rig, 'limits.force_setpoint_default_n'),
             'failure_mode': None, 'staging_method': None, 'onset_t': None, 'recovery_start_t': None,
             'recovered': None, 'recovery_end_t': None, 'onset_source': None,
             'outcome': None, 'success': None, 'view_reached_ns': [], 'gel_state': None, 'notes': '',

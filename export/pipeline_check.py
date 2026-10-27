@@ -4,7 +4,8 @@
   source scripts/env.sh
   python export/pipeline_check.py run [--work DIR] [--keep]
 
-Writes three synthetic episodes (success with an operator pause, freedrive, recovery-mid) as MCAP bags
+Writes three synthetic episodes (success with an operator pause, freedrive, recovery-mid that a policy drives
+before the failure) as MCAP bags
 with every topic the rig records (ultrasound, frame info, robot state 500 Hz, executed twist 125 Hz,
 wrist colour + 16-bit depth 30 Hz, TPV colour 30 Hz, camera info, events), plus a fourth bag whose camera recorded nothing
 (stage_bags must skip and report it), with episode.json (start / end window, pauses) / session.json
@@ -15,10 +16,11 @@ wrist colour + 16-bit depth 30 Hz, TPV colour 30 Hz, camera info, events), plus 
   (Open-H fields, LeRobot 0.6.0 v2.1 -> v3.0 converter) -> reload with LeRobotDataset
 
 and compares the reloaded dataset with the ground truth: incremental TCP actions (recomputed from the
-known trajectory), executed twist, force setpoint, expert flag, ultrasound frame selection and pixel
+known trajectory), executed twist, force setpoint, expert flag and policy source, ultrasound frame selection and pixel
 values (lossy video, tolerance), ultrasound host stamps, lossless 16-bit depth, g_t status labels and
 their source, failure class, in_episode / paused / action_valid flags, per-session calibration and
-frames, instruction, splits, timestamps, and the card's hours (= duration minus pauses).
+frames, instruction, splits, timestamps, the card's hours (= duration minus pauses) and its policy line, and the
+policy provenance (model, checkpoint, policy_steps).
 
 The work folder defaults to <session.sim_root>/checks/pipeline_check (never the real data root). The
 dataset is named SYNTHETIC_*: stage_bags.py and openh_export.py refuse synthetic episodes without
@@ -51,6 +53,9 @@ EPISODES = [  # (episode_id, type, stage, instruction, failure interval s, recov
     ('ep_0003', 'kinesthetic', 0, 'Guide the probe to the long-axis view by hand', None, None),
 ]
 KINESTHETIC = {'ep_0003'}      # freedrive: no command (NaN marker on /robot/cmd_executed), no setpoint
+# ep_0002: a GR00T-H policy drives first (source POLICY, never expert), fails, and the operator recovers by teleop
+POLICY_EP, POLICY_S = 'ep_0002', (1.0, 1.5)
+POLICY_INFO = {'model': 'gr00t-h-synthetic', 'checkpoint': 'ckpt-synthetic'}
 FAILURE_CLASS = 'target_view_loss'   # expert label of ep_0002 (its FM-SYN id maps to no class)
 WINDOW_S = (0.5, 3.5)               # start / end events (s from T0): the bag also holds pre-roll and post-roll
 PAUSES_S = {'ep_0001': [(1.0, 1.4)]}  # operator pause (episode.json pauses_ns)
@@ -80,6 +85,10 @@ def force_setpoint(tau):
 
 def expert(tau):
     return bool(1.0 <= tau < 3.0)
+
+
+def policy_on(eid, tau):
+    return eid == POLICY_EP and POLICY_S[0] <= tau < POLICY_S[1]
 
 
 def us_value(k):
@@ -149,6 +158,9 @@ def write_bag(bag_dir, ep, camera=True):
             rs.mode = RobotState.MODE_TELEOP if expert(tau) else RobotState.MODE_MOVING
             rs.action_source = RobotState.SOURCE_TELEOP if expert(tau) else RobotState.SOURCE_TRANSIT
             rs.action_is_expert = expert(tau)
+            if policy_on(ep[0], tau):     # as robot_control labels a policy run
+                rs.mode, rs.action_source, rs.action_is_expert = (RobotState.MODE_POLICY, RobotState.SOURCE_POLICY,
+                                                                  False)
         msgs += [(t, '/robot/tcp_pose', ps), (t, '/joint_states', js), (t, '/robot/wrench', w), (t, '/robot/state', rs)]
     for t in st['cmd']:
         m = TwistStamped()
@@ -252,7 +264,10 @@ def write_session(root):
             'pauses_ns': [[T0_NS + int(p0 * 1e9), T0_NS + int(p1 * 1e9)] for p0, p1 in PAUSES_S.get(eid, [])],
             'paused_s': sum(p1 - p0 for p0, p1 in PAUSES_S.get(eid, [])),
             'duration_s': WINDOW_S[1] - WINDOW_S[0],
-            'task_type': 'scanning', 'sub_task': SUB_TASK, 'cmd_sets': CMD_SETS}, indent=1))
+            'task_type': 'scanning', 'sub_task': SUB_TASK, 'cmd_sets': CMD_SETS,
+            **({'policy': POLICY_INFO, 'policy_runs': [{'start_ns': T0_NS + int(POLICY_S[0] * 1e9),
+                                                        'end_ns': T0_NS + int(POLICY_S[1] * 1e9), 'reason': 'preempted'}]}
+               if eid == POLICY_EP else {})}, indent=1))
     return sess
 
 
@@ -327,6 +342,12 @@ def run(a):
          'card also at meta/README.md (Open-H validator: ERROR when missing)'),
         ('## Synchronization' in card, 'card has a synchronization section (Open-H validator looks for it)'),
         (len(prov) == len(EPISODES) and {x['episode_id'] for x in prov} == {e[0] for e in EPISODES}, 'provenance.jsonl rows'),
+        ('Policy-driven (GR00T-H) episodes: 1,' in card and 'gr00t-h-synthetic @ ckpt-synthetic' in card,
+         'card counts the policy-driven episodes'),
+        (all((x.get('policy') == POLICY_INFO) == (x['episode_id'] == POLICY_EP) for x in prov)
+         and all(abs((x.get('policy_steps') or 0) - (round((POLICY_S[1] - POLICY_S[0]) * FPS) if x['episode_id'] == POLICY_EP
+                                                      else 0)) <= 1 for x in prov),
+         'provenance: policy (model, checkpoint) and policy_steps per episode'),
     ) if not ok]
     sh([py312, str(HERE / 'release_card.py'), '--dataset', str(out), '--check'])
     victim = out / 'meta' / 'annotations.jsonl'
@@ -487,8 +508,12 @@ def verify(a):
                 worst['twist'] = max(worst['twist'], float(np.abs(tw - exp_twist[k]).max()))
                 if abs(fsp - force_setpoint(tau)) > 1e-4:
                     fails.append(f'ep {e["episode_id"]} step {k}: force setpoint')
-                if bool(item['observation.meta.action_is_expert']) != expert(tau):
+                pol = policy_on(e['episode_id'], tau)
+                if bool(item['observation.meta.action_is_expert']) != (expert(tau) and not pol):
                     fails.append(f'ep {e["episode_id"]} step {k}: action_is_expert')
+                # 6 = RobotState.SOURCE_POLICY (verify runs in the LeRobot env, without ROS messages)
+                if (int(np.asarray(item['observation.meta.action_source']).ravel()[0]) == 6) != pol:
+                    fails.append(f'ep {e["episode_id"]} step {k}: policy source')
             us = item['observation.images.ultrasound'].numpy()            # C, H, W float in [0, 1]
             worst['us_px'] = max(worst['us_px'], abs(float(us.mean()) * 255.0 - us_value(int(iu[k]))))
             if int(np.asarray(item['observation.meta.host_stamp_ns']).ravel()[0]) != int(T0_NS + st['us'][iu[k]]):

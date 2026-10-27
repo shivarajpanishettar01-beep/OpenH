@@ -113,6 +113,18 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 - SpaceMouse: spacenav driver Joy axis order, scaling (`full_scale`) and the axis signs in `keymap.yaml spacemouse.axes`.
 - Contact-loss thresholds on the real phantom; recontact behaviour in real contact.
 
+## Policy (GR00T-H) runs (added 27 Oct 2026)
+- robot_control `PolicyRun` (/robot/set_policy, /policy/target_pose, /policy/info): tested against the kinematic
+  fake only (`test_control_sim.py -k policy`): following, force-regulated probe axis, speed caps, input timeout,
+  refused targets (limits, jump, frame), stop / operator takeover / FAULT records, labels POLICY / never expert.
+  No policy node exists yet; nothing ran in URSim or on the UR7e.
+- `rig.yaml policy.*` values are null (set_policy refuses until they are chosen).
+- episode.json `policy` / `policy_runs` and the export's provenance `policy`, `policy_steps` and card line:
+  unit test + synthetic pipeline check (ep_0002: policy, then failure, then teleop recovery).
+- The target is the probe-tip pose in the base frame (the dataset's action) on the assumption that the controller
+  TCP is the probe face (`design_requirements`); a policy trained on an export with another tip offset would be off
+  by that offset.
+
 ## Recording
 - Loss budget on the capture PC (docs/data_integrity.md): dev-PC numbers are with the micrus
   simulator using ~4 cores; real scanner, D415 and UR7e not measured together yet.

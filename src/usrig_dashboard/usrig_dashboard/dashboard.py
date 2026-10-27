@@ -30,8 +30,8 @@ from usrig_common.session import read_json, session_dir
 from usrig_common.timeutil import ns_from_stamp
 from usrig_interfaces.msg import EpisodeEvent, RobotState
 
-MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']
-SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic']
+MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE', 'POLICY']
+SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic', 'policy']
 FLAGS = {1: 'envelope', 2: 'tilt', 4: 'force_max', 8: 'deadman', 16: 'speed'}
 
 

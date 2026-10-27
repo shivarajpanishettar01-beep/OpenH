@@ -928,3 +928,208 @@ def test_held_force_step_does_not_flood_the_event_stream(sim):
     notes = [v for k, v in node.events if k == 'note'][n0:]
     assert 1 <= len(notes) <= 5
     node.destroy_node()
+
+
+# ---- Policy (GR00T-H) runs: /robot/set_policy, /policy/target_pose, labels POLICY / never expert
+
+POLICY = {'input_timeout_s': 0.2, 'max_target_jump_mm': 20.0, 'max_target_jump_deg': 10.0,
+          'max_linear_speed_mm_s': 20.0, 'max_angular_speed_deg_s': None}
+POLICY_INFO = {'model': 'gr00t-h-test', 'checkpoint': 'ckpt-0001', 'instruction': 'Scan along the vessel'}
+
+
+def policy_target(node, T, frame='base'):
+    from geometry_msgs.msg import Pose
+    m = PoseStamped()
+    m.header.frame_id = frame
+    m.pose = geometry.fill_pose_msg(Pose(), T)
+    node._on_policy_target(m)
+
+
+def stream_policy(node, seconds, T):
+    t_end = time.monotonic() + seconds
+    while time.monotonic() < t_end:
+        policy_target(node, T)
+        time.sleep(0.01)
+
+
+@pytest.fixture
+def policy_sim(sim, monkeypatch):
+    """In contact (surface 3 cm), policy limits set, /policy/info received, one policy publisher."""
+    import rclpy
+    from std_msgs.msg import String
+    from usrig_interfaces.srv import DescendToContact
+    monkeypatch.setitem(RIG, 'policy', dict(POLICY))
+    nodes = []
+
+    def make(info=True, publisher=True, descend=True):
+        node, robot = sim(p0=(0.40, 0.0, 0.05), surface_z=0.03)
+        if descend:
+            assert node._srv_descend(DescendToContact.Request(), DescendToContact.Response()).success
+        if info:
+            node._on_policy_info(String(data=json.dumps(POLICY_INFO)))
+        if publisher:
+            pub_node = rclpy.create_node('policy_fake')
+            pub_node.create_publisher(PoseStamped, '/policy/target_pose', 10)
+            nodes.append(pub_node)
+            t_end = time.monotonic() + 3
+            while node.count_publishers('/policy/target_pose') < 1 and time.monotonic() < t_end:
+                time.sleep(0.05)
+        return node, robot
+    yield make
+    for n in nodes:
+        n.destroy_node()
+
+
+def set_policy(node, on):
+    from std_srvs.srv import SetBool
+    return node._srv_policy(SetBool.Request(data=on), SetBool.Response())
+
+
+def policy_events(node):
+    return [v for k, v in node.events if k == 'policy']
+
+
+def test_policy_follows_targets_in_contact_labelled_policy_not_expert(policy_sim):
+    node, robot = policy_sim()
+    z0 = robot.T[2, 3]
+    T = robot.T.copy()
+    T[0, 3] += 0.010                                   # 10 mm along base x, inside the jump limit
+    policy_target(node, T)
+    res = set_policy(node, True)
+    assert res.success, res.message
+    stream_policy(node, 1.5, T)
+    assert abs(robot.T[0, 3] - T[0, 3]) < 0.002
+    assert abs(robot.T[2, 3] - z0) < 0.003            # probe axis stays force-regulated, not driven to the target z
+    fsp, mode, flags, src, expert = node.status.snapshot()
+    assert mode == rc.ST.MODE_POLICY and src == rc.ST.SOURCE_POLICY and expert is False
+    assert fsp > 0                                     # force setpoint applies during the run
+    ev = policy_events(node)
+    assert ev[0]['enabled'] is True and ev[0]['model'] == 'gr00t-h-test' and ev[0]['checkpoint'] == 'ckpt-0001'
+    node.destroy_node()
+
+
+def test_policy_speed_capped_below_global_limit(policy_sim):
+    node, robot = policy_sim()
+    T = robot.T.copy()
+    T[0, 3] += 0.019
+    policy_target(node, T)
+    assert set_policy(node, True).success
+    vmax = 0.0
+    t_end = time.monotonic() + 0.8
+    while time.monotonic() < t_end:
+        policy_target(node, T)
+        vmax = max(vmax, float(np.linalg.norm(robot.v - robot.T[:3, 2] * (robot.v @ robot.T[:3, 2]))))
+        time.sleep(0.005)
+    assert 0.005 < vmax <= 0.0201                      # policy cap 20 mm/s, global 50 mm/s
+    node.destroy_node()
+
+
+@pytest.mark.parametrize('case, expect', [
+    ('free_air', 'in contact only'),
+    ('no_info', 'model and checkpoint'),
+    ('no_publisher', 'run exactly one policy'),
+    ('config_null', 'policy.input_timeout_s'),
+])
+def test_policy_start_refused(policy_sim, monkeypatch, case, expect):
+    if case == 'config_null':
+        monkeypatch.setitem(RIG, 'policy', {**POLICY, 'input_timeout_s': None})
+    node, robot = policy_sim(info=case != 'no_info', publisher=case != 'no_publisher', descend=case != 'free_air')
+    res = set_policy(node, True)
+    assert not res.success and expect in res.message, res.message
+    assert not isinstance(node.motion, rc.PolicyRun)
+    assert policy_events(node) == []
+    node.destroy_node()
+
+
+def test_policy_input_lost_holds_and_is_labelled_none(policy_sim):
+    node, robot = policy_sim()
+    T = robot.T.copy()
+    T[0, 3] += 0.010
+    policy_target(node, T)
+    assert set_policy(node, True).success
+    stream_policy(node, 0.3, T)
+    time.sleep(0.4)                                    # input_timeout_s = 0.2
+    p = robot.T[:3, 3].copy()
+    time.sleep(0.2)
+    assert np.linalg.norm((robot.T[:3, 3] - p)[:2]) < 1e-4
+    fsp, mode, flags, src, expert = node.status.snapshot()
+    assert mode == rc.ST.MODE_POLICY and src == rc.ST.SOURCE_NONE and expert is False
+    assert flags & rc.safety.FLAG_DEADMAN
+    node.destroy_node()
+
+
+@pytest.mark.parametrize('kind', ['jump', 'rotation', 'outside', 'frame'])
+def test_policy_bad_target_refused_not_followed(policy_sim, kind):
+    node, robot = policy_sim()
+    T = robot.T.copy()
+    frame = 'base'
+    if kind == 'jump':
+        T[0, 3] += 0.050                               # 50 mm > max_target_jump_mm 20
+    elif kind == 'rotation':
+        T[:3, :3] = Rotation.from_euler('x', 15, degrees=True).as_matrix() @ T[:3, :3]   # > 10 deg
+    elif kind == 'outside':
+        T[2, 3] = -0.005                               # below the workspace box floor (z min 0)
+    else:
+        T[0, 3] += 0.010
+        frame = 'phantom'
+    p0 = robot.T[:3, 3].copy()
+    assert set_policy(node, True).success
+    t_end = time.monotonic() + 0.6
+    while time.monotonic() < t_end:
+        policy_target(node, T, frame)
+        time.sleep(0.01)
+    assert np.linalg.norm((robot.T[:3, 3] - p0)[:2]) < 0.001
+    assert node.status.snapshot()[3] != rc.ST.SOURCE_POLICY
+    notes = [v for k, v in node.events if k == 'note' and 'policy_target_refused' in v]
+    assert notes and len(notes) <= 3                    # rate-limited (0.5 s)
+    node.destroy_node()
+
+
+def test_policy_stop_holds_in_contact_then_operator_takes_over(policy_sim):
+    node, robot = policy_sim()
+    T = robot.T.copy()
+    T[0, 3] += 0.010
+    policy_target(node, T)
+    assert set_policy(node, True).success
+    stream_policy(node, 0.3, T)
+    res = set_policy(node, False)
+    assert res.success
+    assert isinstance(node.motion, rc.Teleop) and node.held()
+    twist(node)
+    time.sleep(0.05)
+    fsp, mode, flags, src, expert = node.status.snapshot()
+    assert mode == rc.ST.MODE_TELEOP and src == rc.ST.SOURCE_NONE and expert is False and fsp > 0
+    ev = policy_events(node)
+    assert [e['enabled'] for e in ev] == [True, False] and ev[1]['reason'] == 'policy stopped'
+    # operator takeover straight from a running policy: set_teleop preempts it, labels go to TELEOP / expert
+    assert set_policy(node, True).success
+    stream_policy(node, 0.1, T)
+    _teleop_on(node)
+    ev = policy_events(node)
+    assert [e['enabled'] for e in ev] == [True, False, True, False] and ev[3]['reason'] == 'preempted'
+    node.destroy_node()
+
+
+def test_policy_run_ends_on_fault_with_a_record(policy_sim):
+    node, robot = policy_sim()
+    T = robot.T.copy()
+    policy_target(node, T)
+    assert set_policy(node, True).success
+    stream_policy(node, 0.1, T)
+    robot.extra_force = np.array([0.0, 0.0, 25.0])     # above max_contact_force_n = 20
+    time.sleep(0.15)
+    assert node.status.mode == rc.ST.MODE_FAULT
+    fsp, mode, flags, src, expert = node.status.snapshot()
+    assert src == rc.ST.SOURCE_NONE and expert is False
+    ev = policy_events(node)
+    assert ev[-1]['enabled'] is False and ev[-1]['reason'].startswith('FAULT')
+    robot.extra_force[:] = 0
+    node.destroy_node()
+
+
+def test_policy_settings_caps_never_above_global():
+    lim = rc.safety.Limits.from_rig(RIG)
+    s = rc.policy_settings({**RIG, 'policy': {**POLICY, 'max_linear_speed_mm_s': 500.0}}, lim)
+    assert s['missing'] == [] and s['v_max'] == lim.v_max and s['w_max'] == lim.w_max
+    s = rc.policy_settings(RIG, lim)                   # no policy block at all
+    assert s['missing'] == list(rc.POLICY_REQUIRED)

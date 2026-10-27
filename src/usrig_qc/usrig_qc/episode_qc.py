@@ -16,7 +16,8 @@ import numpy as np
 
 from usrig_common import config
 
-ROBOT_SOURCES = {0: 'teleop', 1: 'scripted_task', 2: 'transit', 3: 'perturbation', 4: 'none', 5: 'kinesthetic'}
+ROBOT_SOURCES = {0: 'teleop', 1: 'scripted_task', 2: 'transit', 3: 'perturbation', 4: 'none', 5: 'kinesthetic',
+                 6: 'policy'}
 EXPERT_SOURCES = (0, 1, 5)          # teleop, scripted task, kinesthetic (freedrive by hand)
 PLANNED_LIFT = {'FM-01', 'FM-02'}
 UNSTAMPED = {'/micrus/frame_info', '/qc/status', '/operator/command'}   # std_msgs/String: no header

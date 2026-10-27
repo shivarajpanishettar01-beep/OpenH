@@ -93,6 +93,16 @@ ITEMS = [
     Item('motion', 'rig', 'motion.retract_distance_mm', 'float', 'mm', 'retract along the probe axis', 'clears the phantom'),
     Item('motion', 'rig', 'motion.transit_safe_height_mm', 'float_or_null', 'mm', 'phantom-frame height for moves between waypoints',
          'above the phantom + margin (needed for phantom-frame moves)'),
+    # ---- policy (GR00T-H runs)
+    Item('policy', 'rig', 'policy.input_timeout_s', 'float', 's', 'no policy target this long -> zero velocity',
+         'a few policy periods (a 10 Hz policy: 0.3 s)'),
+    Item('policy', 'rig', 'policy.max_target_jump_mm', 'float', 'mm', 'refuse a policy target this far from the probe',
+         'a few times the distance the policy moves per step'),
+    Item('policy', 'rig', 'policy.max_target_jump_deg', 'float', 'deg', 'same for rotation', 'a few times the rotation per step'),
+    Item('policy', 'rig', 'policy.max_linear_speed_mm_s', 'float_or_null', 'mm/s', 'policy speed cap (null = the global cap)',
+         'start lower than teleop'),
+    Item('policy', 'rig', 'policy.max_angular_speed_deg_s', 'float_or_null', 'deg/s', 'policy rotation cap (null = the global cap)',
+         'start lower than teleop'),
     # ---- keyboard
     Item('keyboard', 'keymap', 'speeds.slide_along_mm_s', 'float', 'mm/s', 'W/S slide along the array', 'below the linear speed cap'),
     Item('keyboard', 'keymap', 'speeds.slide_across_mm_s', 'float', 'mm/s', 'A/D slide across the array', 'below the linear speed cap'),
@@ -101,7 +111,7 @@ ITEMS = [
     Item('keyboard', 'keymap', 'speeds.rotate_deg_s', 'float', 'deg/s', 'Z/C rotate (about the beam)', 'below the angular speed cap'),
     Item('keyboard', 'keymap', 'force_step_n', 'float', 'N', 'T/G force setpoint step', 'smaller than the force band width'),
 ]
-SECTIONS = ['robot', 'workspace', 'speeds', 'force', 'motion', 'keyboard']
+SECTIONS = ['robot', 'workspace', 'speeds', 'force', 'motion', 'policy', 'keyboard']
 
 
 # ------------------------------------------------------------------------------- parsing

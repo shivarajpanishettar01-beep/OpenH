@@ -23,8 +23,8 @@ from usrig_common import motion_check as mc
 from usrig_common.rosutil import ignore_sigint
 from usrig_interfaces.msg import RobotState
 
-MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']
-SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic']
+MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE', 'POLICY']
+SOURCES = ['teleop', 'scripted_task', 'transit', 'perturbation', 'none', 'kinesthetic', 'policy']
 FLAGS = {1: 'envelope', 2: 'tilt', 4: 'force_max', 8: 'deadman', 16: 'speed'}
 CLEAR = '\033[2J\033[H'
 

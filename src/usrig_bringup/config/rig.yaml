@@ -71,6 +71,13 @@ motion:
   position_gain_per_s: 2.0
   rotation_gain_per_s: 2.0
 
+policy:                             # GR00T-H runs (/robot/set_policy; refused while the first three are null)
+  input_timeout_s: null             # no /policy/target_pose this long -> zero velocity (labelled NONE)
+  max_target_jump_mm: null          # a target further than this from the probe is refused (wrong frame, bad chunk)
+  max_target_jump_deg: null         # same for rotation
+  max_linear_speed_mm_s: null       # policy speed caps, below the global ones (null = the global caps)
+  max_angular_speed_deg_s: null
+
 rtde:                               # path B only
   force_mode_limits: null           # [6] forceMode limits (type 2): speeds on compliant axes, deviations on others
   force_mode_damping: null

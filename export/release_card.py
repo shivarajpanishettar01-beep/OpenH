@@ -23,7 +23,7 @@ import yaml
 
 HERE = Path(__file__).resolve().parent
 LICENCE = 'OpenMDW-1.1 (dataset); code: MIT (github.com/shivarajpanishettar01-beep/OpenH)'
-SOURCES = {0: 'teleop', 1: 'scripted_task', 2: 'transit', 3: 'perturbation', 4: 'none', 5: 'kinesthetic'}
+SOURCES = {0: 'teleop', 1: 'scripted_task', 2: 'transit', 3: 'perturbation', 4: 'none', 5: 'kinesthetic', 6: 'policy'}
 
 
 def read_jsonl(p):
@@ -114,6 +114,9 @@ def summarize(ds, scfg):
     s['instructions'] = len(set(cols.get('instruction.text', [])))
     by = lambda key: Counter(p.get(key) or 'unknown' for p in prov)  # noqa: E731
     s['types'], s['modes'], s['operators'] = by('type'), by('collection_mode'), by('operator_id')
+    pol = [p for p in prov if p.get('policy')]
+    s['policies'] = Counter(f"{p['policy'].get('model')} @ {p['policy'].get('checkpoint')}" for p in pol)
+    s['policy_hours'] = sum(p.get('policy_steps') or 0 for p in prov) / fps / 3600.0
     s['sessions'], s['hosts'], s['commits'] = by('session_id'), by('capture_host'), by('rig_git_commit')
     s['test_sessions'] = sorted({p.get('session_id') or 'unknown' for p in prov if p.get('split') == 'test'})
     hours_ph = defaultdict(float)
@@ -200,6 +203,8 @@ def card(s, name):
           f'format LeRobot {i.get("codebase_version")}, robot type `{i.get("robot_type")}`',
           f'- Episode types: {dict(s["types"])}',
           f'- Collection modes: {dict(s["modes"])}',
+          f'- Policy-driven (GR00T-H) episodes: {sum(s["policies"].values())}, {s["policy_hours"]:.2f} h of policy steps; '
+          f'policies: {dict(s["policies"]) or "none"}',
           f'- Operators: {known(s["operators"])}; sessions: {known(s["sessions"])}; held-out test sessions: '
           f'{", ".join(s["test_sessions"]) or "none"}',
           f'- Distinct instructions: {s["instructions"]}', '',

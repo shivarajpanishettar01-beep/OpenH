@@ -55,3 +55,9 @@
     `observation.meta.tpv_cali_mtx` (T_base_camera). The proposal names only the wrist streams; use the name the
     earlier Open-H datasets use for their scene camera if it differs. TPV depth is not recorded (USB bandwidth);
     the planning depth is a snapshot before the session.
+22. **Policy (GR00T-H) runs** (27 Oct 2026): robot_control runs a policy in contact only (approach and descent stay
+    scripted); placement from free air by the policy would need a force-limited approach first. A policy run is
+    labelled POLICY / not expert, and the operator's takeover (set_teleop) is TELEOP / expert: decide whether an
+    episode where the policy fails and the operator recovers is typed `recovery-mid` (the status keys O / U / I
+    still mark onset and recovery) and whether policy episodes count toward the 10 h (decision 1). Values for
+    `rig.yaml policy.*` (input timeout, target jump, speed caps) depend on the policy's rate and chunk length.

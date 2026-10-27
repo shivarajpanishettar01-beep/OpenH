@@ -40,7 +40,7 @@ from ..models import (CameraFrame, ContactState, DashboardState, ForceTorque, He
 from .base import DataSource, expected_text, rate_health
 from .episode_tracker import EpisodeTracker
 
-MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE']   # RobotState.msg
+MODES = ['IDLE', 'MOVING', 'DESCENT', 'TELEOP', 'PERTURB', 'RETRACT', 'FAULT', 'FREEDRIVE', 'POLICY']   # RobotState.msg
 FLAGS = {1: 'envelope', 2: 'tilt', 4: 'force_max', 8: 'deadman', 16: 'speed'}
 STALE_S = 1.0
 DISCOVERY_S = 2.0         # graph not trusted this soon after the node starts (DDS discovery)
