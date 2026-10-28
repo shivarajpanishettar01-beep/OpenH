@@ -67,6 +67,14 @@ calibration is `T_base_camera` (`calibration.tpv_cam_cali_mtx`), made on the cal
    the marker must): `tools/temporal_calib.py BAG --camera tpv_camera --aruco DICT_4X4_50`, result into
    rig.yaml `calibration.tpv_camera_time_offset_s` (machine.yaml per capture PC) and `export/lerobot_rig.yaml`.
 
+## Wrist camera from the calibration rig
+The calibration rig (`~/calib/ur7e_calib/wrist`, `wrist_gui.py`, touch method) writes `wrist_calibration.json` with
+`T_flange_cam` = OpenH's `T_flange_camera` (`calibration.wrist_cam_cali_mtx`). It does not depend on the TCP, so it
+holds for the probe as long as the camera bracket on the flange has not moved.
+`python tools/import_wrist_calibration.py ~/calib/ur7e_calib/wrist/wrist_calibration.json` shows it with its
+residuals, checks `T_flange_cam = T_flange_tcp(tcp_offset_pendant) @ T_tcp_cam`, and stores it with `--write-rig`
+and / or `--session <dir>`. Re-calibrate after the bracket is moved.
+
 ## Ultrasound image to probe (pending)
 When the lab's calibration file is available, it is added as `calibration.prob_cali_mtx` with its
 provenance (source file, method, residual); the format and frame direction will be confirmed then.

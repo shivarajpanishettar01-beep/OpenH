@@ -171,6 +171,22 @@ def test_action_is_the_absolute_tip_pose_in_the_reference_euler_convention():
     assert len(F.probe_tip_offset({'tip_offset_flange_m': None, 'tcp_already_includes_probe': None})[2]) == 2
 
 
+def test_action_angles_do_not_wrap_at_pi_within_an_episode():
+    """A probe pointing down rocks across roll = +-pi: the action's roll stays continuous (no 2 pi jump) and every
+    step still encodes the same rotation."""
+    roll = np.pi + np.radians(np.linspace(-6, 6, 50))                    # 174 deg .. 186 deg
+    R = Rotation.from_euler('xyz', np.column_stack([roll, np.full(50, 0.1), np.full(50, -0.4)]))
+    a = F.pose_xyzrpy(np.column_stack([np.zeros((50, 3)), R.as_quat()]))
+    assert np.abs(np.diff(a[:, 3:], axis=0)).max() < np.radians(1)
+    assert np.ptp(a[:, 3]) == pytest.approx(np.radians(12), abs=1e-9)
+    assert (Rotation.from_euler('xyz', a[:, 3:]) * R.inv()).magnitude().max() < 1e-9
+    # episodes starting on either side of the cut land on the same branch, centred on roll = pi
+    for r0 in (np.radians(178), np.radians(-178)):
+        q = Rotation.from_euler('xyz', [[r0, 0.1, -0.4]] * 5).as_quat()
+        b = F.pose_xyzrpy(np.column_stack([np.zeros((5, 3)), q]))
+        assert np.allclose(b[:, 3:], [[np.radians(178 if r0 > 0 else 182), 0.1, -0.4]] * 5)
+
+
 def test_wrench_in_probe_frame_pressing_into_tissue_is_negative_fz():
     """Probe pointing down (tool z = -base z), tissue pushing up with 10 N (UR base-frame external wrench): the
     reference convention reads Fz = -10 N in the probe frame; moments are moved from the flange to the tip."""

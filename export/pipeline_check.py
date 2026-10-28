@@ -462,7 +462,7 @@ def verify(a):
     t_us = (T0_NS + st['us']) * 1e-9 + truth['image_offset_s']
     t_cam_ns = T0_NS + st['cam']
     T_tip = F.offset_matrix(TIP_OFFSET)
-    worst = {'action': 0.0, 'delta': 0.0, 'force': 0.0, 'twist': 0.0, 'us_px': 0.0}
+    worst = {'action': 0.0, 'delta': 0.0, 'force': 0.0, 'twist': 0.0, 'us_px': 0.0, 'angle_step': 0.0}
     flag_counts = {'outside': 0, 'paused': 0}
     gidx = 0
     for e in truth['episodes']:
@@ -483,9 +483,13 @@ def verify(a):
         id_ = F.sample_hold(t_cam_ns, t_steps_ns)
         ep_fail = e['episode_id'] == 'ep_0002'
         kin = e['episode_id'] in KINESTHETIC
+        prev = None
         for k in range(n):
             item = ds[gidx + k]
             act = item['action'].numpy().astype(float)
+            if prev is not None:            # roll / pitch / yaw are unwrapped: no +-2 pi jump between steps
+                worst['angle_step'] = max(worst['angle_step'], float(np.abs(act[3:] - prev).max()))
+            prev = act[3:]
             # position, and the rotation angle between got and expected (Euler angles wrap at +-pi)
             rot_err = (Rotation.from_euler('xyz', act[3:]) * Rotation.from_quat(tip_q[k, 3:]).inv()).magnitude()
             worst['action'] = max(worst['action'], float(np.abs(act[:3] - tip_q[k, :3]).max()), float(rot_err))
@@ -564,6 +568,8 @@ def verify(a):
         gidx += n
     check(worst['action'] < 1e-5, f'absolute probe-tip action vs ground truth at the step times (m / rad), '
                                   f'max error {worst["action"]:.2e}')
+    check(worst['angle_step'] < 0.5, f'action roll / pitch / yaw continuous within each episode (no wrap at +-pi), '
+                                     f'largest step {worst["angle_step"]:.3f} rad')
     check(worst['delta'] < 1e-5, f'delta_action vs ground truth, max error {worst["delta"]:.2e}')
     check(worst['force'] < 1e-3, f'force/torque in the probe-tip frame vs ground truth, max error {worst["force"]:.2e}')
     check(worst['twist'] < 1e-6, f'executed twist (commanded_twist) vs ground truth, max error {worst["twist"]:.2e}')

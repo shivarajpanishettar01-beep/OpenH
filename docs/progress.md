@@ -1,4 +1,4 @@
-# Progress so far (as of 13 October 2026)
+# Progress so far (as of 28 October 2026)
 
 Robotic-ultrasound data-collection rig for the IIT Mandi Open-H Embodiment V2 contribution
 (UR7e + Telemed probe via micrus + wrist RealSense D415, ROS 2 Humble, one PC, one clock).
@@ -17,8 +17,38 @@ GR00T-H is out of scope for now (separate task).
 | P5 | Registration, waypoints, paths, plan | code done, not run | waypoints executable only if verified with the current TCP / probe / payload; moves and paths pre-checked; needs robot motion |
 | P6 | QC + pre-session check | done, tested on bags | per-episode QC on real MCAP bags; checks every source for gaps |
 | P7 | Dashboard, operator console | dashboard done (demos only); console written, checked offscreen | dashboard stable on PySide6 6.8.3; console: no images, load on the capture PC not measured |
-| P8 | Export (Open-H, LeRobot v3.0) | **verified end to end on synthetic episodes** | `pipeline_check.py`, 3 export defects fixed; real episodes pending |
-| P9 | Real-hardware verification, calibration, Stages 0-2 | not started | after the first-motion checklist |
+| P8 | Export (Open-H, LeRobot v3.0) | **verified end to end on synthetic episodes; ran on 5 real freedrive episodes** | `pipeline_check.py`, 3 export defects fixed; real pilot below (lab recorder, not the rig's episode_manager) |
+| P9 | Real-hardware verification, calibration, Stages 0-2 | **started outside the rig code** | wrist + TPV camera calibration and a 5-episode freedrive pilot on the calibration rig (below); OpenH's robot_control / episode_manager not yet run on the arm |
+
+## Real-hardware pilot (lab tools in `~/calib`, 15-28 Oct 2026)
+Done with the calibration rig's own tools (`~/calib/ur7e_calib`, `~/calib/us_wrist_bag`), not with OpenH's
+`robot_control` / `episode_manager`; OpenH's export chain ran on the result.
+
+**Calibration** (`~/calib/ur7e_calib`)
+| What | Result | File |
+|---|---|---|
+| Wrist D415 hand-eye (eye-in-hand, touch method, 15 board corners) | `T_flange_cam`, RMS 0.62 mm, leave-one-out 0.67 mm, max 1.06 mm (19 Oct) | `wrist/wrist_calibration.json` |
+| TPV D415 (eye-to-hand, PnP, re-located 19 Oct) | `T_base_cam`, RMSE 1.47 mm, leave-one-out 1.61 mm, max 2.74 mm (15 Oct) | `tpv/calibration.json` |
+| Ultrasound image to probe (`prob_cali_mtx`) | **not done**: exported as an all-zero 4x4 placeholder | - |
+| Probe tip in the flange | 233 mm along flange z, the lab's number, **not pivot-calibrated** | `wrist/station_settings.json` |
+
+The rig has one D415 (serial 211422060364): it was the TPV camera while calibrating the TPV and the wrist camera
+from 19 Oct on, so the TPV calibration applies to no recorded episode yet.
+
+**Freedrive pilot** (26 Oct, `~/calib/us_wrist_bag`, sessions `26Oct` and `Episode_1`)
+- 5 kinesthetic episodes of ~20 s (1.7 min), Telemed MPRO-L40S (real probe, 12 MHz, 40 mm), wrist D415 640x480 @ 15
+  fps (USB 2 on this PC), robot pose / wrench / joints from the pendant program at ~20 Hz (not RTDE at 500 Hz),
+  arm in FREEDRIVE for the whole take. Bag check OK on all 5; B-mode to wrist frame offset median 17 ms, p95 32 ms.
+- Exported with OpenH's chain (`us_wrist_bag/export_openh.sh`: `to_openh.py` -> `stage_bags` -> `bag_to_lerobot`
+  -> `openh_export` -> `release_card`) to `us_wrist_bag/openh_export/DUMMY_us_wrist_openh_ref`: LeRobot v3.0, 30 fps,
+  2,996 steps, loads with `LeRobotDataset`. Each episode moves 13-25 cm with 7-15 deg tilt and 10-31 N peak force.
+- 28 Oct fixes, re-exported: the wrist hand-eye is carried into session.json by `tools/import_wrist_calibration.py`
+  (`wrist_cali_valid` true; assumes the camera bracket on the flange did not move between 19 and 26 Oct); the
+  action's roll / pitch / yaw no longer jump at +-180 deg (unwrapped per episode, centred on roll = 180 deg; roll std
+  over the dataset 174.8 deg -> 1.6 deg; same rotations, positions unchanged). The previous export is kept as
+  `DUMMY_us_wrist_openh_ref.before_2026-10-28`.
+- Still placeholders in this dataset: `prob_cali_mtx`, probe tip offset, phantom (assumed `vascular_4vein`),
+  operator, grip, time offsets (OpenH defaults, not measured); no TPV stream; OpenH QC (`episode_qc`) not run.
 
 ## Done
 **Code base** (12 ROS 2 packages, 296 tests, all passed under ROS 2 Humble on 17 Oct; fresh clone builds in a clean shell)
@@ -106,7 +136,7 @@ Every motion now publishes a `motion` event (ok / timeout / preempted / FAULT) i
 **Decisions taken**
 - Control path B (13 Oct). URSim control dry run skipped (13 Oct): motion checks on the real arm in free air.
 - Image GUI (dashboard) for demos only; collection uses the image-free operator console or the headless status_console.
-- Action = incremental TCP pose (proposal); wrist depth exported losslessly.
+- Action = absolute probe-tip pose [x, y, z, roll, pitch, yaw] as the published Open-H data (27 Oct; the proposal's incremental pose is kept as `observation.meta.delta_action`); wrist depth exported losslessly.
 - Code licence MIT; repo public.
 
 ## What's left (as of 13 October 2026)

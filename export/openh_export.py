@@ -11,7 +11,9 @@ Embodiment V2"). GR00T-H is out of scope here. Run in the Python 3.12 env with L
 Per step (added to every episode parquet and to meta/info.json):
   action                                 float32[6]  [x, y, z, roll, pitch, yaw]: ABSOLUTE probe-tip pose in the
                                                      base frame (m, extrinsic xyz Euler rad), as the published
-                                                     Open-H ultrasound data; GR00T derives relative actions itself
+                                                     Open-H ultrasound data; GR00T derives relative actions itself.
+                                                     Angles unwrapped per episode and centred on roll = pi
+                                                     (openh_fields.EULER_CENTER): no +-2 pi jumps
   observation.meta.delta_action          float32[6]  [dx, dy, dz, drx, dry, drz]: probe-tip pose delta to the next
                                                      step, rotation vector (proposal eq. 2), --action-frame base|tool
   observation.state                      float32[N]  the converter's joints + TCP, with the TCP re-sampled from the

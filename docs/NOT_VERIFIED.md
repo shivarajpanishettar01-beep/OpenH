@@ -136,7 +136,13 @@ episodes (`pipeline_check.py`). Nothing has run on the UR7e, the real scanner or
 
 ## Export
 - Verified on synthetic episodes (`export/pipeline_check.py`, 13 Oct 2026): bag -> v2.1 -> Open-H fields ->
-  v3.0 -> `LeRobotDataset` reload, actions / frames / depth / labels against ground truth. Real bags: not yet.
+  v3.0 -> `LeRobotDataset` reload, actions / frames / depth / labels against ground truth. Real bags: 5 freedrive
+  episodes from the lab recorder (`~/calib/us_wrist_bag`, 26 Oct; progress.md "Real-hardware pilot") exported and
+  reloaded; not yet bags written by OpenH's episode_manager, and no ground truth for the real ones.
+- Wrist hand-eye on the pilot episodes: assumes the camera bracket did not move between the 19 Oct calibration and
+  the 26 Oct recording (one D415, moved from the TPV mount to the wrist on 19 Oct).
+- Action angles centred on roll = 180 deg (`openh_fields.EULER_CENTER`): matches a probe pointing down; the published
+  reference keeps roll in [-180, 180] with jumps. Confirm Open-H / GR00T accept angles outside [-pi, pi].
 - `rosbags` (bag_to_lerobot, QC) rejects `sensor_msgs/JointState` with empty `velocity` / `effort` (CDR size
   mismatch). robot_state_cpp fills them; check the first real bag with `bag_to_lerobot.py --list-topics` and
   `--dry-run`.

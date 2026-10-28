@@ -29,6 +29,7 @@ git clone ~/OpenH /tmp/clean && cd /tmp/clean && env -i HOME=$HOME USER=$USER PA
 | fresh clone + `scripts/build.sh` in an empty environment | exit 0, 9 packages, 30 s | warnings only: CMake "cannot generate a safe runtime search path" (conda vs system libraries, harmless) |
 | same clone + `scripts/test.sh` | 83 passed (before this audit's additions) | |
 | `scripts/test.sh` (final) | **296 passed**, ~140 s | ROS 2 Humble, 17 Oct, on a random isolated ROS domain (incl. the 16-17 Oct audit fixes, each with a regression test that fails on the previous code; `export/pipeline_check.py run` PASSED, 3 synthetic episodes; 16 Oct: the demo GUI and `test_bag_check`; 15 Oct: the 33 review / operator console tests; the 11 review regression tests each fail on the code before the fix) |
+| `scripts/test.sh` | **325 passed**, ~170 s | 28 Oct, after the action-angle unwrap and wrist calibration import; `export/pipeline_check.py run` PASSED (new check: action angles continuous within each episode) |
 | `pyflakes src export tools` | clean (after removing 6 unused imports) | |
 | `ros2 launch usrig_bringup {robot,micrus,wrist_camera,collect}.launch.py --show-args` | all parse; arguments listed | |
 | `dashboard` offscreen (`QT_QPA_PLATFORM=offscreen`, no topics) | ran 8 s, no exception | |

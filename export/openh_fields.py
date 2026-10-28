@@ -74,11 +74,22 @@ def tip_poses(tcp_xyzq, T_tcp_tip):
     return np.hstack([xyz, continuous_quat(q)])
 
 
+# Where the action's roll / pitch / yaw are centred: a probe pointing down (tool z = -base z) has roll near +-pi.
+EULER_CENTER = np.array([np.pi, 0.0, 0.0])
+
+
 def pose_xyzrpy(xyzq):
-    """[n, 7] -> [n, 6] x, y, z, roll, pitch, yaw: extrinsic xyz Euler, R = Rz(yaw) Ry(pitch) Rx(roll), as the
-    Open-H reference action (angles in [-pi, pi]; roll wraps there for a probe pointing down, as in the reference)."""
+    """[n, 7] (one episode, in time order) -> [n, 6] x, y, z, roll, pitch, yaw: extrinsic xyz Euler,
+    R = Rz(yaw) Ry(pitch) Rx(roll), as the Open-H reference action. A probe pointing down has roll near +-pi, where
+    as_euler flips between +pi and -pi (the published reference keeps those jumps): a policy would read one as a
+    full turn, and episodes on either side of the cut would spread the dataset statistics over 360 deg. So each
+    angle is unwrapped along the episode and the episode is then shifted by whole turns until its mean lies within
+    pi of EULER_CENTER. Every step still encodes the same rotation; roll then lies near pi, not in [-pi, pi]."""
     P = np.asarray(xyzq, float)
-    return np.hstack([P[:, :3], Rotation.from_quat(P[:, 3:7]).as_euler('xyz')])
+    ang = np.unwrap(Rotation.from_quat(P[:, 3:7]).as_euler('xyz'), axis=0)
+    if len(ang):
+        ang -= 2 * np.pi * np.round((ang.mean(axis=0) - EULER_CENTER) / (2 * np.pi))
+    return np.hstack([P[:, :3], ang])
 
 
 def wrench_in_probe_frame(wrench_base, tcp_xyzq, tip_xyzq):
